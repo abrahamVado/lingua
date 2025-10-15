@@ -1,8 +1,0 @@
-{
-  "name": "lingua",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "description": "Lingua module",
-  "main": "dist/index.js"
-}
