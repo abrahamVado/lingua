@@ -97,14 +97,6 @@ drush cr
 
 ## Architecture
 
-<!-- Light/Dark mode SVGs if you add them under docs/ -->
-![Architecture (light)](docs/diagram-light.svg#gh-light-mode-only)
-![Architecture (dark)](docs/diagram-dark.svg#gh-dark-mode-only)
-
-<details>
-  <summary><strong>Mermaid diagram (inline)</strong></summary>
-
-~~~mermaid
 flowchart TD
     A[Drupal Core] --> B[pds_suite Module]
     B --> C{Site Recipes}
@@ -114,8 +106,8 @@ flowchart TD
     C --> C4[Other Investor Experiences]
     B --> D[Menu & Routing Definitions]
     B --> E[Content Type Config]
-~~~
-</details>
+
+
 
 ---
 
