@@ -2,13 +2,13 @@
 > Opinionated module + recipe pack for investor-focused Drupal builds.
 
 <p align="center">
-  <img src="docs/hero.png" width="880" alt="Lingua Toolkit hero">
+
   <br><sub>Enable <code>pds_suite</code>, apply recipes, ship consistent investor experiences.</sub>
 </p>
 
 <div align="center">
 
-[![CI](https://github.com/ORG/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/ORG/REPO/actions/workflows/ci.yml)
+
 [![Coverage](https://img.shields.io/codecov/c/github/ORG/REPO)](https://app.codecov.io/gh/ORG/REPO)
 ![Drupal](https://img.shields.io/badge/Drupal-10.3%2B-0678BE)
 ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4)
@@ -36,10 +36,10 @@
 ---
 
 ## Highlights
-- ⚡️ **Fast onboarding** – enable the base module, run a recipe, and Drupal is seeded with curated investor content models.
-- 🧱 **Composable recipes** – mix-and-match 18 focused `pds_` experiences without duplicating configuration.
-- 🧭 **Governed structure** – consistent menus, view modes, and taxonomy ensure every site launch follows the same playbook.
-- 🛠️ **Dev-friendly** – everything is exportable and CI-ready through Drupal Configuration Management.
+- **Fast onboarding** – enable the base module, run a recipe, and Drupal is seeded with curated investor content models.
+- **Composable recipes** – mix-and-match 18 focused `pds_` experiences without duplicating configuration.
+- **Governed structure** – consistent menus, view modes, and taxonomy ensure every site launch follows the same playbook.
+- **Dev-friendly** – everything is exportable and CI-ready through Drupal Configuration Management.
 
 ---
 
@@ -52,7 +52,7 @@ drush en pds_suite -y
 drush recipes:apply PDS_financial_education -y
 ```
 
-> 🚧 **Heads-up:** Recipes are additive. Apply only what you need.
+> **Heads-up:** Recipes are additive. Apply only what you need.
 
 ---
 
