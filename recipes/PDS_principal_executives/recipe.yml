@@ -1,0 +1,11 @@
+name: 'PDS Principal Executives'
+type: site
+description: 'Enables executive profiles and experts directories with dedicated menus.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - node.type.executives
+      - system.menu.pds_header

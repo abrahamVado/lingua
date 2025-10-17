@@ -1,0 +1,15 @@
+pds_suite.api:
+  path: '/pds-suite/api/content'
+  defaults:
+    _controller: '\\Drupal\\pds_suite\\Controller\\PdsApiController::content'
+    _title: 'PDS Content API'
+  requirements:
+    _permission: 'access content'
+
+pds_suite.settings:
+  path: '/admin/config/pds-suite/settings'
+  defaults:
+    _form: '\\Drupal\\pds_suite\\Form\\PdsSettingsForm'
+    _title: 'PDS Suite settings'
+  requirements:
+    _permission: 'administer site configuration'

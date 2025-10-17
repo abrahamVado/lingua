@@ -1,0 +1,11 @@
+name: 'PDS Financial Education'
+type: site
+description: 'Expands learning-focused resources for new and seasoned investors.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - node.type.financial_education
+      - node.type.ways_to_invest

@@ -1,0 +1,11 @@
+name: 'PDS Map'
+type: site
+description: 'Configures navigation and insights for interactive geographic visualizations.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - system.menu.pds_global
+      - node.type.ways_to_invest

@@ -1,0 +1,11 @@
+name: 'PDS Receive Updates'
+type: site
+description: 'Bootstraps experiences for newsletter signup and retention journeys.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - node.type.insights
+      - node.type.financial_education

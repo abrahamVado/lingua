@@ -1,0 +1,11 @@
+name: 'PDS Video Button'
+type: site
+description: 'Prepares the site for embedded multimedia calls to action.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - system.menu.pds_header
+      - node.type.insights

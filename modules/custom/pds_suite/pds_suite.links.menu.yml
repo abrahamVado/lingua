@@ -1,0 +1,6 @@
+pds_suite.settings_link:
+  title: 'PDS Suite settings'
+  description: 'Configure API keys and global options for the PDS Suite.'
+  route_name: pds_suite.settings
+  parent: system.admin_config_services
+  weight: 0

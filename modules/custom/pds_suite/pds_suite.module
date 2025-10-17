@@ -1,0 +1,21 @@
+<?php
+
+/**
+ * @file
+ * Provides helper hooks for the PDS Suite module.
+ */
+
+use Drupal\Core\StringTranslation\StringTranslationTrait;
+
+/**
+ * Implements hook_help().
+ */
+function pds_suite_help($route_name, \Drupal\Core\Routing\RouteMatchInterface $route_match) {
+  //1.- Provide a concise description for administrators viewing module help.
+  if ($route_name === 'help.page.pds_suite') {
+    //2.- Return translated text describing the module scope.
+    return t('The PDS Suite module bundles custom recipes, content models, menus, and an API for PDS experiences.');
+  }
+  //3.- Return nothing when help is requested elsewhere.
+  return NULL;
+}

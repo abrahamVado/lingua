@@ -1,0 +1,12 @@
+uuid: 906a608c-80cf-469e-b84b-6575961d00c2
+langcode: en
+status: true
+dependencies: { }
+third_party_settings: { }
+name: 'Executives'
+type: executives
+description: 'Profiles for principal executives and experts.'
+help: ''
+new_revision: true
+preview_mode: 1
+display_submitted: false

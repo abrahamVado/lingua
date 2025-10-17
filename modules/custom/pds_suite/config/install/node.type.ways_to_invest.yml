@@ -1,0 +1,12 @@
+uuid: 8c7baca6-07af-4028-84be-a9338bb4a351
+langcode: en
+status: true
+dependencies: { }
+third_party_settings: { }
+name: 'Ways to Invest'
+type: ways_to_invest
+description: 'Audience-focused guides on investment pathways.'
+help: ''
+new_revision: true
+preview_mode: 1
+display_submitted: false
