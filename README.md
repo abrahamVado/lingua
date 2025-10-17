@@ -1,4 +1,29 @@
 # Lingua Drupal Toolkit
+> Opinionated module + recipe pack for investor-focused Drupal builds
+
+<p align="center">
+  <img src="docs/hero.png" width="880" alt="Lingua Toolkit hero">
+  <br><sub>Enable <code>pds_suite</code>, apply recipes, ship consistent investor experiences.</sub>
+</p>
+
+[![CI](https://github.com/ORG/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/ORG/REPO/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/codecov/c/github/ORG/REPO)](https://app.codecov.io/gh/ORG/REPO)
+![Drupal](https://img.shields.io/badge/Drupal-10.3%2B-0678BE)
+![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4)
+![Status](https://img.shields.io/badge/status-active-brightgreen)
+
+**Jump to:** [TL;DR](#tldr) · [What’s inside](#whats-inside) · [Requirements](#requirements) · [Install](#install) · [Recipes](#available-recipes) · [Architecture](#architecture) · [Troubleshooting](#troubleshooting) · [Contributing](#contributing) · [License](#license)
+
+---
+
+## TL;DR
+```bash
+# 1) Enable base module
+drush en pds_suite -y
+
+# 2) Apply a recipe (example)
+drush recipes:apply PDS_financial_education -y
+
 
 Lingua provides a custom Drupal suite that packages the `pds_suite` module together with a collection of site recipes tailored for investor-focused content experiences. The repository is organized to make it easy to enable the module and selectively apply preconfigured content models across different site builds.
 
