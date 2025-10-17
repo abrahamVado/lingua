@@ -16,14 +16,6 @@
 
 ---
 
-## TL;DR
-```bash
-# 1) Enable base module
-drush en pds_suite -y
-
-# 2) Apply a recipe (example)
-drush recipes:apply PDS_financial_education -y
-
 
 Lingua provides a custom Drupal suite that packages the `pds_suite` module together with a collection of site recipes tailored for investor-focused content experiences. The repository is organized to make it easy to enable the module and selectively apply preconfigured content models across different site builds.
 
