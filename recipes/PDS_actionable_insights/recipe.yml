@@ -1,0 +1,11 @@
+name: 'PDS Actionable Insights'
+type: site
+description: 'Focuses on highly curated insight collections for decision makers.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - node.type.insights
+      - node.type.financial_education

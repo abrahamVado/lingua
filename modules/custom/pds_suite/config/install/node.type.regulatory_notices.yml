@@ -1,0 +1,12 @@
+uuid: bf96f7e9-fcb8-40a6-9546-8cb17e2dc0bc
+langcode: en
+status: true
+dependencies: { }
+third_party_settings: { }
+name: 'Regulatory Notices'
+type: regulatory_notices
+description: 'Compliance communications and investor updates.'
+help: ''
+new_revision: true
+preview_mode: 1
+display_submitted: false

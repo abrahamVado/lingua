@@ -1,0 +1,11 @@
+name: 'PDS Latest Insights'
+type: site
+description: 'Surfaces the most recent thought leadership across all verticals.'
+install:
+  modules:
+    - pds_suite
+config:
+  import:
+    pds_suite:
+      - node.type.insights
+      - node.type.investment_strategies

@@ -1,0 +1,12 @@
+uuid: b5d4a701-8fc1-4cc6-a67d-bc8f28a21481
+langcode: en
+status: true
+dependencies: { }
+third_party_settings: { }
+name: 'Financial Education'
+type: financial_education
+description: 'Educational modules designed to increase financial literacy.'
+help: ''
+new_revision: true
+preview_mode: 1
+display_submitted: true
