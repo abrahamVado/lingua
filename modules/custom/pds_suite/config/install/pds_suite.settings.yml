@@ -1,4 +1,0 @@
-api_endpoint: 'https://api.example.com/pds'
-api_key: ''
-secret_token: ''
-enable_logging: false
