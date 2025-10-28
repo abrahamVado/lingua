@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_template\Controller;
 
-use Drupal\Component\Utility\Uuid;
+use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Controller\ControllerBase;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
