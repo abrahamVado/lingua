@@ -1,9 +1,24 @@
 <?php
 
+use Drupal\pds_recipe_template\Service\RowImagePromoter;
+use Drupal\pds_recipe_template\Service\TemplateGroupManager;
+
 /**
  * @file
  * Hooks for pds_recipe_template.
  */
+
+//1.- Guarantee the template group manager class is declared before Drupal
+//    builds the container so the service definition always resolves.
+if (!class_exists(TemplateGroupManager::class)) {
+  require_once __DIR__ . '/src/Service/TemplateGroupManager.php';
+}
+
+//2.- Ensure the row image promoter class is available for the service
+//    container even when Composer's optimized autoloader skips the module.
+if (!class_exists(RowImagePromoter::class)) {
+  require_once __DIR__ . '/src/Service/RowImagePromoter.php';
+}
 
 /**
  * Implements hook_theme().
