@@ -320,7 +320,7 @@ function pds_mxsuite_update_9010(): void {
 /**
  * Ensure legacy template tables are upgraded to the new schema.
  */
-function pds_mxsuite_update_9011(): void {
+function pds_mxsuite_update_9012(): void {
   //1.- Create missing tables first so the schema repairer can safely rebuild them.
   _pds_mxsuite_create_tables();
 
@@ -393,5 +393,26 @@ function pds_mxsuite_update_9011(): void {
   //8.- Flag the absence of the repairer so site owners know manual intervention is required.
   $logger->warning(
     'The pds_recipe_template schema repairer is unavailable. Manually review the pds_template_item table for legacy columns such as link or image_url.'
+  );
+}
+
+/**
+ * Force a clean rebuild of the recipe template tables.
+ */
+function pds_mxsuite_update_9015(): void {
+  //1.- Drop dependent tables first so stale schema fragments never survive the rebuild.
+  $schema = \Drupal::database()->schema();
+  foreach (['pds_template_item', 'pds_template_group'] as $table) {
+    if ($schema->tableExists($table)) {
+      $schema->dropTable($table);
+    }
+  }
+
+  //2.- Recreate the tables from the canonical helper so new installs and updates stay aligned.
+  _pds_mxsuite_create_tables();
+
+  //3.- Log the rebuild outcome so operators can confirm the tables were recreated.
+  \Drupal::logger('pds_mxsuite')->notice(
+    'Rebuilt pds_template_group and pds_template_item via update 9012.'
   );
 }
