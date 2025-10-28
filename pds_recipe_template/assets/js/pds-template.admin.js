@@ -63,6 +63,45 @@
       .replace(/'/g, '&#039;');
   }
 
+  var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+
+  function ensureErrorContainer(root) {
+    //1.- Reuse any existing feedback region so repeated errors do not duplicate markup.
+    var container = root.querySelector('[data-pds-template-error]');
+    if (container) {
+      return container;
+    }
+
+    container = document.createElement('div');
+    container.setAttribute('data-pds-template-error', '1');
+    container.className = 'pds-template-admin__errors';
+    container.setAttribute('role', 'alert');
+    container.style.display = 'none';
+
+    //2.- Place the container at the top of the modal so editors see it immediately.
+    if (root.firstChild) {
+      root.insertBefore(container, root.firstChild);
+    } else {
+      root.appendChild(container);
+    }
+
+    return container;
+  }
+
+  function clearError(root) {
+    //1.- Hide and reset the message area so subsequent saves start clean.
+    var container = ensureErrorContainer(root);
+    container.textContent = '';
+    container.style.display = 'none';
+  }
+
+  function showError(root, message) {
+    //1.- Guarantee the container exists and populate it with the provided feedback.
+    var container = ensureErrorContainer(root);
+    container.textContent = message || 'Unable to save row. Please try again.';
+    container.style.display = '';
+  }
+
   //
   // State helpers
   //
@@ -368,23 +407,18 @@ function clearInputs(root) {
     });
   }
 
-  function persistRowViaAjax(root, row, idx) {
-    //1.- Only brand-new rows need persistence because existing ones already have ids.
-    if (idx >= 0) {
-      return Promise.resolve(row);
-    }
-
+  function createRowViaAjax(root, row) {
     if (!row) {
-      return Promise.resolve(row);
+      return Promise.resolve({ success: false, row: row, message: 'Missing row payload.' });
     }
 
     if (typeof window.fetch !== 'function') {
-      return Promise.resolve(row);
+      return Promise.resolve({ success: true, row: row });
     }
 
     var url = root.getAttribute('data-pds-template-create-row-url');
     if (!url) {
-      return Promise.resolve(row);
+      return Promise.resolve({ success: true, row: row });
     }
 
     var payload = {
@@ -392,7 +426,7 @@ function clearInputs(root) {
       weight: readState(root).length
     };
 
-    //2.- Reuse the recipe type when provided so the backend can scope the group correctly.
+    //1.- Reuse the recipe type when provided so the backend can scope the group correctly.
     var recipeType = root.getAttribute('data-pds-template-recipe-type');
     if (recipeType) {
       payload.recipe_type = recipeType;
@@ -414,10 +448,14 @@ function clearInputs(root) {
       })
       .then(function (json) {
         if (!json || json.status !== 'ok') {
-          return row;
+          return {
+            success: false,
+            row: row,
+            message: json && json.message ? json.message : 'Unable to create row.'
+          };
         }
 
-        //3.- Copy the confirmed identifiers so the local cache stays in sync with DB state.
+        //2.- Copy the confirmed identifiers so the local cache stays in sync with DB state.
         if (typeof json.id === 'number') {
           row.id = json.id;
         }
@@ -428,11 +466,109 @@ function clearInputs(root) {
           row.weight = json.weight;
         }
 
-        return row;
+        return { success: true, row: row };
       })
       .catch(function () {
-        return row;
+        return {
+          success: false,
+          row: row,
+          message: 'Unable to create row. Please try again.'
+        };
       });
+  }
+
+  function updateRowViaAjax(root, row, idx) {
+    if (!row || !row.uuid) {
+      return Promise.resolve({ success: false, row: row, message: 'Missing row identifier.' });
+    }
+
+    if (typeof window.fetch !== 'function') {
+      return Promise.resolve({ success: true, row: row });
+    }
+
+    var template = root.getAttribute('data-pds-template-update-row-url');
+    if (!template) {
+      return Promise.resolve({ success: true, row: row });
+    }
+
+    var url = template;
+    if (url.indexOf(UPDATE_PLACEHOLDER) !== -1) {
+      url = url.replace(UPDATE_PLACEHOLDER, row.uuid);
+    } else {
+      url = url.replace(/\/$/, '') + '/' + row.uuid;
+    }
+
+    //1.- Carry both the row data and the effective weight so the backend can persist ordering.
+    var payload = { row: row };
+    if (typeof idx === 'number' && idx >= 0) {
+      payload.weight = idx;
+    } else if (typeof row.weight === 'number') {
+      payload.weight = row.weight;
+    }
+
+    var recipeType = root.getAttribute('data-pds-template-recipe-type');
+    if (recipeType) {
+      payload.recipe_type = recipeType;
+    }
+
+    return fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error('Request failed');
+        }
+        return response.json();
+      })
+      .then(function (json) {
+        if (!json || json.status !== 'ok') {
+          return {
+            success: false,
+            row: row,
+            message: json && json.message ? json.message : 'Unable to update row.'
+          };
+        }
+
+        //2.- Clone the row before merging so we never mutate the original reference mid-flight.
+        var finalRow = Object.assign({}, row);
+
+        if (typeof json.id === 'number') {
+          finalRow.id = json.id;
+        }
+        if (json.uuid) {
+          finalRow.uuid = json.uuid;
+        }
+        if (typeof json.weight === 'number') {
+          finalRow.weight = json.weight;
+        }
+        if (json.row && typeof json.row === 'object') {
+          finalRow = Object.assign(finalRow, json.row);
+        }
+
+        //3.- Confirm the optimistic state update by returning the sanitized payload to callers.
+        return { success: true, row: finalRow };
+      })
+      .catch(function () {
+        return {
+          success: false,
+          row: row,
+          message: 'Unable to update row. Please try again.'
+        };
+      });
+  }
+
+  function persistRowViaAjax(root, row, idx) {
+    //1.- Route brand-new rows through the create endpoint and edits through the update endpoint.
+    if (idx >= 0) {
+      return updateRowViaAjax(root, row, idx);
+    }
+
+    return createRowViaAjax(root, row);
   }
 
   //
@@ -579,11 +715,23 @@ function clearInputs(root) {
       return Promise.resolve(false);
     }
 
+    clearError(root);
+
+    var latestResolvedRow = null;
+
     return resolveRowViaAjax(root, newRow)
       .then(function (resolvedRow) {
+        latestResolvedRow = resolvedRow;
         return persistRowViaAjax(root, resolvedRow, idx);
       })
-      .then(function (finalRow) {
+      .then(function (result) {
+        if (!result || !result.success) {
+          var message = result && result.message ? result.message : 'Unable to save row. Please try again.';
+          showError(root, message);
+          return false;
+        }
+
+        var finalRow = result.row || latestResolvedRow;
         var currentRows = readState(root);
         if (idx >= 0 && idx < currentRows.length) {
           currentRows[idx] = finalRow;
@@ -610,6 +758,11 @@ function clearInputs(root) {
         activateTab(root, 'panel-b');
 
         return true;
+      })
+      .catch(function () {
+        //5.- Surface unexpected failures so editors can retry without leaving the modal.
+        showError(root, 'Unable to save row. Please try again.');
+        return false;
       });
   }
 

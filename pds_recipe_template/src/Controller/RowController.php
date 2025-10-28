@@ -26,6 +26,7 @@ final class RowController extends ControllerBase {
       $payload = [];
     }
 
+    //2.- Accept optional type from query string or payload so multi-recipe setups reuse the endpoint.
     $type = $request->query->get('type');
     if (!is_string($type) || $type === '') {
       if (isset($payload['recipe_type']) && is_string($payload['recipe_type']) && $payload['recipe_type'] !== '') {
@@ -36,6 +37,7 @@ final class RowController extends ControllerBase {
       }
     }
 
+    //3.- Pull the row array from the request and require the same minimum fields as creation.
     $row = isset($payload['row']) && is_array($payload['row']) ? $payload['row'] : [];
 
     $header = isset($row['header']) && is_string($row['header']) ? trim($row['header']) : '';
@@ -72,6 +74,7 @@ final class RowController extends ControllerBase {
     }
 
     try {
+      //4.- Resolve the numeric group id so we can assert ownership before updating anything.
       $group_manager = \Drupal::service('pds_recipe_template.group_manager');
       $group_id = $group_manager->ensureGroupAndGetId($uuid, $type);
       if (!$group_id) {
@@ -133,6 +136,153 @@ final class RowController extends ControllerBase {
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to create row.',
+      ], 500);
+    }
+  }
+
+  public function update(Request $request, string $uuid, string $row_uuid): JsonResponse {
+    //1.- Validate both UUIDs so we never touch the database with malformed identifiers.
+    if (!Uuid::isValid($uuid) || !Uuid::isValid($row_uuid)) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Invalid UUID.',
+      ], 400);
+    }
+
+    $payload = json_decode($request->getContent() ?: '[]', TRUE);
+    if (!is_array($payload)) {
+      $payload = [];
+    }
+
+    $type = $request->query->get('type');
+    if (!is_string($type) || $type === '') {
+      if (isset($payload['recipe_type']) && is_string($payload['recipe_type']) && $payload['recipe_type'] !== '') {
+        $type = $payload['recipe_type'];
+      }
+      else {
+        $type = 'pds_recipe_template';
+      }
+    }
+
+    $row = isset($payload['row']) && is_array($payload['row']) ? $payload['row'] : [];
+
+    $header = isset($row['header']) && is_string($row['header']) ? trim($row['header']) : '';
+    if ($header === '') {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Missing header.',
+      ], 400);
+    }
+
+    $subheader = isset($row['subheader']) && is_string($row['subheader']) ? $row['subheader'] : '';
+    $description = isset($row['description']) && is_string($row['description']) ? $row['description'] : '';
+    $link = isset($row['link']) && is_string($row['link']) ? $row['link'] : '';
+    $desktop_img = isset($row['desktop_img']) && is_string($row['desktop_img']) ? $row['desktop_img'] : '';
+    $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
+
+    $latitud = NULL;
+    if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
+      $latitud = $row['latitud'] === NULL ? NULL : (float) $row['latitud'];
+    }
+
+    $longitud = NULL;
+    if (array_key_exists('longitud', $row) && ($row['longitud'] === NULL || is_numeric($row['longitud']))) {
+      $longitud = $row['longitud'] === NULL ? NULL : (float) $row['longitud'];
+    }
+
+    $weight = NULL;
+    if (isset($payload['weight']) && is_numeric($payload['weight'])) {
+      $weight = (int) $payload['weight'];
+    }
+    elseif (isset($row['weight']) && is_numeric($row['weight'])) {
+      $weight = (int) $row['weight'];
+    }
+
+    try {
+      $group_manager = \Drupal::service('pds_recipe_template.group_manager');
+      $group_id = $group_manager->ensureGroupAndGetId($uuid, $type);
+      if (!$group_id) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Unable to resolve group.',
+        ], 500);
+      }
+
+      $connection = \Drupal::database();
+
+      $existing = $connection->select('pds_template_item', 'i')
+        ->fields('i', ['id', 'group_id', 'weight'])
+        ->condition('i.uuid', $row_uuid)
+        ->condition('i.deleted_at', NULL, 'IS NULL')
+        ->execute()
+        ->fetchAssoc();
+
+      if (!$existing) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Row not found.',
+        ], 404);
+      }
+
+      if ((int) $existing['group_id'] !== (int) $group_id) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Row does not belong to this block.',
+        ], 403);
+      }
+
+      //5.- Build the sanitized update payload while preserving numeric and nullable columns.
+      $fields = [
+        'header' => $header,
+        'subheader' => $subheader,
+        'description' => $description,
+        'url' => $link,
+        'desktop_img' => $desktop_img,
+        'mobile_img' => $mobile_img,
+        'latitud' => $latitud,
+        'longitud' => $longitud,
+      ];
+
+      if ($weight !== NULL) {
+        $fields['weight'] = $weight;
+      }
+
+      $connection->update('pds_template_item')
+        ->fields($fields)
+        ->condition('uuid', $row_uuid)
+        ->execute();
+
+      //6.- Echo the stored values back so the caller can refresh its cached state accurately.
+      $response_row = [
+        'header' => $fields['header'],
+        'subheader' => $fields['subheader'],
+        'description' => $fields['description'],
+        'link' => $fields['url'],
+        'desktop_img' => $fields['desktop_img'],
+        'mobile_img' => $fields['mobile_img'],
+        'latitud' => $fields['latitud'],
+        'longitud' => $fields['longitud'],
+      ];
+
+      if (array_key_exists('weight', $fields)) {
+        $response_row['weight'] = $fields['weight'];
+      }
+      elseif (isset($existing['weight'])) {
+        $response_row['weight'] = (int) $existing['weight'];
+      }
+
+      return new JsonResponse([
+        'status' => 'ok',
+        'id' => (int) $existing['id'],
+        'uuid' => $row_uuid,
+        'weight' => $response_row['weight'] ?? NULL,
+        'row' => $response_row,
+      ]);
+    }
+    catch (Throwable $throwable) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Unable to update row.',
       ], 500);
     }
   }
