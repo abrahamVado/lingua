@@ -9,8 +9,9 @@
  * Implements hook_schema().
  */
 function pds_recipe_template_schema() {
-  $schema['pds_template_item'] = [
-    'description' => 'Rows for PDS Template block cards.',
+  //1.- Describe the master table that tracks each block instance across renders.
+  $schema['pds_template_group'] = [
+    'description' => 'Logical group of template items (one rendered component instance).',
     'fields' => [
       'id' => [
         'type' => 'serial',
@@ -21,11 +22,49 @@ function pds_recipe_template_schema() {
         'length' => 128,
         'not null' => TRUE,
       ],
-      'block_uuid' => [
+      'type' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'created_at' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'deleted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'uuid' => ['uuid'],
+    ],
+    'indexes' => [
+      'type' => ['type'],
+      'deleted_at' => ['deleted_at'],
+    ],
+  ];
+
+  //2.- Describe the child table that stores individual cards tied to a master group.
+  $schema['pds_template_item'] = [
+    'description' => 'Items/cards that belong to a template group.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'uuid' => [
         'type' => 'varchar',
         'length' => 128,
         'not null' => TRUE,
-        'default' => '',
+      ],
+      'group_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
       ],
       'weight' => [
         'type' => 'int',
@@ -49,22 +88,40 @@ function pds_recipe_template_schema() {
         'size' => 'big',
         'not null' => FALSE,
       ],
-      'link' => [
+      'url' => [
         'type' => 'varchar',
         'length' => 512,
         'not null' => TRUE,
         'default' => '',
       ],
-      'image_fid' => [
+      'desktop_img' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'mobile_img' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'latitud' => [
+        'type' => 'float',
+        'not null' => FALSE,
+      ],
+      'longitud' => [
+        'type' => 'float',
+        'not null' => FALSE,
+      ],
+      'created_at' => [
         'type' => 'int',
         'not null' => TRUE,
         'default' => 0,
       ],
-      'image_url' => [
-        'type' => 'varchar',
-        'length' => 512,
-        'not null' => TRUE,
-        'default' => '',
+      'deleted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
       ],
     ],
     'primary key' => ['id'],
@@ -72,10 +129,108 @@ function pds_recipe_template_schema() {
       'uuid' => ['uuid'],
     ],
     'indexes' => [
-      'block_uuid' => ['block_uuid'],
+      'group_id' => ['group_id'],
       'weight' => ['weight'],
+      'deleted_at' => ['deleted_at'],
     ],
   ];
 
   return $schema;
+}
+
+/**
+ * Bring legacy block_uuid based storage in line with group-based tables.
+ */
+function pds_recipe_template_update_9001(): void {
+  //1.- Reuse the canonical schema definitions so installs and updates stay aligned.
+  $schema_definition = pds_recipe_template_schema();
+  $connection = \Drupal::database();
+  $schema = $connection->schema();
+
+  //2.- Provision the master table before migrating item rows.
+  if (!$schema->tableExists('pds_template_group')) {
+    $schema->createTable('pds_template_group', $schema_definition['pds_template_group']);
+  }
+
+  //3.- Create the new item table outright when none exists yet.
+  if (!$schema->tableExists('pds_template_item')) {
+    $schema->createTable('pds_template_item', $schema_definition['pds_template_item']);
+    return;
+  }
+
+  //4.- Abort early when deployments already expose the group-aware schema.
+  if ($schema->fieldExists('pds_template_item', 'group_id')) {
+    return;
+  }
+
+  $legacy_table = 'pds_template_item_legacy';
+
+  //5.- Clean up stale leftovers from partial updates before renaming the table.
+  if ($schema->tableExists($legacy_table)) {
+    $schema->dropTable($legacy_table);
+  }
+
+  $schema->renameTable('pds_template_item', $legacy_table);
+
+  //6.- Create the refreshed structure that stores group ids, media URLs and timestamps.
+  $schema->createTable('pds_template_item', $schema_definition['pds_template_item']);
+
+  $select = $connection->select($legacy_table, 'legacy')
+    ->fields('legacy');
+
+  $result = $select->execute();
+  $time_service = \Drupal::time();
+  $now = $time_service->getRequestTime();
+
+  foreach ($result as $record) {
+    $block_uuid = trim((string) $record->block_uuid);
+    $header = trim((string) $record->header);
+
+    if ($block_uuid === '' || $header === '') {
+      continue;
+    }
+
+    //7.- Create or reuse the matching master record for this legacy block UUID.
+    $group_id = \pds_recipe_template_ensure_group_and_get_id($block_uuid, 'pds_recipe_template');
+    if (!$group_id) {
+      continue;
+    }
+
+    $stored_uuid = (string) $record->uuid;
+    if (!\Drupal\Component\Uuid\Uuid::isValid($stored_uuid)) {
+      $stored_uuid = \Drupal::service('uuid')->generate();
+    }
+
+    $image_url = trim((string) $record->image_url);
+    $desktop_img = $image_url;
+    $mobile_img = $image_url;
+
+    try {
+      //8.- Persist the migrated row using the new schema contract.
+      $connection->insert('pds_template_item')
+        ->fields([
+          'uuid' => $stored_uuid,
+          'group_id' => (int) $group_id,
+          'weight' => (int) $record->weight,
+          'header' => $header,
+          'subheader' => (string) $record->subheader,
+          'description' => (string) $record->description,
+          'url' => (string) $record->link,
+          'desktop_img' => $desktop_img,
+          'mobile_img' => $mobile_img,
+          'latitud' => NULL,
+          'longitud' => NULL,
+          'created_at' => $now,
+          'deleted_at' => NULL,
+        ])
+        ->execute();
+    }
+    catch (\Throwable) {
+      //9.- Skip problematic rows but keep iterating so other records migrate.
+      continue;
+    }
+  }
+
+  //10.- Drop the legacy table once migration is complete to avoid stale state.
+  $schema->dropTable($legacy_table);
 }

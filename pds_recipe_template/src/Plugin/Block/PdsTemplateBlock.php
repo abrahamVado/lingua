@@ -115,6 +115,13 @@ final class PdsTemplateBlock extends BlockBase {
 
       $rows = [];
       foreach ($result as $record) {
+        //1.- Prefer the stored desktop asset when generating the preview image URL.
+        $primary_image = (string) $record->desktop_img;
+        if ($primary_image === '') {
+          //2.- Fall back to the mobile slot so legacy rows still expose an image URL.
+          $primary_image = (string) $record->mobile_img;
+        }
+
         $rows[] = [
           'header'      => $record->header,
           'subheader'   => $record->subheader,
@@ -122,6 +129,7 @@ final class PdsTemplateBlock extends BlockBase {
           'link'        => $record->url,
           'desktop_img' => $record->desktop_img,
           'mobile_img'  => $record->mobile_img,
+          'image_url'   => $primary_image,
           'latitud'     => $record->latitud,
           'longitud'    => $record->longitud,
         ];
