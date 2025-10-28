@@ -307,6 +307,7 @@ final class RowController extends ControllerBase {
     $link = isset($row['link']) && is_string($row['link']) ? $row['link'] : '';
     $desktop_img = isset($row['desktop_img']) && is_string($row['desktop_img']) ? $row['desktop_img'] : '';
     $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
+    $image_url = isset($row['image_url']) && is_string($row['image_url']) ? $row['image_url'] : '';
 
     $latitud = NULL;
     if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
@@ -358,6 +359,7 @@ final class RowController extends ControllerBase {
         ], 403);
       }
 
+      //4.- Pass the sanitized URLs to the promoter so it can reuse them when no fid exists.
       $row['desktop_img'] = $desktop_img;
       $row['mobile_img'] = $mobile_img;
       $row['image_url'] = $image_url;
