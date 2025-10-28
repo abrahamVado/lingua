@@ -13,6 +13,24 @@ use Drupal\Core\Form\SubformStateInterface;
 trait PdsTemplateBlockStateTrait {
 
   /**
+   * Locate a nested value in the form state across multiple parent paths.
+   */
+  private function extractNestedFormValue(FormStateInterface $form_state, array $candidate_parents, $default = NULL) {
+    //1.- Evaluate every provided parent combination so Layout Builder subforms resolve the payload.
+    foreach ($candidate_parents as $parents) {
+      $normalized_parents = is_array($parents) ? $parents : [$parents];
+      $value = $form_state->getValue($normalized_parents);
+      if ($value !== NULL) {
+        //2.- Return the first non-null match to honor the value closest to the triggering element.
+        return $value;
+      }
+    }
+
+    //3.- Fall back to the supplied default when none of the candidate paths produced a value.
+    return $default;
+  }
+
+  /**
    * Stash working_items in form_state for modal reuse.
    */
   private function setWorkingItems(FormStateInterface $form_state, array $items): void {
