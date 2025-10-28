@@ -550,15 +550,23 @@ final class PdsTemplateBlock extends BlockBase {
    * 4. Persist snapshot to config.
    */
   public function blockSubmit($form, FormStateInterface $form_state): void {
-    $raw_json = $form_state->getValue([
-      'pds_template_admin',
-      'cards_state',
-    ]);
+    $raw_json = $this->extractNestedFormValue($form_state, [
+      //1.- Target the direct container path first because most saves happen there.
+      ['pds_template_admin', 'cards_state'],
+      //2.- Check the Layout Builder parent wrapper when the subform prefixes values with settings.
+      ['settings', 'pds_template_admin', 'cards_state'],
+      //3.- Fall back to a flat lookup so legacy builders still return the payload.
+      ['cards_state'],
+    ], '');
 
     $group_id = NULL;
-    $raw_group = $form_state->getValue([
-      'pds_template_admin',
-      'group_id',
+    $raw_group = $this->extractNestedFormValue($form_state, [
+      //1.- Prefer the nested hidden value supplied by the admin container.
+      ['pds_template_admin', 'group_id'],
+      //2.- Support Layout Builder's prefixed structure when the plugin lives inside settings.
+      ['settings', 'pds_template_admin', 'group_id'],
+      //3.- Accept a flat key as a last resort so other embedders can reuse the block form.
+      ['group_id'],
     ]);
     if (is_scalar($raw_group) && $raw_group !== '') {
       //1.- Prefer the hidden field payload so the exact id from JS persists.
