@@ -1,7 +1,7 @@
 pds_recipe_template.ensure_group:
   path: '/pds-template/ensure-group/{uuid}'
   defaults:
-    _controller: '\Drupal\\pds_recipe_template\\Controller\\GroupController::ensureGroup'
+    _controller: '\Drupal\pds_recipe_template\Controller\GroupController::ensureGroup'
     _title: 'Ensure PDS Template group'
   requirements:
     _permission: 'administer blocks'
@@ -11,7 +11,7 @@ pds_recipe_template.ensure_group:
 pds_recipe_template.resolve_row:
   path: '/pds-template/resolve-row/{uuid}'
   defaults:
-    _controller: '\Drupal\\pds_recipe_template\\Plugin\\Block\\PdsTemplateBlock::ajaxResolveRow'
+    _controller: '\Drupal\pds_recipe_template\Plugin\Block\PdsTemplateBlock::ajaxResolveRow'
     _title: 'Resolve PDS Template row'
   requirements:
     _permission: 'administer blocks'
