@@ -1,0 +1,9 @@
+pds_recipe_template.ensure_group:
+  path: '/pds-template/ensure-group/{uuid}'
+  defaults:
+    _controller: '\Drupal\\pds_recipe_template\\Controller\\GroupController::ensureGroup'
+    _title: 'Ensure PDS Template group'
+  requirements:
+    _permission: 'administer blocks'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['POST']

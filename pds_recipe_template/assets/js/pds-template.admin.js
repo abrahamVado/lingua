@@ -118,6 +118,69 @@
     }
   }
 
+  function applyGroupIdToDom(root, groupId) {
+    //1.- Persist the resolved id on the root wrapper for quick subsequent checks.
+    if (!groupId && groupId !== 0) {
+      return;
+    }
+    root.setAttribute('data-pds-template-group-id', String(groupId));
+    root._pdsTemplateGroupId = groupId;
+
+    //2.- Mirror the value into the hidden field so Drupal receives it on submit.
+    var hidden = findField(root, {
+      ds: 'pds-template-group-id',
+      id: 'pds-template-group-id',
+      nameEnd: '[group_id]'
+    });
+    if (hidden) {
+      hidden.value = String(groupId);
+    }
+  }
+
+  function ensureGroupExists(root) {
+    //1.- Abort when fetch is unavailable or the backend endpoint was not provided.
+    if (typeof window.fetch !== 'function') {
+      return Promise.resolve(null);
+    }
+
+    var url = root.getAttribute('data-pds-template-ensure-group-url');
+    if (!url) {
+      return Promise.resolve(null);
+    }
+
+    //2.- Skip duplicate requests once a successful confirmation already ran.
+    if (root._pdsGroupEnsured) {
+      return Promise.resolve(root._pdsTemplateGroupId || null);
+    }
+
+    //3.- Perform the POST call so the group record is guaranteed before saving.
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({})
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error('Request failed');
+        }
+        return response.json();
+      })
+      .then(function (json) {
+        if (json && typeof json.group_id === 'number') {
+          applyGroupIdToDom(root, json.group_id);
+          root._pdsGroupEnsured = true;
+          return json.group_id;
+        }
+        return null;
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
   function getImageFid(root) {
     // Wrapper from managed_file. Drupal mutates the id so we match prefix.
     var wrapper = root.querySelector('#pds-template-image,[id^="pds-template-image"],[data-drupal-selector$="image"]');
@@ -372,6 +435,18 @@ function commitRow(root) {
   // Refresh preview table and show Tab B.
   renderPreviewTable(root);
   activateTab(root, 'panel-b');
+}
+
+function handleAddOrUpdateRow(root) {
+  //1.- Capture counts before and after so we know when the first row arrives.
+  var beforeCount = readState(root).length;
+  commitRow(root);
+  var afterCount = readState(root).length;
+
+  if (beforeCount === 0 && afterCount > 0) {
+    //2.- As soon as the first row exists we ask the backend to ensure the group.
+    ensureGroupExists(root);
+  }
 }
 
 
@@ -652,6 +727,15 @@ function rebuildManagedFileEmpty(root) {
         //1.- Snapshot the pristine managed file widget so we can fully reset it after commits.
         initFileWidgetTemplate(root);
 
+        //2.- Cache any precomputed group id exposed by PHP so fetch handler can reuse it.
+        var existingGroupIdAttr = root.getAttribute('data-pds-template-group-id');
+        if (existingGroupIdAttr) {
+          var parsedExistingId = parseInt(existingGroupIdAttr, 10);
+          if (!isNaN(parsedExistingId)) {
+            root._pdsTemplateGroupId = parsedExistingId;
+          }
+        }
+
         // Add row / Save changes button.
         // Accept <a ... data-drupal-selector="pds-template-add-card"> or <div ... same attrs>.
         var addBtn =
@@ -662,14 +746,14 @@ function rebuildManagedFileEmpty(root) {
           addBtn.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
-            commitRow(root);
+            handleAddOrUpdateRow(root);
           });
           // keyboard support for div/span with role="button"
           addBtn.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               e.stopPropagation();
-              commitRow(root);
+              handleAddOrUpdateRow(root);
             }
           });
         }
