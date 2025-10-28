@@ -271,18 +271,39 @@ function pds_mxsuite_update_9011(): void {
   if (\Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
     $repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
   }
-  elseif (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
-    //3.- Instantiate the repairer manually when the module service container is unavailable during updates.
-    $repairer = new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
-      \Drupal::database(),
-      \Drupal::service('datetime.time'),
-      \Drupal::service('uuid'),
-      \Drupal::service('logger.factory')
-    );
+  else {
+    //3.- Attempt to include the repairer class explicitly when the module is disabled during database updates.
+    if (!class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+      try {
+        //4.- Resolve the module path dynamically so the installer works in any docroot layout.
+        $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+        if (is_string($module_path) && $module_path !== '') {
+          $legacy_repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
+          if (is_readable($legacy_repairer_path)) {
+            require_once $legacy_repairer_path;
+          }
+        }
+      }
+      catch (\Throwable $throwable) {
+        $logger->error('Unable to include schema repairer during update 9011: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+    }
+
+    if (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+      //5.- Instantiate the repairer manually when the module service container is unavailable during updates.
+      $repairer = new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+        \Drupal::database(),
+        \Drupal::service('datetime.time'),
+        \Drupal::service('uuid'),
+        \Drupal::service('logger.factory')
+      );
+    }
   }
 
   if ($repairer) {
-    //4.- Stop early when the repairer reports success so the deployment log highlights the completed check.
+    //6.- Stop early when the repairer reports success so the deployment log highlights the completed check.
     if ($repairer->ensureItemTableUpToDate()) {
       $logger->notice(
         'Verified pds_template_item schema after installing the consolidated update.'
@@ -290,14 +311,14 @@ function pds_mxsuite_update_9011(): void {
       return;
     }
 
-    //5.- Warn administrators when the rebuild fails so they can inspect dblog for details.
+    //7.- Warn administrators when the rebuild fails so they can inspect dblog for details.
     $logger->warning(
       'Unable to refresh the pds_template_item schema automatically. Check recent log messages for the exact cause.'
     );
     return;
   }
 
-  //6.- Flag the absence of the repairer so site owners know manual intervention is required.
+  //8.- Flag the absence of the repairer so site owners know manual intervention is required.
   $logger->warning(
     'The pds_recipe_template schema repairer is unavailable. Manually review the pds_template_item table for legacy columns such as link or image_url.'
   );
