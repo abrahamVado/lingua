@@ -54,42 +54,18 @@ final class PdsTemplateBlock extends BlockBase {
    * Return that row's numeric id (group_id).
    */
   private function ensureGroupAndGetId(): int {
-    $connection = \Drupal::database();
     $uuid = $this->getBlockInstanceUuid();
     $type = $this->configuration['recipe_type'] ?? 'pds_recipe_template';
-    $now = \Drupal::time()->getRequestTime();
 
-    // Try existing active group row.
-    $existing_id = $connection->select('pds_template_group', 'g')
-      ->fields('g', ['id'])
-      ->condition('g.uuid', $uuid)
-      ->condition('g.deleted_at', NULL, 'IS NULL')
-      ->execute()
-      ->fetchField();
+    //1.- Delegate the persistence work to the shared service so controllers reuse it too.
+    $group_id = \Drupal::service('pds_recipe_template.group_manager')
+      ->ensureGroupAndGetId($uuid, $type);
 
-    if ($existing_id) {
-      return (int) $existing_id;
+    if (!$group_id) {
+      return 0;
     }
 
-    // Insert new group.
-    $connection->insert('pds_template_group')
-      ->fields([
-        'uuid' => $uuid,
-        'type' => $type,
-        'created_at' => $now,
-        'deleted_at' => NULL,
-      ])
-      ->execute();
-
-    // Fetch new id.
-    $new_id = $connection->select('pds_template_group', 'g')
-      ->fields('g', ['id'])
-      ->condition('g.uuid', $uuid)
-      ->condition('g.deleted_at', NULL, 'IS NULL')
-      ->execute()
-      ->fetchField();
-
-    return (int) $new_id;
+    return (int) $group_id;
   }
 
   /**
@@ -265,6 +241,14 @@ final class PdsTemplateBlock extends BlockBase {
         'absolute' => TRUE,
       ],
     )->toString();
+    $create_row_url = Url::fromRoute(
+      'pds_recipe_template.create_row',
+      ['uuid' => $block_uuid],
+      [
+        'absolute' => TRUE,
+        'query' => ['type' => $recipe_type],
+      ],
+    )->toString();
 
     $form['pds_template_admin'] = [
       '#type' => 'container',
@@ -276,6 +260,7 @@ final class PdsTemplateBlock extends BlockBase {
         //5.- Expose AJAX endpoint and identifiers so JS can ensure persistence on add.
         'data-pds-template-ensure-group-url' => $ensure_group_url,
         'data-pds-template-resolve-row-url' => $resolve_row_url,
+        'data-pds-template-create-row-url' => $create_row_url,
         'data-pds-template-group-id' => (string) $group_id,
         'data-pds-template-block-uuid' => $block_uuid,
         'data-pds-template-recipe-type' => $recipe_type,

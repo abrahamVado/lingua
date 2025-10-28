@@ -1,0 +1,140 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Drupal\pds_recipe_template\Controller;
+
+use Drupal\Component\Uuid\Uuid;
+use Drupal\Core\Controller\ControllerBase;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Throwable;
+
+final class RowController extends ControllerBase {
+
+  public function create(Request $request, string $uuid): JsonResponse {
+    //1.- Validate UUID upfront so we never attempt inserts with malformed identifiers.
+    if (!Uuid::isValid($uuid)) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Invalid UUID.',
+      ], 400);
+    }
+
+    $payload = json_decode($request->getContent() ?: '[]', TRUE);
+    if (!is_array($payload)) {
+      $payload = [];
+    }
+
+    $type = $request->query->get('type');
+    if (!is_string($type) || $type === '') {
+      if (isset($payload['recipe_type']) && is_string($payload['recipe_type']) && $payload['recipe_type'] !== '') {
+        $type = $payload['recipe_type'];
+      }
+      else {
+        $type = 'pds_recipe_template';
+      }
+    }
+
+    $row = isset($payload['row']) && is_array($payload['row']) ? $payload['row'] : [];
+
+    $header = isset($row['header']) && is_string($row['header']) ? trim($row['header']) : '';
+    if ($header === '') {
+      //2.- Require a header because the UI treats it as the minimal amount of data.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Missing header.',
+      ], 400);
+    }
+
+    $subheader = isset($row['subheader']) && is_string($row['subheader']) ? $row['subheader'] : '';
+    $description = isset($row['description']) && is_string($row['description']) ? $row['description'] : '';
+    $link = isset($row['link']) && is_string($row['link']) ? $row['link'] : '';
+    $desktop_img = isset($row['desktop_img']) && is_string($row['desktop_img']) ? $row['desktop_img'] : '';
+    $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
+
+    $latitud = NULL;
+    if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
+      $latitud = $row['latitud'] === NULL ? NULL : (float) $row['latitud'];
+    }
+
+    $longitud = NULL;
+    if (array_key_exists('longitud', $row) && ($row['longitud'] === NULL || is_numeric($row['longitud']))) {
+      $longitud = $row['longitud'] === NULL ? NULL : (float) $row['longitud'];
+    }
+
+    $weight = NULL;
+    if (isset($payload['weight']) && is_numeric($payload['weight'])) {
+      $weight = (int) $payload['weight'];
+    }
+    elseif (isset($row['weight']) && is_numeric($row['weight'])) {
+      $weight = (int) $row['weight'];
+    }
+
+    try {
+      $group_manager = \Drupal::service('pds_recipe_template.group_manager');
+      $group_id = $group_manager->ensureGroupAndGetId($uuid, $type);
+      if (!$group_id) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Unable to resolve group.',
+        ], 500);
+      }
+
+      $connection = \Drupal::database();
+      $now = \Drupal::time()->getRequestTime();
+
+      if ($weight === NULL) {
+        //3.- When the caller omits weight we append to the end by using max + 1.
+        $max_weight = $connection->select('pds_template_item', 'i')
+          ->fields('i', ['weight'])
+          ->condition('i.group_id', $group_id)
+          ->condition('i.deleted_at', NULL, 'IS NULL')
+          ->orderBy('i.weight', 'DESC')
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+        $weight = $max_weight ? ((int) $max_weight + 1) : 0;
+      }
+
+      $row_uuid = isset($row['uuid']) && is_string($row['uuid']) && Uuid::isValid($row['uuid'])
+        ? $row['uuid']
+        : \Drupal::service('uuid')->generate();
+
+      //4.- Insert the brand-new database record and capture the assigned identifier.
+      $insert_id = $connection->insert('pds_template_item')
+        ->fields([
+          'uuid' => $row_uuid,
+          'group_id' => (int) $group_id,
+          'weight' => $weight,
+          'header' => $header,
+          'subheader' => $subheader,
+          'description' => $description,
+          'url' => $link,
+          'desktop_img' => $desktop_img,
+          'mobile_img' => $mobile_img,
+          'latitud' => $latitud,
+          'longitud' => $longitud,
+          'created_at' => $now,
+          'deleted_at' => NULL,
+        ])
+        ->execute();
+
+      //5.- Confirm success so the client can store the stable identifiers locally.
+      return new JsonResponse([
+        'status' => 'ok',
+        'id' => (int) $insert_id,
+        'uuid' => $row_uuid,
+        'weight' => $weight,
+      ]);
+    }
+    catch (Throwable $throwable) {
+      //6.- Shield the UI from low-level errors by returning a clear failure response.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Unable to create row.',
+      ], 500);
+    }
+  }
+
+}

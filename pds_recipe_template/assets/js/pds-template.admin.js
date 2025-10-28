@@ -368,6 +368,73 @@ function clearInputs(root) {
     });
   }
 
+  function persistRowViaAjax(root, row, idx) {
+    //1.- Only brand-new rows need persistence because existing ones already have ids.
+    if (idx >= 0) {
+      return Promise.resolve(row);
+    }
+
+    if (!row) {
+      return Promise.resolve(row);
+    }
+
+    if (typeof window.fetch !== 'function') {
+      return Promise.resolve(row);
+    }
+
+    var url = root.getAttribute('data-pds-template-create-row-url');
+    if (!url) {
+      return Promise.resolve(row);
+    }
+
+    var payload = {
+      row: row,
+      weight: readState(root).length
+    };
+
+    //2.- Reuse the recipe type when provided so the backend can scope the group correctly.
+    var recipeType = root.getAttribute('data-pds-template-recipe-type');
+    if (recipeType) {
+      payload.recipe_type = recipeType;
+    }
+
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error('Request failed');
+        }
+        return response.json();
+      })
+      .then(function (json) {
+        if (!json || json.status !== 'ok') {
+          return row;
+        }
+
+        //3.- Copy the confirmed identifiers so the local cache stays in sync with DB state.
+        if (typeof json.id === 'number') {
+          row.id = json.id;
+        }
+        if (json.uuid) {
+          row.uuid = json.uuid;
+        }
+        if (typeof json.weight === 'number') {
+          row.weight = json.weight;
+        }
+
+        return row;
+      })
+      .catch(function () {
+        return row;
+      });
+  }
+
   //
   // Preview table
   //
@@ -501,64 +568,68 @@ function clearInputs(root) {
     renderPreviewTable(root);
   }
 
-function commitRow(root) {
-  var rows = readState(root);
-  var idx = readEditIndex(root);
-  var existingRow = (idx >= 0 && idx < rows.length) ? rows[idx] : null;
-  var newRow = buildRowFromInputs(root, existingRow);
+  function commitRow(root) {
+    var rows = readState(root);
+    var idx = readEditIndex(root);
+    var existingRow = idx >= 0 && idx < rows.length ? rows[idx] : null;
+    var newRow = buildRowFromInputs(root, existingRow);
 
-  // Require header to avoid empty rows.
-  if (!newRow.header || !newRow.header.trim()) {
-    return Promise.resolve(false);
+    //1.- Require header to avoid empty rows.
+    if (!newRow.header || !newRow.header.trim()) {
+      return Promise.resolve(false);
+    }
+
+    return resolveRowViaAjax(root, newRow)
+      .then(function (resolvedRow) {
+        return persistRowViaAjax(root, resolvedRow, idx);
+      })
+      .then(function (finalRow) {
+        var currentRows = readState(root);
+        if (idx >= 0 && idx < currentRows.length) {
+          currentRows[idx] = finalRow;
+        } else {
+          currentRows.push(finalRow);
+        }
+
+        writeState(root, currentRows);
+        writeEditIndex(root, -1);
+
+        var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
+        if (btn) {
+          btn.textContent = 'Add row';
+        }
+
+        //2.- Clear text inputs.
+        clearInputs(root);
+
+        //3.- Reset the managed_file widget to pristine so next row can upload a new image.
+        resetFileWidgetToPristine(root);
+
+        //4.- Refresh preview table and show Tab B.
+        renderPreviewTable(root);
+        activateTab(root, 'panel-b');
+
+        return true;
+      });
   }
 
-  return resolveRowViaAjax(root, newRow).then(function (resolvedRow) {
-    var currentRows = readState(root);
-    if (idx >= 0 && idx < currentRows.length) {
-      currentRows[idx] = resolvedRow;
-    } else {
-      currentRows.push(resolvedRow);
-    }
+  function handleAddOrUpdateRow(root) {
+    //1.- Capture counts before and after so we know when the first row arrives.
+    var beforeCount = readState(root).length;
 
-    writeState(root, currentRows);
-    writeEditIndex(root, -1);
+    commitRow(root).then(function (didCommit) {
+      if (!didCommit) {
+        return;
+      }
 
-    var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
-    if (btn) {
-      btn.textContent = 'Add row';
-    }
+      var afterCount = readState(root).length;
 
-    // Clear text inputs.
-    clearInputs(root);
-
-    // Reset the managed_file widget to pristine so next row can upload a new image.
-    resetFileWidgetToPristine(root);
-
-    // Refresh preview table and show Tab B.
-    renderPreviewTable(root);
-    activateTab(root, 'panel-b');
-
-    return true;
-  });
-}
-
-function handleAddOrUpdateRow(root) {
-  //1.- Capture counts before and after so we know when the first row arrives.
-  var beforeCount = readState(root).length;
-
-  commitRow(root).then(function (didCommit) {
-    if (!didCommit) {
-      return;
-    }
-
-    var afterCount = readState(root).length;
-
-    if (beforeCount === 0 && afterCount > 0) {
-      //2.- As soon as the first row exists we ask the backend to ensure the group.
-      ensureGroupExists(root);
-    }
-  });
-}
+      if (beforeCount === 0 && afterCount > 0) {
+        //2.- As soon as the first row exists we ask the backend to ensure the group.
+        ensureGroupExists(root);
+      }
+    });
+  }
 
 
 function initFileWidgetTemplate(root) {
