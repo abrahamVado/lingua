@@ -338,3 +338,74 @@ function pds_recipe_template_resolve_schema_repairer(): ?object {
   //5.- Return NULL when both the service container and manual instantiation fail.
   return NULL;
 }
+/**
+ * Resolve the schema repairer even when the service container is rebuilding.
+ */
+function pds_recipe_template_resolve_schema_repairer(): ?object {
+  $repairer_class = '\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer';
+
+  //1.- Attempt to include the class definition manually when the autoloader misses it.
+  if (!class_exists($repairer_class, FALSE)) {
+    try {
+      $repairer_path = __DIR__ . '/src/Service/LegacySchemaRepairer.php';
+      if (is_readable($repairer_path)) {
+        require_once $repairer_path;
+      }
+    }
+    catch (\Throwable $throwable) {
+      \Drupal::logger('pds_recipe_template')->error('Unable to include schema repairer class manually: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //2.- Reuse the registered service when the dependency injection container is ready.
+  if (class_exists($repairer_class, FALSE) && \Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
+    try {
+      return \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+    }
+    catch (\Throwable $throwable) {
+      \Drupal::logger('pds_recipe_template')->error('Unable to load schema repairer service: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //3.- Retry the manual include once more when the service container failed to bootstrap the class.
+  if (!class_exists($repairer_class, FALSE)) {
+    try {
+      $repairer_path = __DIR__ . '/src/Service/LegacySchemaRepairer.php';
+      if (is_readable($repairer_path)) {
+        require_once $repairer_path;
+      }
+    }
+    catch (\Throwable $throwable) {
+      \Drupal::logger('pds_recipe_template')->error('Unable to include schema repairer class on retry: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //4.- Abort when the class cannot be located so callers can surface a clear error message.
+  if (!class_exists($repairer_class, FALSE)) {
+    return NULL;
+  }
+
+  //5.- Instantiate the repairer directly to support requests running during cache rebuilds.
+  try {
+    return new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+      \Drupal::database(),
+      \Drupal::service('datetime.time'),
+      \Drupal::service('uuid'),
+      \Drupal::service('logger.factory')
+    );
+  }
+  catch (\Throwable $throwable) {
+    \Drupal::logger('pds_recipe_template')->error('Unable to instantiate schema repairer manually: @message', [
+      '@message' => $throwable->getMessage(),
+    ]);
+  }
+
+  //6.- Return NULL when both the service container and manual instantiation fail.
+  return NULL;
+}
