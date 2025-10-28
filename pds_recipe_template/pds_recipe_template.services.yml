@@ -1,0 +1,15 @@
+services:
+  pds_recipe_template.group_ensurer:
+    class: Drupal\pds_recipe_template\Service\GroupEnsurer
+  pds_recipe_template.legacy_schema_repairer:
+    class: Drupal\pds_recipe_template\Service\LegacySchemaRepairer
+    arguments:
+      - '@database'
+      - '@datetime.time'
+      - '@uuid'
+      - '@logger.factory'
+  pds_recipe_template.row_image_promoter:
+    class: Drupal\pds_recipe_template\Service\RowImagePromoter
+    arguments:
+      - '@entity_type.manager'
+      - '@file_url_generator'

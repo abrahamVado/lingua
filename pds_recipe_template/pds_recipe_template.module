@@ -1,0 +1,428 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\Component\Uuid\Uuid;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Database;
+use Drupal\Core\Logger\LoggerChannelInterface;
+use Drupal\pds_recipe_template\Service\LegacySchemaRepairer;
+use Drupal\pds_recipe_template\Service\RowImagePromoter;
+
+/**
+ * Include the requested service class when the container autoloader is stale.
+ */
+function pds_recipe_template_include_service_class(string $class, string $relative_path): bool {
+  $normalizedClass = ltrim($class, '\\');
+
+  //1.- Skip filesystem work when the class already exists in the current request.
+  if (class_exists($normalizedClass)) {
+    return TRUE;
+  }
+
+  //2.- Resolve the module path dynamically so multisite installs remain portable.
+  $module_path = NULL;
+  try {
+    if (function_exists('drupal_get_path')) {
+      $module_path = drupal_get_path('module', 'pds_recipe_template');
+    }
+    elseif (\Drupal::hasService('extension.list.module')) {
+      $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+    }
+  }
+  catch (\Throwable $throwable) {
+    $logger = pds_recipe_template_get_logger();
+    if ($logger) {
+      $logger->error('Unable to resolve module path while including class @class: @message', [
+        '@class' => $normalizedClass,
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+    $module_path = NULL;
+  }
+
+  if (!$module_path) {
+    return FALSE;
+  }
+
+  //3.- Require the class file directly so PHP reloads it even when composer dump has not run.
+  $relative_path = '/' . ltrim($relative_path, '/');
+  $absolute_path = DRUPAL_ROOT . '/' . $module_path . $relative_path;
+  if (is_readable($absolute_path)) {
+    require_once $absolute_path;
+    return class_exists($normalizedClass);
+  }
+
+  $logger = pds_recipe_template_get_logger();
+  if ($logger) {
+    $logger->error('Missing class file @path while including @class.', [
+      '@path' => $absolute_path,
+      '@class' => $normalizedClass,
+    ]);
+  }
+
+  return FALSE;
+}
+
+/**
+ * Ensure a template group row exists for the given UUID and return its id.
+ */
+function pds_recipe_template_ensure_group_and_get_id(string $uuid, string $type = 'pds_recipe_template'): ?int {
+  $uuid = trim($uuid);
+  $type = trim($type) === '' ? 'pds_recipe_template' : trim($type);
+
+  //1.- Reject malformed identifiers early so callers receive a predictable NULL.
+  if ($uuid === '' || !Uuid::isValid($uuid)) {
+    return NULL;
+  }
+
+  $logger = pds_recipe_template_get_logger();
+
+  try {
+    //2.- Use the shared connection helper so this routine remains testable.
+    $connection = Database::getConnection();
+  }
+  catch (\Throwable $throwable) {
+    if ($logger) {
+      $logger->error('Unable to open database connection while ensuring group: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+    return NULL;
+  }
+
+  static $schemaEnsured = FALSE;
+  if (!$schemaEnsured) {
+    //3.- Attempt to auto-heal missing tables before the first query during this request.
+    $schemaEnsured = TRUE;
+    try {
+      $schema = $connection->schema();
+      if (!$schema->tableExists('pds_template_group') || !$schema->tableExists('pds_template_item')) {
+        pds_recipe_template_create_tables($connection);
+      }
+    }
+    catch (\Throwable $throwable) {
+      if ($logger) {
+        $logger->error('Unable to verify template tables before ensuring group: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+    }
+  }
+
+  try {
+    //4.- Load the group row regardless of soft-delete status so we can revive it if needed.
+    $existing = $connection->select('pds_template_group', 'g')
+      ->fields('g', ['id', 'deleted_at'])
+      ->condition('g.uuid', $uuid)
+      ->range(0, 1)
+      ->execute()
+      ->fetchAssoc();
+
+    if ($existing) {
+      if ($existing['deleted_at'] !== NULL) {
+        //5.- Restore previously deleted rows so editors can reuse the same UUID cleanly.
+        $connection->update('pds_template_group')
+          ->fields(['deleted_at' => NULL])
+          ->condition('id', (int) $existing['id'])
+          ->execute();
+      }
+      return (int) $existing['id'];
+    }
+  }
+  catch (\Throwable $throwable) {
+    if ($logger) {
+      $logger->error('Unable to query template group for UUID @uuid: @message', [
+        '@uuid' => $uuid,
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+    return NULL;
+  }
+
+  $now = \Drupal::time()->getRequestTime();
+
+  try {
+    //6.- Insert the brand-new group record and capture the assigned identifier immediately.
+    $insert_id = $connection->insert('pds_template_group')
+      ->fields([
+        'uuid' => $uuid,
+        'type' => mb_substr($type, 0, 64),
+        'created_at' => $now,
+        'deleted_at' => NULL,
+      ])
+      ->execute();
+
+    return (int) $insert_id;
+  }
+  catch (\Throwable $throwable) {
+    if ($logger) {
+      $logger->error('Unable to insert template group for UUID @uuid: @message', [
+        '@uuid' => $uuid,
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+
+    try {
+      //7.- Retry the lookup so concurrent inserts return a consistent identifier.
+      $existing = $connection->select('pds_template_group', 'g')
+        ->fields('g', ['id'])
+        ->condition('g.uuid', $uuid)
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      return $existing ? (int) $existing : NULL;
+    }
+    catch (\Throwable $retryThrowable) {
+      if ($logger) {
+        $logger->error('Retry lookup failed for UUID @uuid: @message', [
+          '@uuid' => $uuid,
+          '@message' => $retryThrowable->getMessage(),
+        ]);
+      }
+      return NULL;
+    }
+  }
+}
+
+/**
+ * Resolve the schema repairer service even when the container cache is stale.
+ */
+function pds_recipe_template_resolve_schema_repairer(): ?LegacySchemaRepairer {
+  //1.- Ensure the class definition is available before interacting with the container.
+  pds_recipe_template_include_service_class(LegacySchemaRepairer::class, '/src/Service/LegacySchemaRepairer.php');
+
+  try {
+    //2.- Reuse the registered service when the container already knows about it.
+    if (\Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
+      $service = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+      if ($service instanceof LegacySchemaRepairer) {
+        return $service;
+      }
+    }
+  }
+  catch (\Throwable $throwable) {
+    $logger = pds_recipe_template_get_logger();
+    if ($logger) {
+      $logger->error('Unable to resolve legacy schema repairer service: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  try {
+    //3.- Build a manual instance so update.php can run before caches are rebuilt.
+    return new LegacySchemaRepairer(
+      Database::getConnection(),
+      \Drupal::service('datetime.time'),
+      \Drupal::service('uuid'),
+      \Drupal::service('logger.factory')
+    );
+  }
+  catch (\Throwable $throwable) {
+    $logger = pds_recipe_template_get_logger();
+    if ($logger) {
+      $logger->error('Unable to instantiate legacy schema repairer manually: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+    return NULL;
+  }
+}
+
+/**
+ * Resolve the row image promoter service with a manual fallback.
+ */
+function pds_recipe_template_resolve_row_image_promoter(): ?RowImagePromoter {
+  //1.- Guarantee the class definition is present so manual instantiation always works.
+  pds_recipe_template_include_service_class(RowImagePromoter::class, '/src/Service/RowImagePromoter.php');
+
+  try {
+    //2.- Prefer the container-managed service to reuse cached dependencies when available.
+    if (\Drupal::hasService('pds_recipe_template.row_image_promoter')) {
+      $service = \Drupal::service('pds_recipe_template.row_image_promoter');
+      if ($service instanceof RowImagePromoter) {
+        return $service;
+      }
+    }
+  }
+  catch (\Throwable $throwable) {
+    $logger = pds_recipe_template_get_logger();
+    if ($logger) {
+      $logger->error('Unable to resolve row image promoter service: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  try {
+    //3.- Instantiate the promoter directly so AJAX endpoints stay functional during cache rebuilds.
+    return new RowImagePromoter(
+      \Drupal::service('entity_type.manager'),
+      \Drupal::service('file_url_generator')
+    );
+  }
+  catch (\Throwable $throwable) {
+    $logger = pds_recipe_template_get_logger();
+    if ($logger) {
+      $logger->error('Unable to instantiate row image promoter manually: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+    return NULL;
+  }
+}
+
+/**
+ * Create the template tables when they are missing on the current connection.
+ */
+function pds_recipe_template_create_tables(Connection $connection): void {
+  $schema = $connection->schema();
+
+  //1.- Only create the group table when it is missing to keep the operation idempotent.
+  if (!$schema->tableExists('pds_template_group')) {
+    $schema->createTable('pds_template_group', [
+      'description' => 'Logical group of template items (one rendered component instance).',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+        ],
+        'uuid' => [
+          'type' => 'varchar',
+          'length' => 128,
+          'not null' => TRUE,
+        ],
+        'type' => [
+          'type' => 'varchar',
+          'length' => 64,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'created_at' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'deleted_at' => [
+          'type' => 'int',
+          'not null' => FALSE,
+        ],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => [
+        'uuid' => ['uuid'],
+      ],
+      'indexes' => [
+        'type' => ['type'],
+        'deleted_at' => ['deleted_at'],
+      ],
+    ]);
+  }
+
+  //2.- Mirror the runtime expectations for the item table so legacy rows remain compatible.
+  if (!$schema->tableExists('pds_template_item')) {
+    $schema->createTable('pds_template_item', [
+      'description' => 'Items/cards that belong to a template group.',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+        ],
+        'uuid' => [
+          'type' => 'varchar',
+          'length' => 128,
+          'not null' => TRUE,
+        ],
+        'group_id' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'weight' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'header' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'subheader' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'description' => [
+          'type' => 'text',
+          'not null' => FALSE,
+        ],
+        'url' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'desktop_img' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'mobile_img' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'latitud' => [
+          'type' => 'float',
+          'not null' => FALSE,
+        ],
+        'longitud' => [
+          'type' => 'float',
+          'not null' => FALSE,
+        ],
+        'created_at' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'deleted_at' => [
+          'type' => 'int',
+          'not null' => FALSE,
+        ],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => [
+        'uuid' => ['uuid'],
+      ],
+      'indexes' => [
+        'group_id' => ['group_id'],
+        'weight' => ['weight'],
+        'deleted_at' => ['deleted_at'],
+      ],
+    ]);
+  }
+}
+
+/**
+ * Fetch the logger channel when the container is ready.
+ */
+function pds_recipe_template_get_logger(): ?LoggerChannelInterface {
+  //1.- Guard against early bootstrap phases where the logger service is unavailable.
+  if (!\Drupal::hasService('logger.factory')) {
+    return NULL;
+  }
+
+  try {
+    return \Drupal::service('logger.factory')->get('pds_recipe_template');
+  }
+  catch (\Throwable $throwable) {
+    watchdog_exception('pds_recipe_template', $throwable);
+    return NULL;
+  }
+}
