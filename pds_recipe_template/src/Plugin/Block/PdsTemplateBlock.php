@@ -22,6 +22,7 @@ use Symfony\Component\HttpFoundation\Request;
  */
 final class PdsTemplateBlock extends BlockBase {
   use PdsTemplateBlockStateTrait;
+  use PdsTemplateRenderContextTrait;
 
   /**
    * {@inheritdoc}
@@ -208,12 +209,35 @@ final class PdsTemplateBlock extends BlockBase {
     }
 
     $instance_uuid = $this->getBlockInstanceUuid();
+    //1.- Precompute master metadata so the template and JS share a single source of truth.
+    $master_metadata = $this->buildMasterMetadata($group_id, $instance_uuid);
+    //2.- Produce derivative datasets that the public template can expose for consumers.
+    $extended_datasets = $this->buildExtendedDatasets($items);
 
     return [
       '#theme' => 'pds_template_block',
       '#items' => $items,
       '#group_id' => $group_id,
       '#instance_uuid' => $instance_uuid,
+      '#master_metadata' => $master_metadata,
+      '#extended_datasets' => $extended_datasets,
+      '#attached' => [
+        'library' => [
+          'pds_recipe_template/pds_template.public',
+        ],
+        'drupalSettings' => [
+          //1.- Provide a keyed registry so multiple instances on the same page stay isolated.
+          'pdsRecipeTemplate' => [
+            'masters' => [
+              $instance_uuid => [
+                //2.- Expose identifiers and derivative collections to front-end scripts.
+                'metadata' => $master_metadata,
+                'datasets' => $extended_datasets,
+              ],
+            ],
+          ],
+        ],
+      ],
       '#cache' => [
         'tags' => [],
         'contexts' => ['route'],
