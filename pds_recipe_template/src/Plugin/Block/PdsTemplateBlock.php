@@ -639,35 +639,58 @@ final class PdsTemplateBlock extends BlockBase {
    * Legacy preview builder for ajaxItems().
    */
   private function buildCardsMarkup(array $items): string {
-    $cards_markup = '';
+    //1.- Prepare the table header so both JS and PHP outputs stay aligned.
+    $table_head =
+      '<thead>' .
+        '<tr>' .
+          '<th class="pds-template-table__col-thumb">' . $this->t('Image') . '</th>' .
+          '<th>' . $this->t('Header') . '</th>' .
+          '<th>' . $this->t('Subheader') . '</th>' .
+          '<th>' . $this->t('Link') . '</th>' .
+          '<th>' . $this->t('Actions') . '</th>' .
+        '</tr>' .
+      '</thead>';
 
-    foreach ($items as $item) {
-      $h   = $item['header']      ?? '';
-      $sh  = $item['subheader']   ?? '';
-      $d   = $item['description'] ?? '';
-      $ln  = $item['link']        ?? '';
-      $img = $item['desktop_img'] ?? $item['image_url'] ?? '';
+    if ($items === [] || count($items) === 0) {
+      //2.- Mirror the empty-state markup so the AJAX refresh matches client rendering.
+      $table_body =
+        '<tbody>' .
+          '<tr>' .
+            '<td colspan="5"><em>' . $this->t('No rows yet.') . '</em></td>' .
+          '</tr>' .
+        '</tbody>';
 
-      $cards_markup .= '<div class="pds-template-card">';
-      if ($img !== '') {
-        $cards_markup .= '<div class="pds-template-card__image"><img src="' . htmlspecialchars($img) . '" alt=""/></div>';
-      }
-      $cards_markup .= '<div class="pds-template-card__body">';
-      $cards_markup .= '<div class="pds-template-card__header">' . htmlspecialchars($h) . '</div>';
-      $cards_markup .= '<div class="pds-template-card__subheader">' . htmlspecialchars($sh) . '</div>';
-      $cards_markup .= '<div class="pds-template-card__desc">' . htmlspecialchars($d) . '</div>';
-      if ($ln !== '') {
-        $cards_markup .= '<div class="pds-template-card__link">' . htmlspecialchars($ln) . '</div>';
-      }
-      $cards_markup .= '</div>';
-      $cards_markup .= '</div>';
+      return '<table class="pds-template-table">' . $table_head . $table_body . '</table>';
     }
 
-    if ($cards_markup === '') {
-      $cards_markup = '<div class="pds-template-card-empty">' . $this->t('No cards yet.') . '</div>';
+    //3.- Iterate through rows and keep attribute escaping consistent with the JS counterpart.
+    $rows_markup = '';
+    foreach ($items as $delta => $item) {
+      $header = htmlspecialchars((string) ($item['header'] ?? ''), ENT_QUOTES, 'UTF-8');
+      $subheader = htmlspecialchars((string) ($item['subheader'] ?? ''), ENT_QUOTES, 'UTF-8');
+      $link = htmlspecialchars((string) ($item['link'] ?? ''), ENT_QUOTES, 'UTF-8');
+      $thumb = (string) ($item['desktop_img'] ?? $item['image_url'] ?? '');
+      $thumb_markup = $thumb !== ''
+        ? '<img src="' . htmlspecialchars($thumb, ENT_QUOTES, 'UTF-8') . '" alt="" />'
+        : '';
+
+      $rows_markup .= '<tr data-row-index="' . (int) $delta . '">';
+      $rows_markup .=   '<td class="pds-template-table__thumb">' . $thumb_markup . '</td>';
+      $rows_markup .=   '<td>' . $header . '</td>';
+      $rows_markup .=   '<td>' . $subheader . '</td>';
+      $rows_markup .=   '<td>' . $link . '</td>';
+      $rows_markup .=   '<td>';
+      $rows_markup .=     '<button type="button" class="pds-template-row-edit">' . $this->t('Edit') . '</button> ';
+      $rows_markup .=     '<button type="button" class="pds-template-row-del">' . $this->t('Delete') . '</button>';
+      $rows_markup .=   '</td>';
+      $rows_markup .= '</tr>';
     }
 
-    return '<div class="pds-template-cardlist">' . $cards_markup . '</div>';
+    //4.- Return the assembled table HTML ready for the AJAX container.
+    return '<table class="pds-template-table">' .
+      $table_head .
+      '<tbody>' . $rows_markup . '</tbody>' .
+      '</table>';
   }
 
   /**

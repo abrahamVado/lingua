@@ -158,3 +158,19 @@
   padding: 0px;
   margin:0px;
 }
+/* 1.- Keep the image column compact without affecting the rest of the layout. */
+.pds-template-table__col-thumb,
+.pds-template-table__thumb {
+  width: 80px;
+  text-align: center;
+}
+
+/* 2.- Constrain the preview thumbnail while preserving aspect ratio. */
+.pds-template-table__thumb img {
+  max-width: 64px;
+  max-height: 64px;
+  object-fit: cover;
+  border-radius: .375rem;
+  border: 1px solid #ccc;
+  background: #fff;
+}

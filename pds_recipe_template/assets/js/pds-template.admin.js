@@ -385,6 +385,7 @@ function clearInputs(root) {
         '<table class="pds-template-table">' +
           '<thead>' +
             '<tr>' +
+              '<th class="pds-template-table__col-thumb">Image</th>' +
               '<th>Header</th>' +
               '<th>Subheader</th>' +
               '<th>Link</th>' +
@@ -393,7 +394,7 @@ function clearInputs(root) {
           '</thead>' +
           '<tbody>' +
             '<tr>' +
-              '<td colspan="4"><em>No rows yet.</em></td>' +
+              '<td colspan="5"><em>No rows yet.</em></td>' +
             '</tr>' +
           '</tbody>' +
         '</table>';
@@ -404,6 +405,7 @@ function clearInputs(root) {
     html += '<table class="pds-template-table">';
     html +=   '<thead>';
     html +=     '<tr>';
+    html +=       '<th class="pds-template-table__col-thumb">Image</th>';
     html +=       '<th>Header</th>';
     html +=       '<th>Subheader</th>';
     html +=       '<th>Link</th>';
@@ -414,7 +416,13 @@ function clearInputs(root) {
 
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i] || {};
+      //1.- Resolve the thumbnail URL while respecting both upload and remote sources.
+      var thumb = r.desktop_img || r.image_url || '';
+
       html += '<tr data-row-index="' + i + '">';
+      html +=   '<td class="pds-template-table__thumb">' +
+        (thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" />' : '') +
+      '</td>';
       html +=   '<td>' + escapeHtml(r.header || '') + '</td>';
       html +=   '<td>' + escapeHtml(r.subheader || '') + '</td>';
       html +=   '<td>' + escapeHtml(r.link || '') + '</td>';
