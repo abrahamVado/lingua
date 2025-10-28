@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_template\Plugin\Block;
 
+use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Uuid;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
@@ -261,6 +262,15 @@ final class PdsTemplateBlock extends BlockBase {
       ],
     )->toString();
 
+    $list_rows_url = Url::fromRoute(
+      'pds_recipe_template.list_rows',
+      ['uuid' => $block_uuid],
+      [
+        'absolute' => TRUE,
+        'query' => ['type' => $recipe_type],
+      ],
+    )->toString();
+
     $form['pds_template_admin'] = [
       '#type' => 'container',
       '#attributes' => [
@@ -273,6 +283,7 @@ final class PdsTemplateBlock extends BlockBase {
         'data-pds-template-resolve-row-url' => $resolve_row_url,
         'data-pds-template-create-row-url' => $create_row_url,
         'data-pds-template-update-row-url' => $update_row_url,
+        'data-pds-template-list-rows-url' => $list_rows_url,
         'data-pds-template-group-id' => (string) $group_id,
         'data-pds-template-block-uuid' => $block_uuid,
         'data-pds-template-recipe-type' => $recipe_type,
@@ -454,9 +465,20 @@ final class PdsTemplateBlock extends BlockBase {
     ],
   ];
 
+  //1.- Build translated helper messages once so the markup stays readable.
+  $loading_text = Html::escape((string) $this->t('Loading preview…'));
+  $empty_text = Html::escape((string) $this->t('No rows yet.'));
+  $error_text = Html::escape((string) $this->t('Unable to load preview.'));
+
+  //2.- Expose dedicated regions for loading, empty, error and content states.
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_b']['preview_list'] = [
     '#type' => 'markup',
-    '#markup' => '<div id="pds-template-preview-list"></div>',
+    '#markup' => '<div id="pds-template-preview-list" class="pds-template-preview" data-pds-template-preview-root="1">'
+      . '<div class="pds-template-preview__loading" data-pds-template-preview-state="loading" hidden>' . $loading_text . '</div>'
+      . '<div class="pds-template-preview__empty" data-pds-template-preview-state="empty" hidden>' . $empty_text . '</div>'
+      . '<div class="pds-template-preview__error" data-pds-template-preview-state="error" hidden>' . $error_text . '</div>'
+      . '<div class="pds-template-preview__content" data-pds-template-preview-state="content"></div>'
+      . '</div>',
   ];
 
   return $form;

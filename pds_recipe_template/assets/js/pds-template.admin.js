@@ -581,32 +581,83 @@ function clearInputs(root) {
   // Preview table
   //
 
+  function getPreviewWrapper(root) {
+    //1.- Prefer the enhanced wrapper that exposes preview state hooks.
+    var wrapper = root.querySelector('[data-pds-template-preview-root]');
+    if (wrapper) {
+      return wrapper;
+    }
+
+    //2.- Fall back to the legacy container so older markup keeps working.
+    return root.querySelector('#pds-template-preview-list');
+  }
+
+  function setPreviewState(wrapper, state, message) {
+    //1.- Only toggle states when the upgraded markup is present.
+    if (!wrapper || !wrapper.hasAttribute('data-pds-template-preview-root')) {
+      return;
+    }
+
+    var states = ['loading', 'empty', 'error', 'content'];
+    states.forEach(function (name) {
+      var region = wrapper.querySelector('[data-pds-template-preview-state="' + name + '"]');
+      if (!region) {
+        return;
+      }
+
+      if (name === state) {
+        region.removeAttribute('hidden');
+        if (name === 'error' && typeof message === 'string' && message !== '') {
+          region.textContent = message;
+        }
+      } else {
+        region.setAttribute('hidden', 'hidden');
+      }
+    });
+  }
+
   function renderPreviewTable(root) {
-    var wrapper = root.querySelector('#pds-template-preview-list');
+    var wrapper = getPreviewWrapper(root);
     if (!wrapper) {
       return;
     }
 
+    var hasStates = wrapper.hasAttribute('data-pds-template-preview-root');
+    var content = hasStates
+      ? wrapper.querySelector('[data-pds-template-preview-state="content"]')
+      : wrapper;
+    if (!content) {
+      return;
+    }
+
     var rows = readState(root);
+    if (!Array.isArray(rows)) {
+      rows = [];
+    }
 
     if (!rows.length) {
-      wrapper.innerHTML =
-        '<table class="pds-template-table">' +
-          '<thead>' +
-            '<tr>' +
-              '<th class="pds-template-table__col-thumb">Image</th>' +
-              '<th>Header</th>' +
-              '<th>Subheader</th>' +
-              '<th>Link</th>' +
-              '<th>Actions</th>' +
-            '</tr>' +
-          '</thead>' +
-          '<tbody>' +
-            '<tr>' +
-              '<td colspan="5"><em>No rows yet.</em></td>' +
-            '</tr>' +
-          '</tbody>' +
-        '</table>';
+      if (hasStates) {
+        content.innerHTML = '';
+        setPreviewState(wrapper, 'empty');
+      } else {
+        content.innerHTML =
+          '<table class="pds-template-table">' +
+            '<thead>' +
+              '<tr>' +
+                '<th class="pds-template-table__col-thumb">Image</th>' +
+                '<th>Header</th>' +
+                '<th>Subheader</th>' +
+                '<th>Link</th>' +
+                '<th>Actions</th>' +
+              '</tr>' +
+            '</thead>' +
+            '<tbody>' +
+              '<tr>' +
+                '<td colspan="5"><em>No rows yet.</em></td>' +
+              '</tr>' +
+            '</tbody>' +
+          '</table>';
+      }
       return;
     }
 
@@ -614,6 +665,7 @@ function clearInputs(root) {
     html += '<table class="pds-template-table">';
     html +=   '<thead>';
     html +=     '<tr>';
+    html +=       '<th>ID</th>';
     html +=       '<th class="pds-template-table__col-thumb">Image</th>';
     html +=       '<th>Header</th>';
     html +=       '<th>Subheader</th>';
@@ -626,9 +678,18 @@ function clearInputs(root) {
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i] || {};
       //1.- Resolve the thumbnail URL while respecting both upload and remote sources.
-      var thumb = r.desktop_img || r.image_url || '';
+      var thumb = r.desktop_img || r.thumbnail || r.image_url || r.mobile_img || '';
+      var identifier = '';
+      if (typeof r.id === 'number') {
+        identifier = String(r.id);
+      } else if (r.id && typeof r.id !== 'object') {
+        identifier = String(r.id);
+      } else if (typeof r.uuid === 'string') {
+        identifier = r.uuid;
+      }
 
       html += '<tr data-row-index="' + i + '">';
+      html +=   '<td>' + escapeHtml(identifier) + '</td>';
       html +=   '<td class="pds-template-table__thumb">' +
         (thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" />' : '') +
       '</td>';
@@ -645,9 +706,115 @@ function clearInputs(root) {
     html +=   '</tbody>';
     html += '</table>';
 
-    wrapper.innerHTML = html;
+    content.innerHTML = html;
+    if (hasStates) {
+      setPreviewState(wrapper, 'content');
+      bindRowButtons(root, content);
+    } else {
+      bindRowButtons(root, wrapper);
+    }
+  }
 
-    bindRowButtons(root, wrapper);
+  function refreshPreviewFromServer(root) {
+    //1.- Skip the network call when fetch is unavailable or no endpoint was provided.
+    if (typeof window.fetch !== 'function') {
+      renderPreviewTable(root);
+      return Promise.resolve(null);
+    }
+
+    var url = root.getAttribute('data-pds-template-list-rows-url');
+    if (!url) {
+      renderPreviewTable(root);
+      return Promise.resolve(null);
+    }
+
+    var wrapper = getPreviewWrapper(root);
+    if (wrapper && wrapper.hasAttribute('data-pds-template-preview-root')) {
+      setPreviewState(wrapper, 'loading');
+    }
+
+    var requestToken = (root._pdsPreviewRequestToken || 0) + 1;
+    root._pdsPreviewRequestToken = requestToken;
+
+    return fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'same-origin'
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error('Request failed');
+        }
+        return response.json();
+      })
+      .then(function (json) {
+        if (root._pdsPreviewRequestToken !== requestToken) {
+          return;
+        }
+
+        if (!json || json.status !== 'ok' || !Array.isArray(json.rows)) {
+          var message = (json && json.message) ? json.message : 'Unable to load preview.';
+          if (wrapper && wrapper.hasAttribute('data-pds-template-preview-root')) {
+            setPreviewState(wrapper, 'error', message);
+          }
+          return;
+        }
+
+        var normalized = json.rows.map(function (row) {
+          var safeRow = row && typeof row === 'object' ? row : {};
+
+          var desktop = typeof safeRow.desktop_img === 'string' ? safeRow.desktop_img : '';
+          var imageUrl = typeof safeRow.image_url === 'string' ? safeRow.image_url : '';
+          var mobile = typeof safeRow.mobile_img === 'string' ? safeRow.mobile_img : '';
+          var thumbnail = typeof safeRow.thumbnail === 'string' ? safeRow.thumbnail : '';
+          var resolvedThumb = desktop || thumbnail || imageUrl || mobile || '';
+
+          var normalizedRow = {
+            header: typeof safeRow.header === 'string' ? safeRow.header : '',
+            subheader: typeof safeRow.subheader === 'string' ? safeRow.subheader : '',
+            description: typeof safeRow.description === 'string' ? safeRow.description : '',
+            link: typeof safeRow.link === 'string' ? safeRow.link : '',
+            desktop_img: desktop || imageUrl || '',
+            mobile_img: mobile,
+            image_url: imageUrl || desktop || mobile || '',
+            latitud: typeof safeRow.latitud === 'number' ? safeRow.latitud : null,
+            longitud: typeof safeRow.longitud === 'number' ? safeRow.longitud : null,
+            weight: typeof safeRow.weight === 'number' ? safeRow.weight : null,
+            thumbnail: resolvedThumb,
+          };
+
+          if (typeof safeRow.id === 'number') {
+            normalizedRow.id = safeRow.id;
+          } else if (typeof safeRow.id === 'string' && safeRow.id !== '') {
+            var parsedId = parseInt(safeRow.id, 10);
+            normalizedRow.id = isNaN(parsedId) ? safeRow.id : parsedId;
+          }
+
+          if (typeof safeRow.uuid === 'string') {
+            normalizedRow.uuid = safeRow.uuid;
+          }
+
+          if (typeof safeRow.image_fid === 'number' || typeof safeRow.image_fid === 'string') {
+            normalizedRow.image_fid = safeRow.image_fid;
+          }
+
+          return normalizedRow;
+        });
+
+        writeState(root, normalized);
+        renderPreviewTable(root);
+      })
+      .catch(function () {
+        if (root._pdsPreviewRequestToken !== requestToken) {
+          return;
+        }
+        if (wrapper && wrapper.hasAttribute('data-pds-template-preview-root')) {
+          setPreviewState(wrapper, 'error', 'Unable to load preview.');
+        }
+      });
   }
 
   function bindRowButtons(root, wrapper) {
@@ -1032,6 +1199,10 @@ function rebuildManagedFileEmpty(root) {
         panel.classList.remove('is-active');
       }
     });
+
+    if (panelId === 'panel-b') {
+      refreshPreviewFromServer(root);
+    }
   }
 
   function initTabs(root) {

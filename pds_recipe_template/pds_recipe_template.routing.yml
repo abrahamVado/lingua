@@ -38,3 +38,13 @@ pds_recipe_template.update_row:
     uuid: '[0-9a-fA-F-]+'
     row_uuid: '[0-9a-fA-F-]+'
   methods: ['PATCH', 'POST']
+
+pds_recipe_template.list_rows:
+  path: '/pds-template/list-rows/{uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_template\Controller\RowController::list'
+    _title: 'List PDS Template rows'
+  requirements:
+    _permission: 'administer blocks'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['GET']

@@ -184,6 +184,91 @@ final class RowController extends ControllerBase {
     }
   }
 
+  public function list(Request $request, string $uuid): JsonResponse {
+    //1.- Reject malformed UUIDs so the query never runs with invalid identifiers.
+    if (!Uuid::isValid($uuid)) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Invalid UUID.',
+      ], 400);
+    }
+
+    try {
+      $connection = \Drupal::database();
+
+      //2.- Load the numeric group id so we can scope the item query correctly.
+      $group_id = $connection->select('pds_template_group', 'g')
+        ->fields('g', ['id'])
+        ->condition('g.uuid', $uuid)
+        ->condition('g.deleted_at', NULL, 'IS NULL')
+        ->execute()
+        ->fetchField();
+
+      if (!$group_id) {
+        //3.- Return an empty dataset when the block has not stored rows yet.
+        return new JsonResponse([
+          'status' => 'ok',
+          'rows' => [],
+        ]);
+      }
+
+      $query = $connection->select('pds_template_item', 'i')
+        ->fields('i', [
+          'id',
+          'uuid',
+          'weight',
+          'header',
+          'subheader',
+          'description',
+          'url',
+          'desktop_img',
+          'mobile_img',
+          'latitud',
+          'longitud',
+        ])
+        ->condition('i.group_id', (int) $group_id)
+        ->condition('i.deleted_at', NULL, 'IS NULL')
+        ->orderBy('i.weight', 'ASC');
+
+      $result = $query->execute();
+
+      $rows = [];
+      foreach ($result as $record) {
+        //4.- Normalize every column into the structure expected by the admin UI.
+        $desktop = (string) $record->desktop_img;
+        $mobile = (string) $record->mobile_img;
+
+        $rows[] = [
+          'id' => (int) $record->id,
+          'uuid' => (string) $record->uuid,
+          'header' => (string) $record->header,
+          'subheader' => (string) $record->subheader,
+          'description' => (string) $record->description,
+          'link' => (string) $record->url,
+          'desktop_img' => $desktop,
+          'mobile_img' => $mobile,
+          'image_url' => $desktop,
+          'latitud' => $record->latitud !== NULL ? (float) $record->latitud : NULL,
+          'longitud' => $record->longitud !== NULL ? (float) $record->longitud : NULL,
+          'weight' => (int) $record->weight,
+          'thumbnail' => $desktop !== '' ? $desktop : $mobile,
+        ];
+      }
+
+      return new JsonResponse([
+        'status' => 'ok',
+        'rows' => $rows,
+      ]);
+    }
+    catch (Throwable $throwable) {
+      //5.- Surface a friendly error when the database lookup fails unexpectedly.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Unable to load rows.',
+      ], 500);
+    }
+  }
+
   public function update(Request $request, string $uuid, string $row_uuid): JsonResponse {
     //1.- Validate both UUIDs so we never touch the database with malformed identifiers.
     if (!Uuid::isValid($uuid) || !Uuid::isValid($row_uuid)) {
