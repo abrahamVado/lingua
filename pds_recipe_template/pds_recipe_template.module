@@ -5,31 +5,35 @@
  * Hooks for pds_recipe_template.
  */
 
-//1.- Provide an emergency PSR-4 loader so optimized Composer installs still
-//    resolve the module's service classes without relying on vendor metadata.
+use Composer\Autoload\ClassLoader;
+
+//1.- Ensure the module's namespace is registered on Composer's primary loader
+//    so services stay discoverable even when Composer runs with an authoritative
+//    class map and skips dynamic file discovery.
 static $pdsRecipeTemplateAutoloaderRegistered = FALSE;
 if (!$pdsRecipeTemplateAutoloaderRegistered) {
-  spl_autoload_register(static function (string $class): void {
-    //2.- Ignore classes outside this module's namespace to keep the handler
-    //    lightweight and let Drupal's primary loader resolve everything else.
-    if (!str_starts_with($class, 'Drupal\\pds_recipe_template\\')) {
-      return;
+  //2.- Inspect the registered autoload callbacks to locate the Composer loader
+  //    instance that Drupal bootstraps with; this keeps the solution consistent
+  //    with Drupal's dependency injection and avoids manual file includes.
+  $composerLoader = NULL;
+  foreach (spl_autoload_functions() as $autoloadCallback) {
+    if (is_array($autoloadCallback) && $autoloadCallback[0] instanceof ClassLoader) {
+      $composerLoader = $autoloadCallback[0];
+      break;
     }
-
-    //3.- Translate the namespace into a file path within the module's src
-    //    directory and include it when the file exists.
-    $relativeClass = substr($class, strlen('Drupal\\pds_recipe_template\\'));
-    $relativePath = str_replace('\\', '/', $relativeClass);
-    $file = __DIR__ . '/src/' . $relativePath . '.php';
-
-    if (is_file($file) && !class_exists($class, FALSE)) {
-      require_once $file;
+    if ($autoloadCallback instanceof ClassLoader) {
+      $composerLoader = $autoloadCallback;
+      break;
     }
-  }, TRUE, TRUE);
+  }
 
-  //4.- Mark the autoloader as registered so we avoid attaching duplicates on
-  //    subsequent includes of this module file within the same request.
-  $pdsRecipeTemplateAutoloaderRegistered = TRUE;
+  //3.- Once the loader is available, register the module's PSR-4 prefix pointing
+  //    at the src directory so Composer resolves classes instead of falling back
+  //    to brittle require statements.
+  if ($composerLoader instanceof ClassLoader) {
+    $composerLoader->addPsr4('Drupal\\pds_recipe_template\\', __DIR__ . '/src');
+    $pdsRecipeTemplateAutoloaderRegistered = TRUE;
+  }
 }
 
 /**
