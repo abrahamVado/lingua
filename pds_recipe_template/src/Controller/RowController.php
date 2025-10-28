@@ -21,12 +21,20 @@ final class RowController extends ControllerBase {
       ], 400);
     }
 
+    if (!pds_recipe_template_user_can_manage_template()) {
+      //2.- Enforce administrative access so layout builders without block admin can still save rows securely.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Access denied.',
+      ], 403);
+    }
+
     $payload = json_decode($request->getContent() ?: '[]', TRUE);
     if (!is_array($payload)) {
       $payload = [];
     }
 
-    //2.- Accept optional type from query string or payload so multi-recipe setups reuse the endpoint.
+    //3.- Accept optional type from query string or payload so multi-recipe setups reuse the endpoint.
     $type = $request->query->get('type');
     if (!is_string($type) || $type === '') {
       if (isset($payload['recipe_type']) && is_string($payload['recipe_type']) && $payload['recipe_type'] !== '') {
@@ -37,12 +45,12 @@ final class RowController extends ControllerBase {
       }
     }
 
-    //3.- Pull the row array from the request and require the same minimum fields as creation.
+    //4.- Pull the row array from the request and require the same minimum fields as creation.
     $row = isset($payload['row']) && is_array($payload['row']) ? $payload['row'] : [];
 
     $header = isset($row['header']) && is_string($row['header']) ? trim($row['header']) : '';
     if ($header === '') {
-      //2.- Require a header because the UI treats it as the minimal amount of data.
+      //5.- Require a header because the UI treats it as the minimal amount of data.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Missing header.',
@@ -75,7 +83,7 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      //4.- Guarantee the storage schema matches expectations before inserting brand-new rows.
+      //6.- Guarantee the storage schema matches expectations before inserting brand-new rows.
       $schema_repairer = $this->resolveSchemaRepairer();
       if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
         return new JsonResponse([
@@ -84,7 +92,7 @@ final class RowController extends ControllerBase {
         ], 500);
       }
 
-      //5.- Resolve the numeric group id so we can assert ownership before updating anything.
+      //7.- Resolve the numeric group id so we can assert ownership before updating anything.
       $group_id = \pds_recipe_template_ensure_group_and_get_id($uuid, $type);
       if (!$group_id) {
         return new JsonResponse([
@@ -100,7 +108,7 @@ final class RowController extends ControllerBase {
       $row['mobile_img'] = $mobile_img;
       $row['image_url'] = $image_url;
 
-      //6.- Resolve the promoter through the helper so cache rebuilds do not break uploads.
+      //8.- Resolve the promoter through the helper so cache rebuilds do not break uploads.
       $promoter = \pds_recipe_template_resolve_row_image_promoter();
       if (!$promoter) {
         return new JsonResponse([
@@ -126,7 +134,7 @@ final class RowController extends ControllerBase {
       $image_fid = $promotion['image_fid'] ?? NULL;
 
       if ($weight === NULL) {
-        //3.- When the caller omits weight we append to the end by using max + 1.
+        //9.- When the caller omits weight we append to the end by using max + 1.
         $max_weight = $connection->select('pds_template_item', 'i')
           ->fields('i', ['weight'])
           ->condition('i.group_id', $group_id)
@@ -142,7 +150,7 @@ final class RowController extends ControllerBase {
         ? $row['uuid']
         : \Drupal::service('uuid')->generate();
 
-      //4.- Insert the brand-new database record and capture the assigned identifier.
+      //10.- Insert the brand-new database record and capture the assigned identifier.
       $insert_id = $connection->insert('pds_template_item')
         ->fields([
           'uuid' => $row_uuid,
@@ -183,7 +191,7 @@ final class RowController extends ControllerBase {
         $response_row['weight'] = $weight;
       }
 
-      //6.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
+      //11.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
       return new JsonResponse([
         'status' => 'ok',
         'id' => (int) $insert_id,
@@ -193,13 +201,13 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //7.- Record the underlying reason so administrators can diagnose failed insert attempts from dblog.
+      //12.- Record the underlying reason so administrators can diagnose failed insert attempts from dblog.
       \Drupal::logger('pds_recipe_template')->error('Row creation failed for group @group: @message', [
         '@group' => $uuid,
         '@message' => $throwable->getMessage(),
       ]);
 
-      //8.- Shield the UI from low-level errors by returning a clear failure response.
+      //13.- Shield the UI from low-level errors by returning a clear failure response.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to create row.',
@@ -216,8 +224,16 @@ final class RowController extends ControllerBase {
       ], 400);
     }
 
+    if (!pds_recipe_template_user_can_manage_template()) {
+      //2.- Ensure only authorized layout editors retrieve row listings for previews.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Access denied.',
+      ], 403);
+    }
+
     try {
-      //2.- Repair the legacy schema automatically so listings keep working after deployments.
+      //3.- Repair the legacy schema automatically so listings keep working after deployments.
       $schema_repairer = $this->resolveSchemaRepairer();
       if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
         return new JsonResponse([
@@ -228,7 +244,7 @@ final class RowController extends ControllerBase {
 
       $connection = \Drupal::database();
 
-      //3.- Load the numeric group id so we can scope the item query correctly.
+      //4.- Load the numeric group id so we can scope the item query correctly.
       $group_id = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
@@ -237,7 +253,7 @@ final class RowController extends ControllerBase {
         ->fetchField();
 
       if (!$group_id) {
-        //4.- Return an empty dataset when the block has not stored rows yet.
+        //5.- Return an empty dataset when the block has not stored rows yet.
         return new JsonResponse([
           'status' => 'ok',
           'rows' => [],
@@ -266,7 +282,7 @@ final class RowController extends ControllerBase {
 
       $rows = [];
       foreach ($result as $record) {
-        //5.- Normalize every column into the structure expected by the admin UI.
+        //6.- Normalize every column into the structure expected by the admin UI.
         $desktop = (string) $record->desktop_img;
         $mobile = (string) $record->mobile_img;
 
@@ -293,7 +309,7 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //6.- Surface a friendly error when the database lookup fails unexpectedly.
+      //7.- Surface a friendly error when the database lookup fails unexpectedly.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to load rows.',
@@ -308,6 +324,14 @@ final class RowController extends ControllerBase {
         'status' => 'error',
         'message' => 'Invalid UUID.',
       ], 400);
+    }
+
+    if (!pds_recipe_template_user_can_manage_template()) {
+      //2.- Stop unauthorized edits while still honoring layout builder configuration permissions.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Access denied.',
+      ], 403);
     }
 
     $payload = json_decode($request->getContent() ?: '[]', TRUE);
@@ -361,7 +385,7 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      //4.- Repair the legacy schema so updates cannot fail due to mismatched column sets.
+      //3.- Repair the legacy schema so updates cannot fail due to mismatched column sets.
       $schema_repairer = $this->resolveSchemaRepairer();
       if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
         return new JsonResponse([
@@ -431,7 +455,7 @@ final class RowController extends ControllerBase {
       $image_url = (string) ($promotion['image_url'] ?? $image_url);
       $image_fid = $promotion['image_fid'] ?? NULL;
 
-      //5.- Build the sanitized update payload while preserving numeric and nullable columns.
+      //6.- Build the sanitized update payload while preserving numeric and nullable columns.
       $fields = [
         'header' => $header,
         'subheader' => $subheader,
@@ -452,7 +476,7 @@ final class RowController extends ControllerBase {
         ->condition('uuid', $row_uuid)
         ->execute();
 
-      //6.- Echo the stored values back so the caller can refresh its cached state accurately.
+      //7.- Echo the stored values back so the caller can refresh its cached state accurately.
       $response_row = [
         'header' => $fields['header'],
         'subheader' => $fields['subheader'],

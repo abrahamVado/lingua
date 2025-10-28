@@ -4,7 +4,7 @@ pds_recipe_template.ensure_group:
     _controller: '\Drupal\pds_recipe_template\Controller\GroupController::ensureGroup'
     _title: 'Ensure PDS Template group'
   requirements:
-    _permission: 'administer blocks'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]+'
   methods: ['POST']
 
@@ -14,7 +14,7 @@ pds_recipe_template.resolve_row:
     _controller: '\Drupal\pds_recipe_template\Plugin\Block\PdsTemplateBlock::ajaxResolveRow'
     _title: 'Resolve PDS Template row'
   requirements:
-    _permission: 'administer blocks'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]+'
   methods: ['POST']
 
@@ -24,7 +24,7 @@ pds_recipe_template.create_row:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::createRow'
     _title: 'Create PDS Template row'
   requirements:
-    _permission: 'administer blocks'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]+'
   methods: ['POST']
 
@@ -34,7 +34,7 @@ pds_recipe_template.update_row:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::update'
     _title: 'Update PDS Template row'
   requirements:
-    _permission: 'administer blocks'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]+'
     row_uuid: '[0-9a-fA-F-]+'
   methods: ['PATCH', 'POST']
@@ -45,6 +45,6 @@ pds_recipe_template.list_rows:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::list'
     _title: 'List PDS Template rows'
   requirements:
-    _permission: 'administer blocks'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]+'
   methods: ['GET']

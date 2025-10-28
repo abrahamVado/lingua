@@ -20,7 +20,15 @@ final class GroupController extends ControllerBase {
       ], 400);
     }
 
-    //2.- Normalize the optional recipe type coming from the caller.
+    if (!pds_recipe_template_user_can_manage_template()) {
+      //2.- Refuse unauthorized callers so layout builder editors without block admin still pass.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Access denied.',
+      ], 403);
+    }
+
+    //3.- Normalize the optional recipe type coming from the caller.
     $type = $request->query->get('type');
     if (!is_string($type) || $type === '') {
       $type = 'pds_recipe_template';
@@ -29,7 +37,7 @@ final class GroupController extends ControllerBase {
     try {
       $connection = \Drupal::database();
 
-      //3.- Reuse any active record tied to the UUID when it already exists.
+      //4.- Reuse any active record tied to the UUID when it already exists.
       $existing_id = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
@@ -38,7 +46,7 @@ final class GroupController extends ControllerBase {
         ->fetchField();
 
       if (!$existing_id) {
-        //4.- Insert a fresh group row when the UUID has not been registered yet.
+        //5.- Insert a fresh group row when the UUID has not been registered yet.
         $now = \Drupal::time()->getRequestTime();
         try {
           $connection->insert('pds_template_group')
@@ -62,7 +70,7 @@ final class GroupController extends ControllerBase {
           ->fetchField();
       }
 
-      //5.- Return the id even when null so caller can decide how to react.
+      //6.- Return the id even when null so caller can decide how to react.
       if (!$existing_id) {
         return new JsonResponse([
           'status' => 'error',
@@ -70,14 +78,14 @@ final class GroupController extends ControllerBase {
         ], 500);
       }
 
-      //6.- Acknowledge success with the resolved identifier.
+      //7.- Acknowledge success with the resolved identifier.
       return new JsonResponse([
         'status' => 'ok',
         'group_id' => (int) $existing_id,
       ]);
     }
     catch (\Exception $e) {
-      //7.- Fail gracefully so UI can log or retry without crashing the dialog.
+      //8.- Fail gracefully so UI can log or retry without crashing the dialog.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to ensure group.',
