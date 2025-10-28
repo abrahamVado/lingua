@@ -672,7 +672,15 @@ final class PdsTemplateBlock extends BlockBase {
       ], 400);
     }
 
-    //2.- Parse the JSON payload regardless of whether the caller wrapped it in "row".
+    if (!pds_recipe_template_user_can_manage_template()) {
+      //2.- Block unauthorized access while trusting layout builder permissions to grant editors control.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Access denied.',
+      ], 403);
+    }
+
+    //3.- Parse the JSON payload regardless of whether the caller wrapped it in "row".
     $payload = [];
     $content = $request->getContent();
     if (is_string($content) && $content !== '') {
@@ -685,7 +693,7 @@ final class PdsTemplateBlock extends BlockBase {
       $payload = $payload['row'];
     }
 
-    //3.- Use the shared helper so AJAX uploads work even during cache rebuilds.
+    //4.- Use the shared helper so AJAX uploads work even during cache rebuilds.
     $promoter = \pds_recipe_template_resolve_row_image_promoter();
     if (!$promoter) {
       return new JsonResponse([
@@ -697,14 +705,14 @@ final class PdsTemplateBlock extends BlockBase {
     $result = $promoter->promote($payload);
 
     if (($result['status'] ?? '') !== 'ok') {
-      //4.- Propagate the precise failure so the front-end knows whether to retry or reset the fid.
+      //5.- Propagate the precise failure so the front-end knows whether to retry or reset the fid.
       return new JsonResponse([
         'status' => 'error',
         'message' => $result['message'] ?? 'Unable to promote image.',
       ], $result['code'] ?? 500);
     }
 
-    //5.- Hand the resolved payload back so the caller can cache the canonical URLs immediately.
+    //6.- Hand the resolved payload back so the caller can cache the canonical URLs immediately.
     return new JsonResponse([
       'status' => 'ok',
       'image_url' => $result['image_url'] ?? '',

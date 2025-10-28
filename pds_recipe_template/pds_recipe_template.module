@@ -43,6 +43,40 @@ if (!function_exists('pds_recipe_template_register_runtime_autoloader')) {
 
 pds_recipe_template_register_runtime_autoloader();
 
+if (!function_exists('pds_recipe_template_user_can_manage_template')) {
+  /**
+   * Determine whether the provided account can administer template records.
+   */
+  function pds_recipe_template_user_can_manage_template(?\Drupal\Core\Session\AccountInterface $account = NULL): bool {
+    //1.- Default to the current user so callers inside controllers stay concise.
+    if ($account === NULL) {
+      $account = \Drupal::currentUser();
+    }
+    if (!$account) {
+      return FALSE;
+    }
+
+    //2.- Allow traditional block admins and layout builder editors to interact with AJAX endpoints.
+    $permissions = [
+      'administer blocks',
+      'administer layout builder',
+      'configure any layout',
+      'configure own layout',
+      'configure all layout overrides',
+      'configure editable layout overrides',
+    ];
+
+    foreach ($permissions as $permission) {
+      if ($account->hasPermission($permission)) {
+        return TRUE;
+      }
+    }
+
+    //3.- Deny access when none of the relevant permissions are present.
+    return FALSE;
+  }
+}
+
 /**
  * @file
  * Hooks for pds_recipe_template.
