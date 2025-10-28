@@ -254,7 +254,9 @@ function clearInputs(root) {
     f = sel(root, 'pds-template-link', 'pds-template-link'); if (f) f.value = row.link || '';
   }
 
-  function buildRowFromInputs(root) {
+  function buildRowFromInputs(root, existingRow) {
+    existingRow = existingRow || {};
+
     var headerEl = sel(root, 'pds-template-header', 'pds-template-header');
     var subEl    = sel(root, 'pds-template-subheader', 'pds-template-subheader');
     var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
@@ -266,14 +268,104 @@ function clearInputs(root) {
     var link        = linkEl ? linkEl.value : '';
     var fid         = getImageFid(root);
 
-    return {
+    var latValue = (typeof existingRow.latitud !== 'undefined') ? existingRow.latitud : null;
+    var lngValue = (typeof existingRow.longitud !== 'undefined') ? existingRow.longitud : null;
+
+    var baseRow = {
       header: header,
       subheader: subheader,
       description: description,
       link: link,
-      image_fid: fid || null,
-      image_url: '' // backend resolves URL on save
+      image_fid: fid || existingRow.image_fid || null,
+      image_url: existingRow.image_url || existingRow.desktop_img || existingRow.mobile_img || '',
+      desktop_img: existingRow.desktop_img || existingRow.image_url || '',
+      mobile_img: existingRow.mobile_img || existingRow.image_url || '',
+      latitud: latValue,
+      longitud: lngValue
     };
+
+    if (fid) {
+      //1.- Reset URLs when a fresh upload has been selected so the resolver can repopulate them.
+      baseRow.image_url = '';
+      baseRow.desktop_img = '';
+      baseRow.mobile_img = '';
+    }
+
+    return baseRow;
+  }
+
+  function resolveRowViaAjax(root, row) {
+    //1.- Always return a promise so callers can await the outcome uniformly.
+    return new Promise(function (resolve) {
+      if (!row) {
+        resolve(row);
+        return;
+      }
+
+      if (typeof window.fetch !== 'function') {
+        //2.- Older browsers simply skip the pre-save promotion and keep the temp state.
+        resolve(row);
+        return;
+      }
+
+      var url = root.getAttribute('data-pds-template-resolve-row-url');
+      if (!url) {
+        //3.- Without a backend endpoint we leave the payload untouched for backwards compatibility.
+        resolve(row);
+        return;
+      }
+
+      //4.- Skip the request when there is no fid and the URLs are already stable.
+      if (!row.image_fid) {
+        resolve(row);
+        return;
+      }
+
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ row: row })
+      })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error('Request failed');
+          }
+          return response.json();
+        })
+        .then(function (json) {
+          if (!json || json.status !== 'ok') {
+            resolve(row);
+            return;
+          }
+
+          if (Object.prototype.hasOwnProperty.call(json, 'image_fid')) {
+            row.image_fid = json.image_fid;
+          }
+          if (json.image_url) {
+            row.image_url = json.image_url;
+          }
+          if (json.desktop_img) {
+            row.desktop_img = json.desktop_img;
+          }
+          if (json.mobile_img) {
+            row.mobile_img = json.mobile_img;
+          }
+
+          if (!row.image_url && json.desktop_img) {
+            //6.- Guarantee backward compatibility fields even when the backend omits image_url.
+            row.image_url = json.desktop_img;
+          }
+
+          resolve(row);
+        })
+        .catch(function () {
+          //5.- Network issues should not block the UX; keep the previous state intact.
+          resolve(row);
+        });
+    });
   }
 
   //
@@ -402,51 +494,62 @@ function clearInputs(root) {
   }
 
 function commitRow(root) {
-  var newRow = buildRowFromInputs(root);
+  var rows = readState(root);
+  var idx = readEditIndex(root);
+  var existingRow = (idx >= 0 && idx < rows.length) ? rows[idx] : null;
+  var newRow = buildRowFromInputs(root, existingRow);
 
   // Require header to avoid empty rows.
   if (!newRow.header || !newRow.header.trim()) {
-    return;
+    return Promise.resolve(false);
   }
 
-  var rows = readState(root);
-  var idx = readEditIndex(root);
+  return resolveRowViaAjax(root, newRow).then(function (resolvedRow) {
+    var currentRows = readState(root);
+    if (idx >= 0 && idx < currentRows.length) {
+      currentRows[idx] = resolvedRow;
+    } else {
+      currentRows.push(resolvedRow);
+    }
 
-  if (idx >= 0 && idx < rows.length) {
-    rows[idx] = newRow;
-  } else {
-    rows.push(newRow);
-  }
+    writeState(root, currentRows);
+    writeEditIndex(root, -1);
 
-  writeState(root, rows);
-  writeEditIndex(root, -1);
+    var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
+    if (btn) {
+      btn.textContent = 'Add row';
+    }
 
-  var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
-  if (btn) {
-    btn.textContent = 'Add row';
-  }
+    // Clear text inputs.
+    clearInputs(root);
 
-  // Clear text inputs.
-  clearInputs(root);
+    // Reset the managed_file widget to pristine so next row can upload a new image.
+    resetFileWidgetToPristine(root);
 
-  // Reset the managed_file widget to pristine so next row can upload a new image.
-  resetFileWidgetToPristine(root);
+    // Refresh preview table and show Tab B.
+    renderPreviewTable(root);
+    activateTab(root, 'panel-b');
 
-  // Refresh preview table and show Tab B.
-  renderPreviewTable(root);
-  activateTab(root, 'panel-b');
+    return true;
+  });
 }
 
 function handleAddOrUpdateRow(root) {
   //1.- Capture counts before and after so we know when the first row arrives.
   var beforeCount = readState(root).length;
-  commitRow(root);
-  var afterCount = readState(root).length;
 
-  if (beforeCount === 0 && afterCount > 0) {
-    //2.- As soon as the first row exists we ask the backend to ensure the group.
-    ensureGroupExists(root);
-  }
+  commitRow(root).then(function (didCommit) {
+    if (!didCommit) {
+      return;
+    }
+
+    var afterCount = readState(root).length;
+
+    if (beforeCount === 0 && afterCount > 0) {
+      //2.- As soon as the first row exists we ask the backend to ensure the group.
+      ensureGroupExists(root);
+    }
+  });
 }
 
 
