@@ -1317,15 +1317,27 @@ function rebuildManagedFileEmpty(root) {
 
         var hostForm = root.closest('form');
         if (hostForm) {
-          //1.- Remember the exact submit trigger so requestSubmit() can reuse it later.
-          hostForm.addEventListener('click', function (event) {
-            var target = event.target;
+          function cacheSubmitter(target) {
+            //1.- Persist the element so later re-submissions can mirror Drupal's triggering control.
             if (!target) {
               return;
             }
             var isSubmit = target.matches('input[type="submit"], button[type="submit"], .form-submit');
             if (isSubmit) {
               root._pdsTemplateSubmitter = target;
+            }
+          }
+
+          //2.- Capture pointer and keyboard activation in addition to clicks so Enter/Space still record the trigger.
+          hostForm.addEventListener('click', function (event) {
+            cacheSubmitter(event.target);
+          }, true);
+          hostForm.addEventListener('pointerdown', function (event) {
+            cacheSubmitter(event.target);
+          }, true);
+          hostForm.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' || event.key === ' ') {
+              cacheSubmitter(event.target);
             }
           }, true);
 
@@ -1345,6 +1357,10 @@ function rebuildManagedFileEmpty(root) {
 
             //2.- Commit pending edits first so the serialized state matches the latest inputs.
             var submitter = event.submitter || root._pdsTemplateSubmitter || null;
+            if (!submitter) {
+              //2.- Fall back to the form's primary submit control so Layout Builder actions still propagate.
+              submitter = hostForm.querySelector('[data-drupal-selector="edit-actions-submit"], input[type="submit"], button[type="submit"], .form-submit');
+            }
             commitPendingEditsBeforeSubmit(root).then(function (didCommit) {
               if (!didCommit) {
                 return;
@@ -1352,6 +1368,8 @@ function rebuildManagedFileEmpty(root) {
 
               //3.- Retry the submission once the hidden state reflects the newest row changes.
               root._pdsTemplateBypassSubmit = true;
+              //4.- Reset the cached element so future submits can record a fresh trigger.
+              root._pdsTemplateSubmitter = null;
               if (typeof hostForm.requestSubmit === 'function') {
                 //2.- Prefer requestSubmit so Drupal AJAX preserves the original triggering element.
                 if (submitter) {
