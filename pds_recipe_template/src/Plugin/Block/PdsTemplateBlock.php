@@ -249,6 +249,17 @@ final class PdsTemplateBlock extends BlockBase {
         'query' => ['type' => $recipe_type],
       ],
     )->toString();
+    $update_row_url = Url::fromRoute(
+      'pds_recipe_template.update_row',
+      [
+        'uuid' => $block_uuid,
+        'row_uuid' => '00000000-0000-0000-0000-000000000000',
+      ],
+      [
+        'absolute' => TRUE,
+        'query' => ['type' => $recipe_type],
+      ],
+    )->toString();
 
     $form['pds_template_admin'] = [
       '#type' => 'container',
@@ -261,6 +272,7 @@ final class PdsTemplateBlock extends BlockBase {
         'data-pds-template-ensure-group-url' => $ensure_group_url,
         'data-pds-template-resolve-row-url' => $resolve_row_url,
         'data-pds-template-create-row-url' => $create_row_url,
+        'data-pds-template-update-row-url' => $update_row_url,
         'data-pds-template-group-id' => (string) $group_id,
         'data-pds-template-block-uuid' => $block_uuid,
         'data-pds-template-recipe-type' => $recipe_type,

@@ -27,3 +27,14 @@ pds_recipe_template.create_row:
     _permission: 'administer blocks'
     uuid: '[0-9a-fA-F-]+'
   methods: ['POST']
+
+pds_recipe_template.update_row:
+  path: '/pds-template/update-row/{uuid}/{row_uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_template\Controller\RowController::update'
+    _title: 'Update PDS Template row'
+  requirements:
+    _permission: 'administer blocks'
+    uuid: '[0-9a-fA-F-]+'
+    row_uuid: '[0-9a-fA-F-]+'
+  methods: ['PATCH', 'POST']
