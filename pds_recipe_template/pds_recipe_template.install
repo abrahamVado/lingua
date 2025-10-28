@@ -399,3 +399,26 @@ function pds_recipe_template_update_9002(): void {
   //9.- Drop the temporary table once every transferable row has been processed.
   $schema->dropTable($legacy_table);
 }
+
+/**
+ * Force a clean rebuild of the recipe template tables.
+ */
+function pds_recipe_template_update_9003(): void {
+  //1.- Load the canonical schema so recreated tables always match fresh installs.
+  $schema_definition = pds_recipe_template_schema();
+  $schema = \Drupal::database()->schema();
+
+  //2.- Drop dependent tables first so stale structures never survive the rebuild.
+  $tables_to_drop = ['pds_template_item', 'pds_template_group'];
+  foreach ($tables_to_drop as $table) {
+    if ($schema->tableExists($table)) {
+      $schema->dropTable($table);
+    }
+  }
+
+  //3.- Recreate the group table before reintroducing the child item records.
+  $schema->createTable('pds_template_group', $schema_definition['pds_template_group']);
+
+  //4.- Recreate the item table so fresh rows can be inserted via the block UI again.
+  $schema->createTable('pds_template_item', $schema_definition['pds_template_item']);
+}
