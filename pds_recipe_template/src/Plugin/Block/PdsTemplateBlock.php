@@ -57,7 +57,8 @@ final class PdsTemplateBlock extends BlockBase {
     $stored_group_id = $this->configuration['group_id'] ?? 0;
     if (is_numeric($stored_group_id) && (int) $stored_group_id > 0) {
       try {
-        $group_uuid = \Drupal::database()->select('pds_template_group', 'g')
+        $connection = \Drupal::database();
+        $group_uuid = $connection->select('pds_template_group', 'g')
           ->fields('g', ['uuid'])
           ->condition('g.id', (int) $stored_group_id)
           ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -65,20 +66,37 @@ final class PdsTemplateBlock extends BlockBase {
           ->execute()
           ->fetchField();
 
-        if (is_string($group_uuid) && $group_uuid !== '') {
+        if (is_string($group_uuid) && $group_uuid !== '' && Uuid::isValid($group_uuid)) {
           //2.- Cache the recovered identifier so future lookups skip the
           //    database round-trip while keeping old rows linked to the block.
           $this->configuration['instance_uuid'] = $group_uuid;
           return $group_uuid;
         }
+
+        if ($group_uuid !== FALSE) {
+          //3.- Repair legacy rows that never stored a UUID so historical data
+          //    continues to load in the editor by assigning a fresh identifier
+          //    directly on the existing group record.
+          $replacement_uuid = \Drupal::service('uuid')->generate();
+          $connection->update('pds_template_group')
+            ->fields(['uuid' => $replacement_uuid])
+            ->condition('id', (int) $stored_group_id)
+            ->condition('deleted_at', NULL, 'IS NULL')
+            ->execute();
+
+          //4.- Persist the new identifier so subsequent AJAX requests reuse
+          //    the repaired value instead of generating more UUIDs.
+          $this->configuration['instance_uuid'] = $replacement_uuid;
+          return $replacement_uuid;
+        }
       }
       catch (\Exception $exception) {
-        //3.- Ignore lookup failures so newly created blocks can still receive
+        //5.- Ignore lookup failures so newly created blocks can still receive
         //    a fresh UUID without interrupting the editor experience.
       }
     }
 
-    //4.- Fallback to generating a new UUID for brand-new blocks or when the
+    //6.- Fallback to generating a new UUID for brand-new blocks or when the
     //    historical lookup could not find a matching record.
     $uuid = \Drupal::service('uuid')->generate();
     $this->configuration['instance_uuid'] = $uuid;
