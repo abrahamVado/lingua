@@ -75,7 +75,16 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      //4.- Resolve the numeric group id so we can assert ownership before updating anything.
+      //4.- Guarantee the storage schema matches expectations before inserting brand-new rows.
+      $schema_repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+      if (!$schema_repairer->ensureItemTableUpToDate()) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Template storage needs attention. Re-run database updates and try again.',
+        ], 500);
+      }
+
+      //5.- Resolve the numeric group id so we can assert ownership before updating anything.
       $group_id = \pds_recipe_template_ensure_group_and_get_id($uuid, $type);
       if (!$group_id) {
         return new JsonResponse([
@@ -165,7 +174,7 @@ final class RowController extends ControllerBase {
         $response_row['weight'] = $weight;
       }
 
-      //5.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
+      //6.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
       return new JsonResponse([
         'status' => 'ok',
         'id' => (int) $insert_id,
@@ -175,7 +184,7 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //6.- Shield the UI from low-level errors by returning a clear failure response.
+      //7.- Shield the UI from low-level errors by returning a clear failure response.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to create row.',
@@ -193,9 +202,18 @@ final class RowController extends ControllerBase {
     }
 
     try {
+      //2.- Repair the legacy schema automatically so listings keep working after deployments.
+      $schema_repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+      if (!$schema_repairer->ensureItemTableUpToDate()) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Template storage needs attention. Re-run database updates and try again.',
+        ], 500);
+      }
+
       $connection = \Drupal::database();
 
-      //2.- Load the numeric group id so we can scope the item query correctly.
+      //3.- Load the numeric group id so we can scope the item query correctly.
       $group_id = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
@@ -204,7 +222,7 @@ final class RowController extends ControllerBase {
         ->fetchField();
 
       if (!$group_id) {
-        //3.- Return an empty dataset when the block has not stored rows yet.
+        //4.- Return an empty dataset when the block has not stored rows yet.
         return new JsonResponse([
           'status' => 'ok',
           'rows' => [],
@@ -233,7 +251,7 @@ final class RowController extends ControllerBase {
 
       $rows = [];
       foreach ($result as $record) {
-        //4.- Normalize every column into the structure expected by the admin UI.
+        //5.- Normalize every column into the structure expected by the admin UI.
         $desktop = (string) $record->desktop_img;
         $mobile = (string) $record->mobile_img;
 
@@ -260,7 +278,7 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //5.- Surface a friendly error when the database lookup fails unexpectedly.
+      //6.- Surface a friendly error when the database lookup fails unexpectedly.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to load rows.',
@@ -328,6 +346,15 @@ final class RowController extends ControllerBase {
     }
 
     try {
+      //4.- Repair the legacy schema so updates cannot fail due to mismatched column sets.
+      $schema_repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+      if (!$schema_repairer->ensureItemTableUpToDate()) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Template storage needs attention. Re-run database updates and try again.',
+        ], 500);
+      }
+
       $group_id = \pds_recipe_template_ensure_group_and_get_id($uuid, $type);
       if (!$group_id) {
         return new JsonResponse([
