@@ -26,6 +26,7 @@
 - Review tab component lifecycle hooks to ensure they reload items when the edit view is opened.
 - Add temporary logging around the reducer or store responsible for tab data to detect unintended resets.
 - Compare the behavior with a previous known-good commit to determine if a recent change introduced the regression.
+- Validate whether legacy blocks rely solely on the stored `group_id` and, if so, hydrate the missing `instance_uuid` from that identifier to keep tab B connected to historical rows.
 
 //7.- Additional Notes
 - Capture screenshots or network logs during reproduction to share findings with the team.

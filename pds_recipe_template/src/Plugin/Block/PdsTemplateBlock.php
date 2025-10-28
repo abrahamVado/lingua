@@ -45,9 +45,40 @@ final class PdsTemplateBlock extends BlockBase {
    * Stored in configuration['instance_uuid'].
    */
   private function getBlockInstanceUuid(): string {
-    if (!empty($this->configuration['instance_uuid'])) {
-      return $this->configuration['instance_uuid'];
+    $stored_uuid = $this->configuration['instance_uuid'] ?? '';
+    if (is_string($stored_uuid) && $stored_uuid !== '') {
+      return $stored_uuid;
     }
+
+    //1.- Attempt to recover the historical UUID from the persisted group id so
+    //    legacy blocks created before instance_uuid was stored continue to load
+    //    their saved rows when editors reopen the modal.
+    $stored_group_id = $this->configuration['group_id'] ?? 0;
+    if (is_numeric($stored_group_id) && (int) $stored_group_id > 0) {
+      try {
+        $group_uuid = \Drupal::database()->select('pds_template_group', 'g')
+          ->fields('g', ['uuid'])
+          ->condition('g.id', (int) $stored_group_id)
+          ->condition('g.deleted_at', NULL, 'IS NULL')
+          ->range(0, 1)
+          ->execute()
+          ->fetchField();
+
+        if (is_string($group_uuid) && $group_uuid !== '') {
+          //2.- Cache the recovered identifier so future lookups skip the
+          //    database round-trip while keeping old rows linked to the block.
+          $this->configuration['instance_uuid'] = $group_uuid;
+          return $group_uuid;
+        }
+      }
+      catch (\Exception $exception) {
+        //3.- Ignore lookup failures so newly created blocks can still receive
+        //    a fresh UUID without interrupting the editor experience.
+      }
+    }
+
+    //4.- Fallback to generating a new UUID for brand-new blocks or when the
+    //    historical lookup could not find a matching record.
     $uuid = \Drupal::service('uuid')->generate();
     $this->configuration['instance_uuid'] = $uuid;
     return $uuid;
