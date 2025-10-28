@@ -21,7 +21,7 @@ pds_recipe_template.resolve_row:
 pds_recipe_template.create_row:
   path: '/pds-template/create-row/{uuid}'
   defaults:
-    _controller: '\Drupal\pds_recipe_template\Controller\RowController::create'
+    _controller: '\Drupal\pds_recipe_template\Controller\RowController::createRow'
     _title: 'Create PDS Template row'
   requirements:
     _permission: 'administer blocks'
