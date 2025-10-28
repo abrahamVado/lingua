@@ -5,6 +5,33 @@
  * Hooks for pds_recipe_template.
  */
 
+//1.- Provide an emergency PSR-4 loader so optimized Composer installs still
+//    resolve the module's service classes without relying on vendor metadata.
+static $pdsRecipeTemplateAutoloaderRegistered = FALSE;
+if (!$pdsRecipeTemplateAutoloaderRegistered) {
+  spl_autoload_register(static function (string $class): void {
+    //2.- Ignore classes outside this module's namespace to keep the handler
+    //    lightweight and let Drupal's primary loader resolve everything else.
+    if (!str_starts_with($class, 'Drupal\\pds_recipe_template\\')) {
+      return;
+    }
+
+    //3.- Translate the namespace into a file path within the module's src
+    //    directory and include it when the file exists.
+    $relativeClass = substr($class, strlen('Drupal\\pds_recipe_template\\'));
+    $relativePath = str_replace('\\', '/', $relativeClass);
+    $file = __DIR__ . '/src/' . $relativePath . '.php';
+
+    if (is_file($file) && !class_exists($class, FALSE)) {
+      require_once $file;
+    }
+  }, TRUE, TRUE);
+
+  //4.- Mark the autoloader as registered so we avoid attaching duplicates on
+  //    subsequent includes of this module file within the same request.
+  $pdsRecipeTemplateAutoloaderRegistered = TRUE;
+}
+
 /**
  * Implements hook_theme().
  *
