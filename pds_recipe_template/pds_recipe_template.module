@@ -1,0 +1,24 @@
+<?php
+
+/**
+ * @file
+ * Hooks for pds_recipe_template.
+ */
+
+/**
+ * Implements hook_theme().
+ *
+ * Registers the theme hook `pds_template_block`.
+ * Maps it to templates/pds-template-block.html.twig.
+ */
+function pds_recipe_template_theme($existing, $type, $theme, $path) {
+  return [
+    'pds_template_block' => [
+      'template' => 'pds-template', // looks for pds-template-block.html.twig
+      'path' => $path . '/templates',
+      'variables' => [
+        'items' => [],
+      ],
+    ],
+  ];
+}

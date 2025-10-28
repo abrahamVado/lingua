@@ -1,0 +1,81 @@
+<?php
+
+/**
+ * @file
+ * Install file for pds_recipe_template.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function pds_recipe_template_schema() {
+  $schema['pds_template_item'] = [
+    'description' => 'Rows for PDS Template block cards.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'uuid' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ],
+      'block_uuid' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'weight' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'header' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'subheader' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'description' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+      ],
+      'link' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'image_fid' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'image_url' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'uuid' => ['uuid'],
+    ],
+    'indexes' => [
+      'block_uuid' => ['block_uuid'],
+      'weight' => ['weight'],
+    ],
+  ];
+
+  return $schema;
+}

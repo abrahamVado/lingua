@@ -1,0 +1,7 @@
+name: 'Recipe: Template'
+type: 'Site'
+install:
+  - pds_recipe_template
+  - block
+  - layout_builder
+  - layout_discovery

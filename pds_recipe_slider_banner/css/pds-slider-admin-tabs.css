@@ -1,0 +1,39 @@
+.pds-slider-admin-wrapper {
+  display: flex;
+  gap: 1rem;
+}
+
+.pds-slider-admin-tabs-nav {
+  flex: 0 0 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.pds-slider-admin-tabs-nav button {
+  background-color: #f1f1f1;
+  border: 1px solid #ccc;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  font-size: 14px;
+}
+
+.pds-slider-admin-tabs-nav button.pds-active {
+  background-color: #ccc;
+}
+
+.pds-slider-admin-tabpanel {
+  flex: 1 1 auto;
+  border: 1px solid #ccc;
+  padding: 1rem;
+  display: none;
+}
+
+.pds-slider-admin-tabpanel.pds-active {
+  display: block;
+}
+
+.pds-slider-admin-tabpanel h3 {
+  margin-top: 0;
+}

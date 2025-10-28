@@ -1,0 +1,34 @@
+<section class="principal_invest" aria-labelledby="principal_invest-header">
+  <div class="principal_invest__container">
+    <h2 id="principal_invest-header" class="principal_invest__header">
+      {{ header|default('Conoce nuestras')|e }}
+      <span class="principal_invest__header-highlight">{{ header_accent|default('formas de invertir1')|e }}</span>
+    </h2>
+
+    <div class="principal_invest__slider" aria-label="{{ aria_label|default('Formas de invertir')|e }}" tabindex="0">
+      <button class="principal_invest__nav principal_invest__nav--prev" aria-label="{{ prev_label|default('Anterior')|e }}" disabled>‹</button>
+
+      <div class="principal_invest__track" id="principal_invest-track">
+        {% for card in cards %}
+          <div class="principal_invest__slide">
+            <a href="{{ (card.url ?? '#') }}">
+              <article class="principal_invest__card">
+                <h3 class="principal_invest__card-header">{{ card.header|e }}</h3>
+                <p class="principal_invest__card-text">{{ card.text|e }}</p>
+              </article>
+            </a>
+          </div>
+        {% else %}
+          <div class="principal_invest__slide">
+            <article class="principal_invest__card">
+              <h3 class="principal_invest__card-header">—</h3>
+              <p class="principal_invest__card-text">{{ 'Sin elementos'|t }}</p>
+            </article>
+          </div>
+        {% endfor %}
+      </div>
+
+      <button class="principal_invest__nav principal_invest__nav--next" aria-label="{{ next_label|default('Siguiente')|e }}">›</button>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,6 @@
+pds_template.settings:
+  type: config_object
+  label: 'Principal: Template (ajustes)'
+  mapping:
+    header:         { type: label,  label: 'Título' }
+    header_accent:  { type: label,  label: 'Título destacado' }

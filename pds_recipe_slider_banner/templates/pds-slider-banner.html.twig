@@ -1,0 +1,76 @@
+{#
+  pds-slider-banner.html.twig
+
+  Inputs expected:
+  - slides: [
+      {
+        image_desktop: "https://example.com/desktop.jpg",
+        image_mobile:  "https://example.com/mobile.jpg",
+        alt:           "texto alt accesible",
+        title_html:    "<strong>Título con marca</strong>",
+        intro:         "Texto introductorio corto.",
+        cta_url:       "https://…",
+        cta_label:     "Ver más"
+      },
+      …
+    ]
+
+  Behavior:
+  - Uses <picture> with <source media="(min-width:768px)"> for desktop.
+  - Falls back to desktop if mobile URL is missing.
+#}
+
+<section class="principal_hero principal_hero--gradient-dark" aria-label="Promociones destacadas">
+  <div class="principal_hero__slider" id="principalHero">
+
+    {% for slide in slides %}
+      <article class="principal_hero__slide">
+        <picture class="principal_hero__bg">
+          {% if slide.image_desktop %}
+            <source
+              media="(min-width: 768px)"
+              srcset="{{ slide.image_desktop }}"
+            >
+          {% endif %}
+
+          {# Use mobile if present. Otherwise fallback to desktop. #}
+          <img
+            class="principal_hero__bgImg"
+            src="{{ slide.image_mobile ?: slide.image_desktop }}"
+            alt="{{ slide.alt }}"
+          >
+        </picture>
+
+        <div class="principal_hero__inner">
+          <div class="principal_hero__content">
+            <h1 class="principal_hero__title">
+              {{ slide.title_html|raw }}
+            </h1>
+
+            {% if slide.intro %}
+              <p class="principal_hero__intro">{{ slide.intro }}</p>
+            {% endif %}
+
+            {% if slide.cta_url and slide.cta_label %}
+              <div class="principal_hero__cta">
+                <a class="principal_btn principal_btn--primary pds-link"
+                   href="{{ slide.cta_url }}">
+                  {{ slide.cta_label }}
+                </a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </article>
+    {% endfor %}
+
+  </div>
+
+  <button class="principal_hero__arrow principal_hero__arrow--prev"
+          aria-label="Anterior"
+          type="button"></button>
+
+  <button class="principal_hero__arrow principal_hero__arrow--next"
+          aria-label="Siguiente"
+          type="button"></button>
+</section>

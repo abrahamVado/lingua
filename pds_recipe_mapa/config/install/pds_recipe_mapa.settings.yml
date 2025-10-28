@@ -1,0 +1,7 @@
+# modules/custom/pds_recipe_formas_de_invertir/config/install/pds_recipe_formas_de_invertir.settings.yml
+header: 'Conoce nuestras'
+header_accent: 'formas de invertir'
+aria_label: 'Formas de invertir'
+prev_label: 'Anterior'
+next_label: 'Siguiente'
+cards_json: ''

@@ -1,0 +1,21 @@
+{# Requiere: logo_url (ruta local dentro del tema o módulo)
+   Opcionales: title, body_text, link_url, link_text #}
+
+<section class="principal_modulo_educacion_financiera">
+  <div class="principal-container">
+    <div class="principal-contentarea">
+      <div class="principal-imgarea">
+        <img src="{{ logo_url }}" alt="Principal Foundation">
+      </div>
+
+      <div class="principal-textarea">
+        <h2>{{ title|default('Educação financeira para Ensino Fundamental e Médio.') }}</h2>
+        <p>{{ body_text|default('Desde 2016, mais de 12 mil alunos já participaram das aulas ministradas por nossos colaboradores e parceiros voluntários.') }}</p>
+      </div>
+
+      <div class="principal-buttonarea">
+        <a href="{{ link_url|default('#') }}">{{ link_text|default('Conheça o programa') }}</a>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,9 @@
+# pds_recipe_educacion_financiera.libraries.yml
+pds_executives:
+  css:
+    theme:
+      css/pds-executives.css: {}
+  js:
+    js/pds-executives.js: {}
+  dependencies:
+    - core/drupal

@@ -1,0 +1,54 @@
+{#
+  Variables:
+  - items: array of rows saved in block config
+    each row:
+      header
+      subheader
+      description
+      link
+      image_url
+#}
+
+<div class="pds-template-display-wrapper">
+  {% if items is iterable and items|length > 0 %}
+    <table class="pds-template-display-table">
+      <thead>
+        <tr>
+          <th>Header</th>
+          <th>Subheader</th>
+          <th>Description</th>
+          <th>Link</th>
+          <th>Image</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in items %}
+          <tr>
+            <td>{{ row.header|e }}</td>
+            <td>{{ row.subheader|e }}</td>
+            <td>{{ row.description|e }}</td>
+            <td>
+              {% if row.link %}
+                <a href="{{ row.link|e }}" rel="noopener noreferrer">{{ row.link|e }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>
+              {% if row.image_url %}
+                <img
+                  src="{{ row.image_url|e }}"
+                  alt="{{ row.header|e }}"
+                  class="pds-template-display-thumb" />
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div>No rows available.</div>
+  {% endif %}
+</div>

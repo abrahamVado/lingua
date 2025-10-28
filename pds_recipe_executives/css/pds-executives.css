@@ -1,0 +1,312 @@
+/* ===== Fonts (adjust paths or remove if theme already loads them) ===== */
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProThin.otf') format('opentype');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProThinItalic.otf') format('opentype');
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProLight.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProLightItalic.otf') format('opentype');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProRegular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProItalic.otf') format('opentype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProBold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProBoldItalic.otf') format('opentype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProHeavy.otf') format('opentype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProHeavyItalic.otf') format('opentype');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Global font family if needed */
+body {
+  font-family:
+    'FS Eliot Pro',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Open Sans',
+    'Helvetica Neue',
+    sans-serif;
+}
+
+/* ===== Utilities ===== */
+.u-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  border: 0 !important;
+  padding: 0 !important;
+}
+
+html.u-noscroll,
+html.u-noscroll body {
+  overflow: hidden;
+}
+
+/* ===== Block: principal-executives ===== */
+.principal-executives {
+  padding: 48px 16px;
+}
+.principal-executives__inner {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+.principal-executives__title {
+  font-size: clamp(22px, 2.5vw, 28px);
+  margin: 0 0 28px;
+}
+
+.principal-executives__grid {
+  display: grid;
+  gap: 40px 56px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  justify-items: center;
+}
+@media (max-width: 960px) {
+  .principal-executives__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 32px;
+  }
+}
+@media (max-width: 560px) {
+  .principal-executives__grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.principal-executives__card {
+  text-align: center;
+}
+.principal-executives__card:hover {
+  filter: grayscale(1);
+}
+
+.principal-executives__card-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  text-align: center;
+}
+
+.principal-executives__photo {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  position: relative;
+  transition: transform .2s ease;
+}
+
+.principal-executives__card .principal-executives__photo:hover {
+  box-shadow: 0 0 0 6px rgba(238, 243, 247, 0.6) inset;
+}
+
+.principal-executives__name {
+  font-size: 22px;
+  text-align: center;
+  color: #0076cf;
+}
+
+/* ===== Block: principal-modal ===== */
+.principal-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.principal-modal.is-open {
+  display: flex;
+}
+.principal-modal[aria-hidden="true"] {
+  display: none;
+}
+
+.principal-modal__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+}
+
+.principal-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 920px);
+  margin: 0 30px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.25);
+}
+
+.principal-modal__close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: 0;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.principal-modal__content {
+  display: grid;
+  grid-template-columns: 285px 1fr;
+  gap: 20px;
+}
+
+.principal-modal__photo {
+  width: 100%;
+  object-fit: cover;
+}
+
+.principal-modal__name {
+  font-size: 24px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0;
+  word-wrap: break-word;
+}
+
+.principal-modal__title {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  word-wrap: break-word;
+}
+
+.principal-modal__cv p {
+  font-size: 18px;
+  font-weight: 300;
+  color: #333;
+  margin-top: 24px;
+  word-wrap: break-word;
+}
+
+.principal-modal__links {
+  margin-top: 12px;
+}
+
+.principal-modal__links a {
+  text-decoration: none;
+  border: 1px solid #1c6bc1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: #1c6bc1;
+  display: inline-block;
+}
+
+.principal-modal__links a:hover {
+  background: #1c6bc1;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+
+  .principal-modal__dialog {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+
+  .principal-modal__cv p {
+    margin-top: 0;
+  }
+
+  .principal-modal__title {
+    margin-bottom: 10px;
+  }
+
+  .principal-modal__close {
+    top: 40px;
+  }
+
+  .principal-modal__content {
+    grid-template-columns: 1fr;
+    top: 30px;
+    margin-top: 60px;
+  }
+
+  .principal-modal__photo {
+    max-height: 350px;
+  }
+
+  .principal-modal__cv {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .principal-modal__name {
+    margin-top: 0;
+  }
+}

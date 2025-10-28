@@ -1,0 +1,7 @@
+name: 'Recipe: Fondos Mutuos'
+type: 'Site'
+install:
+  - pds_recipe_fondos_mutuos
+  - block
+  - layout_builder
+  - layout_discovery  

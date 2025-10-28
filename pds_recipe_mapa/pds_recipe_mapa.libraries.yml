@@ -1,0 +1,18 @@
+principal_mapa:
+  css:
+    theme:
+      css/principal_mapa.css: {}
+  js:
+    js/principal_mapa.js: {}
+  dependencies:
+    - core/drupal
+
+principal_mapa.admin:
+  css:
+    theme:
+      css/principal_mapa.admin.css: {}
+  js:
+    js/principal_mapa.admin.js: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings

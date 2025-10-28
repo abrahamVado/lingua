@@ -1,0 +1,8 @@
+heading: 'Nuestros <span>Fondos Mutuos</span>'
+subheading: 'Descubre nuestras alternativas <span>según tu perfil de riesgo</span>'
+items_json: |
+  [
+    {""title"":""Fondo Conservador"",""description"":""Ideal para estabilidad"",""icon"":""module://pds_recipe_fondos_mutuos/images/icon.png"",""arrow"":""module://pds_recipe_fondos_mutuos/images/flecha.png"",""url"":""#""},
+    {""title"":""Fondos Balanceados"",""description"":""Cartera diversificada"",""icon"":""module://pds_recipe_fondos_mutuos/images/icon.png"",""arrow"":""module://pds_recipe_fondos_mutuos/images/flecha.png"",""url"":""#""},
+    {""title"":""Fondos de Deuda"",""description"":""Instrumentos de deuda"",""icon"":""module://pds_recipe_fondos_mutuos/images/icon.png"",""arrow"":""module://pds_recipe_fondos_mutuos/images/flecha.png"",""url"":""#""}
+  ]

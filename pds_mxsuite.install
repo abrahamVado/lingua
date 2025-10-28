@@ -1,0 +1,258 @@
+<?php
+
+use Drupal\Core\Recipe\Recipe;
+use Drupal\Core\Recipe\RecipeRunner;
+
+/**
+ * Implements hook_install().
+ *
+ * On fresh install of pds_mxsuite:
+ * - Create DB tables needed by suite (group and item tables for template content).
+ * - Run bundled recipes.
+ */
+function pds_mxsuite_install(): void {
+  // 1. Ensure required tables exist on fresh install.
+  _pds_mxsuite_create_tables();
+
+  // 2. Apply recipes (your existing logic).
+  $module_path = \Drupal::service('extension.list.module')->getPath('pds_mxsuite');
+  $base = DRUPAL_ROOT . '/' . $module_path . '/recipes';
+  $dirs = ['fondos_mutuos','educacion_financiera'];
+
+  foreach ($dirs as $dir) {
+    $path = $base . '/' . $dir;
+    if (!is_dir($path)) {
+      \Drupal::logger('pds_mxsuite')->warning('Recipe missing: @dir', ['@dir' => $dir]);
+      continue;
+    }
+    try {
+      $recipe = Recipe::createFromDirectory($path);
+      RecipeRunner::processRecipe($recipe);
+      \Drupal::logger('pds_mxsuite')->info('Recipe applied: @dir', ['@dir' => $dir]);
+    }
+    catch (\Throwable $e) {
+      \Drupal::logger('pds_mxsuite')->error('Recipe @dir failed: @m', [
+        '@dir' => $dir,
+        '@m' => $e->getMessage(),
+      ]);
+    }
+  }
+}
+
+/**
+ * Shared helper.
+ *
+ * Creates the two core tables:
+ * - pds_template_group
+ * - pds_template_item
+ *
+ * Safe to call multiple times. It will skip if tables already exist.
+ */
+function _pds_mxsuite_create_tables(): void {
+  $schema = \Drupal::database()->schema();
+
+  // Master table = one component/group instance.
+  if (!$schema->tableExists('pds_template_group')) {
+    $schema->createTable('pds_template_group', [
+      'description' => 'Logical group of template items (one rendered component instance).',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+        ],
+        'uuid' => [
+          'type' => 'varchar',
+          'length' => 128,
+          'not null' => TRUE,
+        ],
+        'type' => [
+          'type' => 'varchar',
+          'length' => 64,
+          'not null' => TRUE,
+          'default' => '',
+          // e.g. "pds_recipe_executives"
+          //      "pds_recipe_formas_de_invertir"
+        ],
+        'created_at' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'deleted_at' => [
+          'type' => 'int',
+          'not null' => FALSE,
+        ],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => [
+        'uuid' => ['uuid'],
+      ],
+      'indexes' => [
+        'type' => ['type'],
+        'deleted_at' => ['deleted_at'],
+      ],
+    ]);
+  }
+
+  // Child table = many cards per group.
+  if (!$schema->tableExists('pds_template_item')) {
+    $schema->createTable('pds_template_item', [
+      'description' => 'Items/cards that belong to a template group.',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+        ],
+        'uuid' => [
+          'type' => 'varchar',
+          'length' => 128,
+          'not null' => TRUE,
+        ],
+
+        'group_id' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+          // FK to pds_template_group.id
+        ],
+
+        'weight' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+
+        'header' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'subheader' => [
+          'type' => 'varchar',
+          'length' => 255,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'description' => [
+          'type' => 'text',
+          'size' => 'big',
+          'not null' => FALSE,
+        ],
+        'url' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+
+        'desktop_img' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'mobile_img' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+
+        'latitud' => [
+          'type' => 'float',
+          'not null' => FALSE,
+        ],
+        'longitud' => [
+          'type' => 'float',
+          'not null' => FALSE,
+        ],
+
+        'created_at' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'deleted_at' => [
+          'type' => 'int',
+          'not null' => FALSE,
+        ],
+      ],
+      'primary key' => ['id'],
+      'unique keys' => [
+        'uuid' => ['uuid'],
+      ],
+      'indexes' => [
+        'group_id' => ['group_id'],
+        'weight' => ['weight'],
+        'deleted_at' => ['deleted_at'],
+      ],
+    ]);
+  }
+}
+
+/**
+ * Cleanup dup config and re-run recipes.
+ *
+ * This is your existing update 8013.
+ */
+function pds_mxsuite_update_8013(): void {
+  $dups = ['pds_recipe_fondos_mutuos.settings']; // la que choca
+  foreach ($dups as $name) {
+    $conf = \Drupal::config($name);
+    if (!$conf->isNew()) {
+      \Drupal::logger('pds_mxsuite')->warning(
+        'Deleting existing config @c to prevent collision.',
+        ['@c' => $name]
+      );
+      \Drupal::configFactory()->getEditable($name)->delete();
+    }
+  }
+
+  // Reapply recipes or install modules depending on platform.
+  if (class_exists('\Drupal\Core\Recipe\Recipe')) {
+    $module_path = \Drupal::service('extension.list.module')->getPath('pds_mxsuite');
+    $base = DRUPAL_ROOT . '/' . $module_path . '/recipes';
+    foreach ([
+      'pds_fondos_mutuos',
+      'pds_educacion_financiera',
+      'pds_recipe_formas_de_invertir',
+      'pds_recipe_mapa',
+      'pds_recipe_executives',
+      'pds_recipe_slider_banner',
+      'pds_recipe_template',
+    ] as $dir) {
+      $path = $base . '/' . $dir;
+      if (is_dir($path)) {
+        $r = \Drupal\Core\Recipe\Recipe::createFromDirectory($path);
+        \Drupal\Core\Recipe\RecipeRunner::processRecipe($r);
+      }
+    }
+  }
+  else {
+    \Drupal::service('module_installer')->install([
+      'pds_recipe_fondos_mutuos',
+      'pds_recipe_educacion_financiera',
+      'pds_recipe_formas_de_invertir',
+      'pds_recipe_mapa',
+      'pds_recipe_executives',
+      'pds_recipe_slider_banner',
+      'pds_recipe_template',
+    ], TRUE);
+  }
+}
+
+/**
+ * New update hook to backfill the tables on sites where pds_mxsuite
+ * is already enabled and running.
+ *
+ * This will run once when you deploy this code
+ * and execute `drush updb` or load /update.php.
+ */
+function pds_mxsuite_update_9010(): void {
+  _pds_mxsuite_create_tables();
+
+  \Drupal::logger('pds_mxsuite')->notice(
+    'Ensured pds_template_group and pds_template_item tables exist.'
+  );
+}

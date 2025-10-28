@@ -1,0 +1,21 @@
+pds_mapa.settings:
+  type: config_object
+  label: 'PDS Map with pins settings'
+  mapping:
+    mapa_src:
+      type: string
+      label: 'Map image URL'
+    mapa_alt:
+      type: string
+      label: 'Map alt text'
+    pins:
+      type: sequence
+      label: 'Pins'
+      sequence:
+        type: mapping
+        mapping:
+          x: { type: float, label: 'X' }
+          y: { type: float, label: 'Y' }
+          city: { type: string, label: 'City' }
+          txt: { type: text, label: 'Tooltip HTML' }
+          aria: { type: string, label: 'ARIA label' }

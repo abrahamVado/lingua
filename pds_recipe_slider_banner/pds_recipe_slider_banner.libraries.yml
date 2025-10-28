@@ -1,0 +1,23 @@
+pds_slider_banner:
+  css:
+    theme:
+      https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.css: { type: external }
+      https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick-theme.css: { type: external }
+      css/pds-slider-banner.css: {}
+  js:
+    https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js: { type: external }
+    js/pds-slider-banner.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+
+admin_ui:
+  css:
+    theme:
+      css/pds-slider-admin-tabs.css: {}
+  js:
+    js/pds-slider-admin-tabs.js: {}
+  dependencies:
+    - core/drupal
+    - core/jquery
+    - core/drupalSettings

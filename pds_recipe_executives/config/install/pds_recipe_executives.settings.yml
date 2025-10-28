@@ -1,0 +1,9 @@
+header: 'Nossa equipe'
+header_accent: 'Principais executivos'
+aria_label: 'Equipe de executivos'
+prev_label: 'Anterior'
+next_label: 'Próximo'
+
+# cards_json is a JSON string. It will later be decoded in the block.
+# Put [] or an array of objects. Keep it valid JSON, not YAML.
+cards_json: 

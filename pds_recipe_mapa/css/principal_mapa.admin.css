@@ -1,0 +1,101 @@
+/* Outer frame around the preview (purely visual, does not affect math) */
+.pds-map-preview-wrapper {
+  margin-top: 1rem;
+  border: 1px solid #ccc;
+  padding: 0.5rem;
+  background: #fafafa;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+/* This must match the image box exactly. No border. No padding. */
+.pds-map-preview {
+  position: relative;
+  display: inline-block; /* shrink-wrap to the image dimensions */
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  line-height: 0; /* kill inline-block gap */
+  cursor: crosshair;
+}
+
+/* The admin preview image */
+.pds-map-preview__img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+/* Helper text under the preview */
+.pds-map-preview-wrapper .description {
+  margin-top: 0.5rem;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+/* ==== Pin visual style. Same look as frontend .pin ==== */
+
+.pin {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  background: #035FA4;
+  border-radius: 50% 50% 50% 0;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  cursor: grab;
+  z-index: 10;
+  border: 0;
+  padding: 0;
+}
+
+.pin .pulse {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: -1;
+}
+
+.pin::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin: -3px;
+  background: #fff;
+  position: absolute;
+  border-radius: 50%;
+  z-index: 10;
+}
+
+/* animated halo */
+.pin .pulse::after {
+  content: "";
+  position: absolute;
+  top: -4.9px;
+  left: -5.5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: pulsate 2s ease-out infinite;
+  opacity: 0;
+  box-shadow: 0 0 3px 1px #fff;
+}
+
+@keyframes pulsate {
+  0%   { transform: scale(0.1); opacity: 0; }
+  50%  { opacity: 1; }
+  100% { transform: scale(2); }
+}
+
+/* Admin-only drag state */
+.pds-map-preview__pin.is-dragging {
+  cursor: grabbing;
+}
+
+/* Alias class we add in preview for JS.
+   We don't override geometry here because .pin already handles absolute */
+.pds-map-preview__pin {
+  /* no extra layout here */
+}

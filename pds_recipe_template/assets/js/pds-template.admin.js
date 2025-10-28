@@ -1,0 +1,658 @@
+(function (Drupal, once) {
+  'use strict';
+
+  //
+  // DOM helpers
+  //
+
+  // Generic finder for problem Drupal markup.
+  // Tries data-drupal-selector, then id, then name suffix.
+  function findField(root, opts) {
+    // opts.ds      expected data-drupal-selector fragment, e.g. 'pds-template-cards-state'
+    // opts.id      expected id, e.g. 'pds-template-cards-state'
+    // opts.nameEnd required tail of name attr, e.g. '[cards_state]' or '[edit_index]'
+
+    var el;
+
+    if (opts.ds) {
+      el = root.querySelector('[data-drupal-selector="' + opts.ds + '"]');
+      if (el) return el;
+    }
+
+    if (opts.id) {
+      el = root.querySelector('#' + opts.id);
+      if (el) return el;
+    }
+
+    if (opts.nameEnd) {
+      var list = root.querySelectorAll(
+        'input[name$="' + opts.nameEnd + '"], textarea[name$="' + opts.nameEnd + '"]'
+      );
+      if (list.length) return list[0];
+    }
+
+    return null;
+  }
+
+  function sel(root, drupalSelector, idFallback) {
+    var el = null;
+    if (drupalSelector) {
+      el = root.querySelector('[data-drupal-selector="' + drupalSelector + '"]');
+    }
+    if (!el && idFallback) {
+      el = root.querySelector('#' + idFallback);
+    }
+    return el;
+  }
+
+  function selAll(root, css) {
+    return Array.prototype.slice.call(root.querySelectorAll(css));
+  }
+
+  function escapeHtml(str) {
+    if (str === undefined || str === null) {
+      return '';
+    }
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  //
+  // State helpers
+  //
+
+  function readState(root) {
+    var el = findField(root, {
+      ds: 'pds-template-cards-state',
+      id: 'pds-template-cards-state',
+      nameEnd: '[cards_state]'
+    });
+    if (!el) {
+      return [];
+    }
+    try {
+      return el.value ? JSON.parse(el.value) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeState(root, arr) {
+    var el = findField(root, {
+      ds: 'pds-template-cards-state',
+      id: 'pds-template-cards-state',
+      nameEnd: '[cards_state]'
+    });
+    if (el) {
+      el.value = JSON.stringify(arr);
+    }
+  }
+
+  function readEditIndex(root) {
+    var el = findField(root, {
+      ds: 'pds-template-edit-index',
+      id: 'pds-template-edit-index',
+      nameEnd: '[edit_index]'
+    });
+    if (!el) {
+      return -1;
+    }
+    var v = parseInt(el.value, 10);
+    return isNaN(v) ? -1 : v;
+  }
+
+  function writeEditIndex(root, idx) {
+    var el = findField(root, {
+      ds: 'pds-template-edit-index',
+      id: 'pds-template-edit-index',
+      nameEnd: '[edit_index]'
+    });
+    if (el) {
+      el.value = String(idx);
+    }
+  }
+
+  function getImageFid(root) {
+    // Wrapper from managed_file. Drupal mutates the id so we match prefix.
+    var wrapper = root.querySelector('#pds-template-image,[id^="pds-template-image"],[data-drupal-selector$="image"]');
+    if (!wrapper) {
+      return null;
+    }
+    var possible = wrapper.querySelectorAll('input[type="hidden"]');
+    for (var i = 0; i < possible.length; i++) {
+      var val = possible[i].value;
+      if (val && /^[0-9]+$/.test(val)) {
+        return val;
+      }
+    }
+    return null;
+  }
+
+  //
+  // Form input helpers
+  //
+  function triggerManagedFileRemove(root) {
+    // The wrapper ID is unstable, so match by class and by the data-drupal-selector on inner elements.
+    // We specifically look for the "is-single" managed_file in panel A.
+    var wrapper = root.querySelector(
+      '.js-form-managed-file.form-managed-file.is-single'
+    );
+    if (!wrapper) {
+      return;
+    }
+
+    // In the uploaded state you showed, Drupal sets:
+    //  - class="remove-button button js-form-submit form-submit"
+    //  - data-drupal-selector="...-remove-button"
+    // We target that.
+    var removeBtn = wrapper.querySelector(
+      '.remove-button.button.js-form-submit.form-submit,' +
+      '[data-drupal-selector$="-remove-button"]'
+    );
+
+    if (!removeBtn) {
+      return;
+    }
+
+    // Build a "real" click event so Drupal's drupal-ajax binding runs.
+    var evt = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    });
+
+    removeBtn.dispatchEvent(evt);
+  }
+
+
+
+
+function clearInputs(root) {
+  var f;
+  f = sel(root, 'pds-template-header', 'pds-template-header'); if (f) f.value = '';
+  f = sel(root, 'pds-template-subheader', 'pds-template-subheader'); if (f) f.value = '';
+  f = sel(root, 'pds-template-description', 'pds-template-description'); if (f) f.value = '';
+  f = sel(root, 'pds-template-link', 'pds-template-link'); if (f) f.value = '';
+}
+
+
+
+  function loadInputsFromRow(root, row) {
+    var f;
+    f = sel(root, 'pds-template-header', 'pds-template-header'); if (f) f.value = row.header || '';
+    f = sel(root, 'pds-template-subheader', 'pds-template-subheader'); if (f) f.value = row.subheader || '';
+    f = sel(root, 'pds-template-description', 'pds-template-description'); if (f) f.value = row.description || '';
+    f = sel(root, 'pds-template-link', 'pds-template-link'); if (f) f.value = row.link || '';
+  }
+
+  function buildRowFromInputs(root) {
+    var headerEl = sel(root, 'pds-template-header', 'pds-template-header');
+    var subEl    = sel(root, 'pds-template-subheader', 'pds-template-subheader');
+    var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
+    var linkEl   = sel(root, 'pds-template-link', 'pds-template-link');
+
+    var header      = headerEl ? headerEl.value : '';
+    var subheader   = subEl ? subEl.value : '';
+    var description = descEl ? descEl.value : '';
+    var link        = linkEl ? linkEl.value : '';
+    var fid         = getImageFid(root);
+
+    return {
+      header: header,
+      subheader: subheader,
+      description: description,
+      link: link,
+      image_fid: fid || null,
+      image_url: '' // backend resolves URL on save
+    };
+  }
+
+  //
+  // Preview table
+  //
+
+  function renderPreviewTable(root) {
+    var wrapper = root.querySelector('#pds-template-preview-list');
+    if (!wrapper) {
+      return;
+    }
+
+    var rows = readState(root);
+
+    if (!rows.length) {
+      wrapper.innerHTML =
+        '<table class="pds-template-table">' +
+          '<thead>' +
+            '<tr>' +
+              '<th>Header</th>' +
+              '<th>Subheader</th>' +
+              '<th>Link</th>' +
+              '<th>Actions</th>' +
+            '</tr>' +
+          '</thead>' +
+          '<tbody>' +
+            '<tr>' +
+              '<td colspan="4"><em>No rows yet.</em></td>' +
+            '</tr>' +
+          '</tbody>' +
+        '</table>';
+      return;
+    }
+
+    var html = '';
+    html += '<table class="pds-template-table">';
+    html +=   '<thead>';
+    html +=     '<tr>';
+    html +=       '<th>Header</th>';
+    html +=       '<th>Subheader</th>';
+    html +=       '<th>Link</th>';
+    html +=       '<th>Actions</th>';
+    html +=     '</tr>';
+    html +=   '</thead>';
+    html +=   '<tbody>';
+
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || {};
+      html += '<tr data-row-index="' + i + '">';
+      html +=   '<td>' + escapeHtml(r.header || '') + '</td>';
+      html +=   '<td>' + escapeHtml(r.subheader || '') + '</td>';
+      html +=   '<td>' + escapeHtml(r.link || '') + '</td>';
+      html +=   '<td>';
+      html +=     '<button type="button" class="pds-template-row-edit">Edit</button> ';
+      html +=     '<button type="button" class="pds-template-row-del">Delete</button>';
+      html +=   '</td>';
+      html += '</tr>';
+    }
+
+    html +=   '</tbody>';
+    html += '</table>';
+
+    wrapper.innerHTML = html;
+
+    bindRowButtons(root, wrapper);
+  }
+
+  function bindRowButtons(root, wrapper) {
+    selAll(wrapper, '.pds-template-row-edit').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var idx = parseInt(this.closest('tr').getAttribute('data-row-index'), 10);
+        startEditRow(root, idx);
+      });
+    });
+
+    selAll(wrapper, '.pds-template-row-del').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var idx = parseInt(this.closest('tr').getAttribute('data-row-index'), 10);
+        deleteRow(root, idx);
+      });
+    });
+  }
+
+  //
+  // Row ops
+  //
+
+  function startEditRow(root, idx) {
+    var rows = readState(root);
+    if (idx < 0 || idx >= rows.length) {
+      return;
+    }
+
+    loadInputsFromRow(root, rows[idx]);
+    writeEditIndex(root, idx);
+
+    var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
+    if (btn) {
+      btn.textContent = 'Save changes';
+    }
+
+    activateTab(root, 'panel-a');
+  }
+
+  function deleteRow(root, idx) {
+    var rows = readState(root);
+    if (idx < 0 || idx >= rows.length) {
+      return;
+    }
+
+    rows.splice(idx, 1);
+    writeState(root, rows);
+
+    writeEditIndex(root, -1);
+
+    var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
+    if (btn) {
+      btn.textContent = 'Add row';
+    }
+
+    renderPreviewTable(root);
+  }
+
+function commitRow(root) {
+  var newRow = buildRowFromInputs(root);
+
+  // Require header to avoid empty rows.
+  if (!newRow.header || !newRow.header.trim()) {
+    return;
+  }
+
+  var rows = readState(root);
+  var idx = readEditIndex(root);
+
+  if (idx >= 0 && idx < rows.length) {
+    rows[idx] = newRow;
+  } else {
+    rows.push(newRow);
+  }
+
+  writeState(root, rows);
+  writeEditIndex(root, -1);
+
+  var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
+  if (btn) {
+    btn.textContent = 'Add row';
+  }
+
+  // Clear text inputs.
+  clearInputs(root);
+
+  // Reset the managed_file widget to pristine so next row can upload a new image.
+  resetFileWidgetToPristine(root);
+
+  // Refresh preview table and show Tab B.
+  renderPreviewTable(root);
+  activateTab(root, 'panel-b');
+}
+
+
+function initFileWidgetTemplate(root) {
+  // Find the managed_file wrapper for panel A.
+  var wrapper = root.querySelector(
+    '.js-form-managed-file.form-managed-file.is-single'
+  );
+  if (!wrapper) {
+    return;
+  }
+
+  // Only capture once. We want the "clean upload" state.
+  // If we capture after upload we just snapshot the preview state which is useless.
+  if (!wrapper._pdsPristineHTML) {
+
+    // Store the full innerHTML and the classList snapshot.
+    wrapper._pdsPristineHTML = wrapper.innerHTML;
+    wrapper._pdsPristineClasses = wrapper.className;
+  }
+}
+
+function resetFileWidgetToPristine(root) {
+  var wrapper = root.querySelector(
+    '.js-form-managed-file.form-managed-file.is-single'
+  );
+  if (!wrapper) {
+    return;
+  }
+
+  // If we captured pristine state earlier, restore it.
+  if (wrapper._pdsPristineHTML && wrapper._pdsPristineClasses) {
+    wrapper.innerHTML = wrapper._pdsPristineHTML;
+
+    // Restore classes, but force a "no-value" state to be safe.
+    wrapper.className = wrapper._pdsPristineClasses;
+
+    // Safety: make sure no-value not has-value.
+    wrapper.classList.add('no-value');
+    wrapper.classList.remove('has-value');
+
+    // Wipe any hidden fid again just in case.
+    var fidHidden = wrapper.querySelector(
+      'input[type="hidden"][name$="[image][fids]"]'
+    );
+    if (fidHidden) {
+      fidHidden.value = '';
+    }
+  } else {
+    // Fallback if no pristine snapshot. Best-effort partial reset:
+    // just clear fid and strip has-value/no-upload so Drupal shows file input
+    var fidHidden2 = wrapper.querySelector(
+      'input[type="hidden"][name$="[image][fids]"]'
+    );
+    if (fidHidden2) {
+      fidHidden2.value = '';
+    }
+    wrapper.classList.add('no-value');
+    wrapper.classList.remove('has-value');
+    wrapper.classList.remove('no-upload');
+  }
+}
+
+
+function resetManagedFileManually(wrapper) {
+  // 1. wipe hidden fid so next row does not inherit
+  var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[image][fids]"]');
+  if (fidHidden) {
+    fidHidden.value = '';
+  }
+
+  // 2. replace <input type="file"> with a fresh clone to clear filename
+  var fileInput = wrapper.querySelector('input[type="file"]');
+  if (fileInput && fileInput.parentNode) {
+    var clone = fileInput.cloneNode(true);
+    fileInput.parentNode.replaceChild(clone, fileInput);
+    // unhide upload UI in case theme hid it
+    var main = clone.closest('.form-managed-file__main');
+    if (main) {
+      main.classList.remove('is-hidden');
+    }
+    clone.style.display = '';
+    clone.disabled = false;
+  }
+
+  // 3. hide preview/meta block from last upload if it exists
+  var previewRegion = wrapper.querySelector('.file, .file--image, .form-managed-file__meta');
+  if (previewRegion) {
+    previewRegion.style.display = 'none';
+  }
+
+  // 4. normalize classes so widget looks empty
+  wrapper.classList.add('no-value');
+  wrapper.classList.remove('has-value');
+}
+
+// Try AJAX "Remove". If found, click it. Otherwise fall back to manual reset.
+function rebuildManagedFileEmpty(root) {
+  // Find wrapper.
+  var wrapper = root.querySelector(
+    '#pds-template-image,' +
+    '[id^="pds-template-image"],' +
+    '[data-drupal-selector$="panel-a-image"],' +
+    '.form-managed-file.is-single'
+  );
+  if (!wrapper) {
+    return;
+  }
+
+  // Try to discover original dynamic names/ids from whatever is there now.
+
+  // Hidden fid input. We keep its name attr because Drupal expects that exact name on submit.
+  var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[image][fids]"]');
+
+  var fidName = '';
+  if (fidHidden) {
+    fidName = fidHidden.getAttribute('name');
+  } else {
+    // If it's gone, guess by looking for [image][fids] pattern anywhere.
+    var anyHidden = wrapper.querySelector('input[type="hidden"][name*="[image][fids]"]');
+    if (anyHidden) {
+      fidName = anyHidden.getAttribute('name');
+    }
+  }
+
+  // File input. We grab its name/id/data-drupal-selector so Drupal upload still works for next file.
+  // Note: After upload Drupal often *removes* the file input. If it's gone we can't read these.
+  // In that case we try to recover from previous clone we inserted. If still not found we bail.
+  var fileInput = wrapper.querySelector('input[type="file"]');
+
+  // If fileInput is missing because Drupal replaced it with preview-only mode,
+  // look for the last known markup sibling in DOM of wrapper via dataset cache.
+  // We store a backup snapshot on first run.
+  if (!fileInput && wrapper._pdsFilePrototype) {
+    fileInput = wrapper._pdsFilePrototype.cloneNode(true);
+  }
+
+  // If still nothing we give up because we cannot guess Drupal's field name.
+  if (!fileInput) {
+    return;
+  }
+
+  // Cache prototype for future runs (first time we see a real input).
+  if (!wrapper._pdsFilePrototype) {
+    wrapper._pdsFilePrototype = fileInput.cloneNode(true);
+  }
+
+  var fileNameAttr = fileInput.getAttribute('name') || '';
+  var fileIdAttr = fileInput.getAttribute('id') || '';
+  var fileDSAttr = fileInput.getAttribute('data-drupal-selector') || '';
+  var fileClasses = fileInput.getAttribute('class') || '';
+  var fileDataOnce = fileInput.getAttribute('data-once') || '';
+
+  // We also try to recover the Upload button attributes so AJAX upload still works.
+  var uploadBtn = wrapper.querySelector('input[type="submit"][value*="Upload"], input[type="submit"][value*="upload"]');
+  var uploadName = '';
+  var uploadId = '';
+  var uploadDS = '';
+  var uploadClasses = '';
+  var uploadDataOnce = '';
+  if (uploadBtn) {
+    uploadName = uploadBtn.getAttribute('name') || '';
+    uploadId = uploadBtn.getAttribute('id') || '';
+    uploadDS = uploadBtn.getAttribute('data-drupal-selector') || '';
+    uploadClasses = uploadBtn.getAttribute('class') || '';
+    uploadDataOnce = uploadBtn.getAttribute('data-once') || '';
+  }
+
+  // Now hard reset wrapper markup.
+  // We keep wrapper's own id/class so Drupal behaviors still see it as a managed_file widget.
+  // We rebuild the inner HTML to match the empty state.
+
+  var html = '';
+  html += '<div class="form-managed-file__main">';
+  html +=   '<input type="file"'
+         +   (fileIdAttr ? ' id="' + fileIdAttr + '"' : '')
+         +   (fileDSAttr ? ' data-drupal-selector="' + fileDSAttr + '"' : '')
+         +   (fileNameAttr ? ' name="' + fileNameAttr + '"' : '')
+         +   ' class="' + fileClasses + '"'
+         +   (fileDataOnce ? ' data-once="' + fileDataOnce + '"' : '')
+         + '>';
+  if (uploadName || uploadId) {
+    html += '<input type="submit"'
+         +   (uploadId ? ' id="' + uploadId + '"' : '')
+         +   (uploadDS ? ' data-drupal-selector="' + uploadDS + '"' : '')
+         +   (uploadName ? ' name="' + uploadName + '"' : '')
+         +   ' value="Upload"'
+         +   ' class="' + uploadClasses + '"'
+         +   (uploadDataOnce ? ' data-once="' + uploadDataOnce + '"' : '')
+         + '>';
+  }
+  html += '</div>';
+
+  if (fidName) {
+    html += '<input type="hidden" name="' + fidName + '" value="">';
+  }
+
+  wrapper.innerHTML = html;
+
+  // Make sure classes signal "no file"
+  wrapper.classList.add('no-value');
+  wrapper.classList.remove('has-value');
+}
+
+  //
+  // Tabs
+  //
+
+  function activateTab(root, panelId) {
+    selAll(root, '[data-pds-template-tab-target]').forEach(function (btn) {
+      var match = (btn.getAttribute('data-pds-template-tab-target') === panelId);
+      if (match) {
+        btn.classList.add('is-active');
+      } else {
+        btn.classList.remove('is-active');
+      }
+    });
+
+    selAll(root, '.js-pds-template-panel').forEach(function (panel) {
+      var match = (panel.getAttribute('data-pds-template-panel-id') === panelId);
+      if (match) {
+        panel.classList.add('is-active');
+      } else {
+        panel.classList.remove('is-active');
+      }
+    });
+  }
+
+  function initTabs(root) {
+    selAll(root, '[data-pds-template-tab-target]').forEach(function (btn) {
+      btn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var targetId = btn.getAttribute('data-pds-template-tab-target');
+        activateTab(root, targetId);
+      });
+    });
+
+    // Default to first tab.
+    var firstBtn = root.querySelector('[data-pds-template-tab-target]');
+    if (firstBtn) {
+      activateTab(root, firstBtn.getAttribute('data-pds-template-tab-target'));
+    }
+  }
+
+  //
+  // Behavior attach
+  //
+
+  Drupal.behaviors.pdsTemplateAdmin = {
+    attach: function (context) {
+      once('pdsTemplateAdminRoot', '.js-pds-template-admin', context).forEach(function (root) {
+
+        // Tabs
+        initTabs(root);
+
+        // Initial preview from hidden state
+        renderPreviewTable(root);
+
+        // Add row / Save changes button.
+        // Accept <a ... data-drupal-selector="pds-template-add-card"> or <div ... same attrs>.
+        var addBtn =
+          root.querySelector('[data-drupal-selector="pds-template-add-card"], #pds-template-add-card');
+
+        if (addBtn) {
+          // click
+          addBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            commitRow(root);
+          });
+          // keyboard support for div/span with role="button"
+          addBtn.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              commitRow(root);
+            }
+          });
+        }
+
+      });
+    }
+  };
+
+})(Drupal, once);

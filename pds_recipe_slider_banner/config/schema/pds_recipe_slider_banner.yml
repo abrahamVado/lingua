@@ -1,0 +1,13 @@
+pds_recipe_slider_banner.settings:
+  type: config_object
+  label: 'PDS Slider Banner global settings'
+  mapping:
+    slick_autoplay:
+      type: boolean
+      label: 'Autoplay enabled'
+    slick_autoplay_speed:
+      type: integer
+      label: 'Autoplay delay (ms)'
+    slick_pause_on_hover:
+      type: boolean
+      label: 'Pause on hover'
