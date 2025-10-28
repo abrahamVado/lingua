@@ -256,3 +256,33 @@ function pds_mxsuite_update_9010(): void {
     'Ensured pds_template_group and pds_template_item tables exist.'
   );
 }
+
+/**
+ * Ensure legacy template tables are upgraded to the new schema.
+ */
+function pds_mxsuite_update_9011(): void {
+  //1.- Create missing tables first so the schema repairer can safely rebuild them.
+  _pds_mxsuite_create_tables();
+
+  //2.- Run the runtime repairer when the pds_recipe_template module is available.
+  if (\Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
+    $repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+    if ($repairer->ensureItemTableUpToDate()) {
+      \Drupal::logger('pds_mxsuite')->notice(
+        'Verified pds_template_item schema after installing the consolidated update.'
+      );
+      return;
+    }
+
+    //3.- Warn administrators when the rebuild fails so they can inspect dblog for details.
+    \Drupal::logger('pds_mxsuite')->warning(
+      'Unable to refresh the pds_template_item schema automatically. Check recent log messages for the exact cause.'
+    );
+    return;
+  }
+
+  //4.- Fall back to a notice when the recipe module is not enabled yet on the site.
+  \Drupal::logger('pds_mxsuite')->notice(
+    'Skipped pds_template_item schema verification because the recipe template module is not installed.'
+  );
+}
