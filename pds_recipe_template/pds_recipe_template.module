@@ -183,6 +183,74 @@ if (!function_exists('pds_recipe_template_include_service_class')) {
   }
 }
 
+if (!function_exists('pds_recipe_template_create_row_image_promoter')) {
+  /**
+   * Factory callback so the container can instantiate the row image promoter.
+   */
+  function pds_recipe_template_create_row_image_promoter($entity_type_manager, $file_url_generator): object {
+    $logger = pds_recipe_template_get_logger();
+
+    //1.- Load the service class manually before the container tries to instantiate it.
+    if (!pds_recipe_template_include_service_class('\\Drupal\\pds_recipe_template\\Service\\RowImagePromoter', '/src/Service/RowImagePromoter.php')) {
+      if ($logger) {
+        $logger->error('Unable to include row image promoter class while building the service container.');
+      }
+      throw new \RuntimeException('Missing RowImagePromoter class for pds_recipe_template.');
+    }
+
+    try {
+      //2.- Return the fully constructed service instance to satisfy the container.
+      return new \Drupal\pds_recipe_template\Service\RowImagePromoter(
+        $entity_type_manager,
+        $file_url_generator
+      );
+    }
+    catch (\Throwable $throwable) {
+      if ($logger) {
+        $logger->error('Unable to create row image promoter service: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+      throw $throwable;
+    }
+  }
+}
+
+if (!function_exists('pds_recipe_template_create_legacy_schema_repairer')) {
+  /**
+   * Factory callback so the container can instantiate the schema repairer.
+   */
+  function pds_recipe_template_create_legacy_schema_repairer($connection, $time, $uuid, $logger_factory): object {
+    $logger = pds_recipe_template_get_logger();
+
+    //1.- Ensure the repairer class is available before dependency injection runs.
+    if (!pds_recipe_template_include_service_class('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer', '/src/Service/LegacySchemaRepairer.php')) {
+      if ($logger) {
+        $logger->error('Unable to include legacy schema repairer class while building the service container.');
+      }
+      throw new \RuntimeException('Missing LegacySchemaRepairer class for pds_recipe_template.');
+    }
+
+    try {
+      //2.- Construct the repairer with its declared dependencies for the container.
+      return new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+        $connection,
+        $time,
+        $uuid,
+        $logger_factory
+      );
+    }
+    catch (\Throwable $throwable) {
+      if ($logger) {
+        $logger->error('Unable to create legacy schema repairer service: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+      throw $throwable;
+    }
+  }
+}
+
 if (!function_exists('pds_recipe_template_try_service')) {
   /**
    * Safely fetch a service from the container when possible.
