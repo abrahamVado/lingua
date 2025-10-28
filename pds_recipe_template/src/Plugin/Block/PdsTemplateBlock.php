@@ -326,6 +326,8 @@ final class PdsTemplateBlock extends BlockBase {
 
     $form['pds_template_admin'] = [
       '#type' => 'container',
+      //1.- Enable tree handling so blockSubmit() can retrieve nested values via parent keys.
+      '#tree' => TRUE,
       '#attributes' => [
         'class' => [
           'pds-template-admin',
