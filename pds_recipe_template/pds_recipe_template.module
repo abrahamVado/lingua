@@ -82,3 +82,56 @@ function pds_recipe_template_ensure_group_and_get_id(string $uuid, string $type 
     return NULL;
   }
 }
+
+/**
+ * Resolve the row image promoter service even when the container is rebuilding.
+ */
+function pds_recipe_template_resolve_row_image_promoter(): ?object {
+  //1.- Attempt to reuse the registered service so dependency injection remains the default path.
+  if (\Drupal::hasService('pds_recipe_template.row_image_promoter')) {
+    try {
+      return \Drupal::service('pds_recipe_template.row_image_promoter');
+    }
+    catch (\Throwable $throwable) {
+      \Drupal::logger('pds_recipe_template')->error('Unable to load row image promoter service: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //2.- Include the class manually when cache rebuilds prevent the autoloader from resolving it.
+  if (!class_exists('\\Drupal\\pds_recipe_template\\Service\\RowImagePromoter')) {
+    try {
+      $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+      if (is_string($module_path) && $module_path !== '') {
+        $promoter_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/RowImagePromoter.php';
+        if (is_readable($promoter_path)) {
+          require_once $promoter_path;
+        }
+      }
+    }
+    catch (\Throwable $throwable) {
+      \Drupal::logger('pds_recipe_template')->error('Unable to include row image promoter class: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //3.- Build the promoter on demand when the dependency injection container is unavailable.
+  if (class_exists('\\Drupal\\pds_recipe_template\\Service\\RowImagePromoter')) {
+    try {
+      return new \Drupal\pds_recipe_template\Service\RowImagePromoter(
+        \Drupal::service('entity_type.manager'),
+        \Drupal::service('file_url_generator')
+      );
+    }
+    catch (\Throwable $throwable) {
+      \Drupal::logger('pds_recipe_template')->error('Unable to instantiate row image promoter: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //4.- Return NULL so callers can emit a helpful error response to editors.
+  return NULL;
+}

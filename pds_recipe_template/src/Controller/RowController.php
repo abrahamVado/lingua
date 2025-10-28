@@ -100,7 +100,16 @@ final class RowController extends ControllerBase {
       $row['mobile_img'] = $mobile_img;
       $row['image_url'] = $image_url;
 
-      $promotion = \Drupal::service('pds_recipe_template.row_image_promoter')->promote($row);
+      //6.- Resolve the promoter through the helper so cache rebuilds do not break uploads.
+      $promoter = \pds_recipe_template_resolve_row_image_promoter();
+      if (!$promoter) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Image promotion is unavailable. Rebuild caches and try again.',
+        ], 500);
+      }
+
+      $promotion = $promoter->promote($row);
       if (($promotion['status'] ?? '') !== 'ok') {
         $message = $promotion['message'] ?? 'Unable to promote image.';
         $code = $promotion['code'] ?? 500;
@@ -397,7 +406,16 @@ final class RowController extends ControllerBase {
       $row['mobile_img'] = $mobile_img;
       $row['image_url'] = $image_url;
 
-      $promotion = \Drupal::service('pds_recipe_template.row_image_promoter')->promote($row);
+      //5.- Reuse the helper to avoid hard dependencies on the service container during edits.
+      $promoter = \pds_recipe_template_resolve_row_image_promoter();
+      if (!$promoter) {
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => 'Image promotion is unavailable. Rebuild caches and try again.',
+        ], 500);
+      }
+
+      $promotion = $promoter->promote($row);
       if (($promotion['status'] ?? '') !== 'ok') {
         $message = $promotion['message'] ?? 'Unable to promote image.';
         $code = $promotion['code'] ?? 500;
