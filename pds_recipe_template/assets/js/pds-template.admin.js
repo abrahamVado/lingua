@@ -939,6 +939,51 @@ function clearInputs(root) {
       });
   }
 
+  function hasPendingSubmitEdits(root) {
+    //1.- Always commit when editing an existing row so changes are not lost on submit.
+    if (readEditIndex(root) >= 0) {
+      return true;
+    }
+
+    var headerEl = sel(root, 'pds-template-header', 'pds-template-header');
+    var subEl = sel(root, 'pds-template-subheader', 'pds-template-subheader');
+    var descEl = sel(root, 'pds-template-description', 'pds-template-description');
+    var linkEl = sel(root, 'pds-template-link', 'pds-template-link');
+
+    var headerVal = headerEl && typeof headerEl.value === 'string' ? headerEl.value.trim() : '';
+    var subVal = subEl && typeof subEl.value === 'string' ? subEl.value.trim() : '';
+    var descVal = descEl && typeof descEl.value === 'string' ? descEl.value.trim() : '';
+    var linkVal = linkEl && typeof linkEl.value === 'string' ? linkEl.value.trim() : '';
+
+    //2.- Treat any filled field or uploaded file as pending edits that need committing.
+    if (headerVal !== '' || subVal !== '' || descVal !== '' || linkVal !== '') {
+      return true;
+    }
+
+    return !!getImageFid(root);
+  }
+
+  function commitPendingEditsBeforeSubmit(root) {
+    //1.- Track counts to mirror the same group-id initialization performed on manual commits.
+    var beforeCount = readState(root).length;
+
+    return commitRow(root).then(function (didCommit) {
+      if (!didCommit) {
+        return false;
+      }
+
+      var afterCount = readState(root).length;
+      if (beforeCount === 0 && afterCount > 0) {
+        //2.- Ensure the backing group exists when the first row was just added via auto-commit.
+        return ensureGroupExists(root).then(function () {
+          return true;
+        });
+      }
+
+      return true;
+    });
+  }
+
   function handleAddOrUpdateRow(root) {
     //1.- Capture counts before and after so we know when the first row arrives.
     var beforeCount = readState(root).length;
@@ -1267,6 +1312,35 @@ function rebuildManagedFileEmpty(root) {
               e.stopPropagation();
               handleAddOrUpdateRow(root);
             }
+          });
+        }
+
+        var hostForm = root.closest('form');
+        if (hostForm) {
+          hostForm.addEventListener('submit', function (event) {
+            if (root._pdsTemplateBypassSubmit) {
+              //1.- Allow the retried submission to proceed without extra interception.
+              root._pdsTemplateBypassSubmit = false;
+              return;
+            }
+
+            if (!hasPendingSubmitEdits(root)) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            //2.- Commit pending edits first so the serialized state matches the latest inputs.
+            commitPendingEditsBeforeSubmit(root).then(function (didCommit) {
+              if (!didCommit) {
+                return;
+              }
+
+              //3.- Retry the submission once the hidden state reflects the newest row changes.
+              root._pdsTemplateBypassSubmit = true;
+              hostForm.submit();
+            });
           });
         }
 
