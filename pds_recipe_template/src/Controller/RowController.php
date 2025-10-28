@@ -76,8 +76,8 @@ final class RowController extends ControllerBase {
 
     try {
       //4.- Guarantee the storage schema matches expectations before inserting brand-new rows.
-      $schema_repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
-      if (!$schema_repairer->ensureItemTableUpToDate()) {
+      $schema_repairer = $this->resolveSchemaRepairer();
+      if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
         return new JsonResponse([
           'status' => 'error',
           'message' => 'Template storage needs attention. Re-run database updates and try again.',
@@ -209,8 +209,8 @@ final class RowController extends ControllerBase {
 
     try {
       //2.- Repair the legacy schema automatically so listings keep working after deployments.
-      $schema_repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
-      if (!$schema_repairer->ensureItemTableUpToDate()) {
+      $schema_repairer = $this->resolveSchemaRepairer();
+      if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
         return new JsonResponse([
           'status' => 'error',
           'message' => 'Template storage needs attention. Re-run database updates and try again.',
@@ -353,8 +353,8 @@ final class RowController extends ControllerBase {
 
     try {
       //4.- Repair the legacy schema so updates cannot fail due to mismatched column sets.
-      $schema_repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
-      if (!$schema_repairer->ensureItemTableUpToDate()) {
+      $schema_repairer = $this->resolveSchemaRepairer();
+      if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
         return new JsonResponse([
           'status' => 'error',
           'message' => 'Template storage needs attention. Re-run database updates and try again.',
@@ -474,6 +474,40 @@ final class RowController extends ControllerBase {
         'message' => 'Unable to update row.',
       ], 500);
     }
+  }
+
+  private function resolveSchemaRepairer(): ?object {
+    //1.- Reuse the shared service when the dependency injection container already bootstrapped it.
+    if (\Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
+      try {
+        return \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+      }
+      catch (Throwable $throwable) {
+        \Drupal::logger('pds_recipe_template')->error('Unable to load schema repairer service: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+    }
+
+    //2.- Instantiate the repairer manually when the container cache is rebuilding or unavailable.
+    if (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+      try {
+        return new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+          \Drupal::database(),
+          \Drupal::service('datetime.time'),
+          \Drupal::service('uuid'),
+          \Drupal::service('logger.factory')
+        );
+      }
+      catch (Throwable $throwable) {
+        \Drupal::logger('pds_recipe_template')->error('Unable to instantiate schema repairer manually: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+    }
+
+    //3.- Return NULL so callers can surface a clear error instead of triggering PHP fatals.
+    return NULL;
   }
 
 }
