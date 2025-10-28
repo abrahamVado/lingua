@@ -489,7 +489,27 @@ final class RowController extends ControllerBase {
       }
     }
 
-    //2.- Instantiate the repairer manually when the container cache is rebuilding or unavailable.
+    //2.- Attempt to include the class manually when the module autoloader is unavailable (for example during cache rebuilds or
+    //    when the module is disabled but the runtime helpers are still required).
+    if (!class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+      try {
+        //3.- Locate the module path dynamically so the logic works in any installation profile layout.
+        $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+        if (is_string($module_path) && $module_path !== '') {
+          $legacy_repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
+          if (is_readable($legacy_repairer_path)) {
+            require_once $legacy_repairer_path;
+          }
+        }
+      }
+      catch (Throwable $throwable) {
+        \Drupal::logger('pds_recipe_template')->error('Unable to include schema repairer class manually: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+    }
+
+    //4.- Instantiate the repairer manually when the container cache is rebuilding or unavailable.
     if (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
       try {
         return new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
@@ -506,7 +526,7 @@ final class RowController extends ControllerBase {
       }
     }
 
-    //3.- Return NULL so callers can surface a clear error instead of triggering PHP fatals.
+    //5.- Return NULL so callers can surface a clear error instead of triggering PHP fatals.
     return NULL;
   }
 
