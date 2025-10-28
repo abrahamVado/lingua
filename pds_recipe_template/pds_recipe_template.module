@@ -376,10 +376,37 @@ if (!function_exists('pds_recipe_template_resolve_row_image_promoter')) {
       'entity_type.manager',
       'Unable to load @service while instantiating row image promoter: @message'
     );
+    if (!$entity_type_manager && method_exists('\Drupal', 'entityTypeManager')) {
+      try {
+        //4.- Ask Drupal for the manager directly so manual deployments still resolve the dependency.
+        $entity_type_manager = \Drupal::entityTypeManager();
+      }
+      catch (\Throwable $throwable) {
+        if ($logger) {
+          $logger->error('Unable to resolve entity type manager while instantiating row image promoter: @message', [
+            '@message' => $throwable->getMessage(),
+          ]);
+        }
+      }
+    }
+
     $file_url_generator = pds_recipe_template_try_service(
       'file_url_generator',
       'Unable to load @service while instantiating row image promoter: @message'
     );
+    if (!$file_url_generator && method_exists('\Drupal', 'service')) {
+      try {
+        //5.- Fall back to Drupal::service() so environments without hasService() still obtain the generator.
+        $file_url_generator = \Drupal::service('file_url_generator');
+      }
+      catch (\Throwable $throwable) {
+        if ($logger) {
+          $logger->error('Unable to resolve file URL generator while instantiating row image promoter: @message', [
+            '@message' => $throwable->getMessage(),
+          ]);
+        }
+      }
+    }
 
     if (!$entity_type_manager || !$file_url_generator) {
       if ($logger) {
@@ -389,7 +416,7 @@ if (!function_exists('pds_recipe_template_resolve_row_image_promoter')) {
     }
 
     try {
-      //4.- Instantiate the promoter directly when the container cannot provide it yet.
+      //6.- Instantiate the promoter directly when the container cannot provide it yet.
       return new \Drupal\pds_recipe_template\Service\RowImagePromoter(
         $entity_type_manager,
         $file_url_generator
@@ -403,7 +430,7 @@ if (!function_exists('pds_recipe_template_resolve_row_image_promoter')) {
       }
     }
 
-    //5.- Return NULL so callers can emit a helpful error response to editors.
+    //7.- Return NULL so callers can emit a helpful error response to editors.
     return NULL;
   }
 }
@@ -444,14 +471,55 @@ if (!function_exists('pds_recipe_template_resolve_schema_repairer')) {
       'datetime.time',
       'Unable to load @service while instantiating schema repairer: @message'
     );
+    if (!$time_service && method_exists('\Drupal', 'time')) {
+      try {
+        //4.- Use Drupal::time() when the container lookup is unavailable during cache rebuilds.
+        $time_service = \Drupal::time();
+      }
+      catch (\Throwable $throwable) {
+        if ($logger) {
+          $logger->error('Unable to resolve time service while instantiating schema repairer: @message', [
+            '@message' => $throwable->getMessage(),
+          ]);
+        }
+      }
+    }
+
     $uuid_service = pds_recipe_template_try_service(
       'uuid',
       'Unable to load @service while instantiating schema repairer: @message'
     );
+    if (!$uuid_service && method_exists('\Drupal', 'service')) {
+      try {
+        //5.- Pull the UUID generator directly from Drupal::service() when hasService() is unavailable.
+        $uuid_service = \Drupal::service('uuid');
+      }
+      catch (\Throwable $throwable) {
+        if ($logger) {
+          $logger->error('Unable to resolve UUID service while instantiating schema repairer: @message', [
+            '@message' => $throwable->getMessage(),
+          ]);
+        }
+      }
+    }
+
     $logger_factory = pds_recipe_template_try_service(
       'logger.factory',
       'Unable to load @service while instantiating schema repairer: @message'
     );
+    if (!$logger_factory && method_exists('\Drupal', 'service')) {
+      try {
+        //6.- Defer to Drupal::service() so runtime repairs still obtain a logger channel factory.
+        $logger_factory = \Drupal::service('logger.factory');
+      }
+      catch (\Throwable $throwable) {
+        if ($logger) {
+          $logger->error('Unable to resolve logger factory while instantiating schema repairer: @message', [
+            '@message' => $throwable->getMessage(),
+          ]);
+        }
+      }
+    }
 
     if (!$time_service || !$uuid_service || !$logger_factory) {
       if ($logger) {
@@ -461,7 +529,7 @@ if (!function_exists('pds_recipe_template_resolve_schema_repairer')) {
     }
 
     try {
-      //4.- Instantiate the repairer directly to cover requests during container rebuilds.
+      //7.- Instantiate the repairer directly to cover requests during container rebuilds.
       return new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
         \Drupal::database(),
         $time_service,
@@ -477,7 +545,7 @@ if (!function_exists('pds_recipe_template_resolve_schema_repairer')) {
       }
     }
 
-    //5.- Return NULL when both the service container and manual instantiation fail.
+    //8.- Return NULL when both the service container and manual instantiation fail.
     return NULL;
   }
 }
