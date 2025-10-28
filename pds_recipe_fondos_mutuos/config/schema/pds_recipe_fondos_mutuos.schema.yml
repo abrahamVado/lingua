@@ -1,7 +1,0 @@
-pds_recipe_fondos_mutuos.settings:
-  type: config_object
-  label: 'Fondos Mutuos defaults'
-  mapping:
-    heading: { type: string, label: 'Default title' }
-    subheading: { type: string, label: 'Default subtitle' }
-    items_json: { type: text, label: 'Default items (JSON)' }

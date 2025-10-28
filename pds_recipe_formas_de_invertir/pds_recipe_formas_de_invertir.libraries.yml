@@ -1,9 +1,0 @@
-# pds_recipe_educacion_financiera.libraries.yml
-principal_invest:
-  css:
-    theme:
-      css/principal_invest.css: {}
-  js:
-    js/principal_invest.js: {}
-  dependencies:
-    - core/drupal
