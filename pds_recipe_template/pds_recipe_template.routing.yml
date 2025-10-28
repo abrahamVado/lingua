@@ -7,3 +7,13 @@ pds_recipe_template.ensure_group:
     _permission: 'administer blocks'
     uuid: '[0-9a-fA-F-]+'
   methods: ['POST']
+
+pds_recipe_template.resolve_row:
+  path: '/pds-template/resolve-row/{uuid}'
+  defaults:
+    _controller: '\Drupal\\pds_recipe_template\\Plugin\\Block\\PdsTemplateBlock::ajaxResolveRow'
+    _title: 'Resolve PDS Template row'
+  requirements:
+    _permission: 'administer blocks'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['POST']

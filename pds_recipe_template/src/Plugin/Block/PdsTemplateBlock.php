@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_template\Plugin\Block;
 
+use Drupal\Component\Utility\Uuid;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Form\SubformStateInterface;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 
 /**
  * @Block(
@@ -18,6 +20,7 @@ use Drupal\file\Entity\File;
  * )
  */
 final class PdsTemplateBlock extends BlockBase {
+  use PdsTemplateBlockStateTrait;
 
   /**
    * {@inheritdoc}
@@ -220,87 +223,6 @@ final class PdsTemplateBlock extends BlockBase {
     ];
   }
 
-  /**
-   * Stash working_items in form_state for modal reuse.
-   */
-  private function setWorkingItems(FormStateInterface $form_state, array $items): void {
-    $form_state->set('working_items', $items);
-    $form_state->setTemporaryValue('working_items', $items);
-
-    if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-      $parent = $form_state->getCompleteFormState();
-      if ($parent instanceof FormStateInterface) {
-        $parent->set('working_items', $items);
-        $parent->setTemporaryValue('working_items', $items);
-      }
-    }
-  }
-
-  /**
-   * Persist computed group id on the form state for AJAX rebuilds.
-   */
-  private function setGroupIdOnFormState(FormStateInterface $form_state, int $group_id): void {
-    //1.- Save the id on the current form state so later requests keep the context.
-    $form_state->set('pds_template_group_id', $group_id);
-    //2.- Mirror into the temporary store for subform rebuilds triggered by AJAX.
-    $form_state->setTemporaryValue('pds_template_group_id', $group_id);
-
-    if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-      $parent = $form_state->getCompleteFormState();
-      if ($parent instanceof FormStateInterface) {
-        //3.- Bubble the id up so parent form handlers can also reach it.
-        $parent->set('pds_template_group_id', $group_id);
-        $parent->setTemporaryValue('pds_template_group_id', $group_id);
-      }
-    }
-  }
-
-  /**
-   * Retrieve cached group id from the form state when available.
-   */
-  private function getGroupIdFromFormState(FormStateInterface $form_state): ?int {
-    //1.- Look at the immediate form state bag first.
-    if ($form_state->has('pds_template_group_id')) {
-      $value = $form_state->get('pds_template_group_id');
-      if (is_numeric($value)) {
-        return (int) $value;
-      }
-    }
-
-    //2.- Fallback to the temporary storage when inside AJAX subforms.
-    if ($form_state->hasTemporaryValue('pds_template_group_id')) {
-      $value = $form_state->getTemporaryValue('pds_template_group_id');
-      if (is_numeric($value)) {
-        return (int) $value;
-      }
-    }
-
-    return NULL;
-  }
-
-  /**
-   * Get items to prefill the modal when editing.
-   */
-  private function getWorkingItems(FormStateInterface $form_state): array {
-    // Prefer temp state inside this LB dialog request.
-    if ($form_state->has('working_items')) {
-      $tmp = $form_state->get('working_items');
-      if (is_array($tmp)) {
-        return array_values($tmp);
-      }
-    }
-    if ($form_state->hasTemporaryValue('working_items')) {
-      $tmp = $form_state->getTemporaryValue('working_items');
-      if (is_array($tmp)) {
-        return array_values($tmp);
-      }
-    }
-
-    // Fallback to last saved snapshot in config.
-    $saved = $this->configuration['items'] ?? [];
-    return is_array($saved) ? array_values($saved) : [];
-  }
-
   public function blockForm($form, FormStateInterface $form_state) {
     $working_items = $this->getWorkingItems($form_state);
     $group_id = $this->getGroupIdFromFormState($form_state);
@@ -336,6 +258,13 @@ final class PdsTemplateBlock extends BlockBase {
         'query' => ['type' => $recipe_type],
       ],
     )->toString();
+    $resolve_row_url = Url::fromRoute(
+      'pds_recipe_template.resolve_row',
+      ['uuid' => $block_uuid],
+      [
+        'absolute' => TRUE,
+      ],
+    )->toString();
 
     $form['pds_template_admin'] = [
       '#type' => 'container',
@@ -346,6 +275,7 @@ final class PdsTemplateBlock extends BlockBase {
         ],
         //5.- Expose AJAX endpoint and identifiers so JS can ensure persistence on add.
         'data-pds-template-ensure-group-url' => $ensure_group_url,
+        'data-pds-template-resolve-row-url' => $resolve_row_url,
         'data-pds-template-group-id' => (string) $group_id,
         'data-pds-template-block-uuid' => $block_uuid,
         'data-pds-template-recipe-type' => $recipe_type,
@@ -574,16 +504,36 @@ final class PdsTemplateBlock extends BlockBase {
       $description = trim($item['description'] ?? '');
       $link        = trim($item['link']        ?? '');
       $fid         = $item['image_fid']        ?? NULL;
+      $desktop_img = trim((string) ($item['desktop_img'] ?? ''));
+      $mobile_img  = trim((string) ($item['mobile_img']  ?? ''));
+      $image_url   = trim((string) ($item['image_url']   ?? ''));
 
-      // Resolve URL from fid if needed.
-      $image_url = $item['image_url'] ?? '';
-      if ($fid && !$image_url) {
+      if ($desktop_img === '' && $image_url !== '') {
+        //1.- Preserve legacy rows where JS only stored image_url by copying it into desktop_img.
+        $desktop_img = $image_url;
+      }
+      if ($mobile_img === '' && $image_url !== '') {
+        //2.- Same fallback for mobile targets so both slots receive the resolved URL.
+        $mobile_img = $image_url;
+      }
+
+      if (($desktop_img === '' || $mobile_img === '') && $fid) {
+        //3.- Allow backward compatibility by resolving the URL only when it was not pre-populated.
         $file = File::load($fid);
         if ($file) {
           $file->setPermanent();
           $file->save();
-          $image_url = \Drupal::service('file_url_generator')
+          $resolved_url = \Drupal::service('file_url_generator')
             ->generateString($file->getFileUri());
+          if ($desktop_img === '') {
+            $desktop_img = $resolved_url;
+          }
+          if ($mobile_img === '') {
+            $mobile_img = $resolved_url;
+          }
+          if ($image_url === '') {
+            $image_url = $resolved_url;
+          }
         }
       }
 
@@ -592,8 +542,8 @@ final class PdsTemplateBlock extends BlockBase {
         'subheader'   => $subheader,
         'description' => $description,
         'link'        => $link,
-        'desktop_img' => $image_url,
-        'mobile_img'  => $image_url,
+        'desktop_img' => $desktop_img,
+        'mobile_img'  => $mobile_img,
         'latitud'     => $item['latitud']  ?? NULL,
         'longitud'    => $item['longitud'] ?? NULL,
       ];
@@ -604,6 +554,85 @@ final class PdsTemplateBlock extends BlockBase {
 
     // Make sure dialog reopens prefilled.
     $this->setWorkingItems($form_state, $clean);
+  }
+
+  /**
+   * AJAX endpoint that turns a temporary upload fid into a permanent URL.
+   */
+  public static function ajaxResolveRow(Request $request, string $uuid): JsonResponse {
+    //1.- Reject invalid UUIDs early so we never touch the file system unnecessarily.
+    if (!Uuid::isValid($uuid)) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Invalid UUID.',
+      ], 400);
+    }
+
+    //2.- Parse the JSON payload regardless of whether the caller wrapped it in "row".
+    $payload = [];
+    $content = $request->getContent();
+    if (is_string($content) && $content !== '') {
+      $decoded = json_decode($content, TRUE);
+      if (is_array($decoded)) {
+        $payload = $decoded;
+      }
+    }
+    if (isset($payload['row']) && is_array($payload['row'])) {
+      $payload = $payload['row'];
+    }
+
+    $image_fid_raw = $payload['image_fid'] ?? NULL;
+    $image_fid = is_numeric($image_fid_raw) ? (int) $image_fid_raw : 0;
+
+    if ($image_fid === 0) {
+      //3.- When no fid was provided (editing an existing row) simply echo URLs back.
+      $fallback_url = (string) ($payload['desktop_img']
+        ?? $payload['mobile_img']
+        ?? $payload['image_url']
+        ?? ''
+      );
+
+      return new JsonResponse([
+        'status' => 'ok',
+        'image_url' => $fallback_url,
+        'image_fid' => NULL,
+        'desktop_img' => (string) ($payload['desktop_img'] ?? $fallback_url),
+        'mobile_img' => (string) ($payload['mobile_img'] ?? $fallback_url),
+      ]);
+    }
+
+    $file = File::load($image_fid);
+    if (!$file) {
+      //4.- Let the UI know the fid is stale so it can react accordingly.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'File not found.',
+      ], 404);
+    }
+
+    try {
+      //5.- Flip the upload to permanent straight away so later loads work without the final save.
+      $file->setPermanent();
+      $file->save();
+      $url = \Drupal::service('file_url_generator')
+        ->generateString($file->getFileUri());
+    }
+    catch (\Exception $e) {
+      //6.- Fail gracefully so the front-end can keep the temporary state.
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Unable to persist file.',
+      ], 500);
+    }
+
+    //7.- Hand the resolved URL back to the caller along with the confirmed fid.
+    return new JsonResponse([
+      'status' => 'ok',
+      'image_url' => $url,
+      'image_fid' => (int) $file->id(),
+      'desktop_img' => $url,
+      'mobile_img' => $url,
+    ]);
   }
 
   /**
