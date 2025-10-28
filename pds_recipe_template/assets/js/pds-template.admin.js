@@ -1322,13 +1322,23 @@ function rebuildManagedFileEmpty(root) {
             if (!target) {
               return;
             }
-            var isSubmit = target.matches('input[type="submit"], button[type="submit"], .form-submit');
-            if (isSubmit) {
-              root._pdsTemplateSubmitter = target;
+
+            //2.- Always escalate nested spans/icons up to the actual submit control Drupal expects.
+            var submitter = null;
+            if (typeof target.closest === 'function') {
+              submitter = target.closest('input[type="submit"], button[type="submit"], .form-submit');
+            }
+            if (!submitter && target.matches && target.matches('input[type="submit"], button[type="submit"], .form-submit')) {
+              submitter = target;
+            }
+
+            if (submitter) {
+              //3.- Cache the resolved submitter so requestSubmit() never receives a non-form control.
+              root._pdsTemplateSubmitter = submitter;
             }
           }
 
-          //2.- Capture pointer and keyboard activation in addition to clicks so Enter/Space still record the trigger.
+          //4.- Capture pointer and keyboard activation in addition to clicks so Enter/Space still record the trigger.
           hostForm.addEventListener('click', function (event) {
             cacheSubmitter(event.target);
           }, true);
