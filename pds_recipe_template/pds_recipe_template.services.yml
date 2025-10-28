@@ -1,4 +1,9 @@
 services:
+  pds_recipe_template.group_ensurer:
+    class: 'Drupal\\pds_recipe_template\\Service\\GroupEnsurer'
+  pds_recipe_template.template_group_manager:
+    alias: pds_recipe_template.group_ensurer
+    deprecated: 'pds_recipe_template:1.0 Mapping kept for backwards compatibility. Use pds_recipe_template.group_ensurer instead.'
   pds_recipe_template.row_image_promoter:
     class: 'Drupal\\pds_recipe_template\\Service\\RowImagePromoter'
     arguments:
