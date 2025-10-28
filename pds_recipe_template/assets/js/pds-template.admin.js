@@ -1317,6 +1317,18 @@ function rebuildManagedFileEmpty(root) {
 
         var hostForm = root.closest('form');
         if (hostForm) {
+          //1.- Remember the exact submit trigger so requestSubmit() can reuse it later.
+          hostForm.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!target) {
+              return;
+            }
+            var isSubmit = target.matches('input[type="submit"], button[type="submit"], .form-submit');
+            if (isSubmit) {
+              root._pdsTemplateSubmitter = target;
+            }
+          }, true);
+
           hostForm.addEventListener('submit', function (event) {
             if (root._pdsTemplateBypassSubmit) {
               //1.- Allow the retried submission to proceed without extra interception.
@@ -1332,6 +1344,7 @@ function rebuildManagedFileEmpty(root) {
             event.stopPropagation();
 
             //2.- Commit pending edits first so the serialized state matches the latest inputs.
+            var submitter = event.submitter || root._pdsTemplateSubmitter || null;
             commitPendingEditsBeforeSubmit(root).then(function (didCommit) {
               if (!didCommit) {
                 return;
@@ -1339,6 +1352,23 @@ function rebuildManagedFileEmpty(root) {
 
               //3.- Retry the submission once the hidden state reflects the newest row changes.
               root._pdsTemplateBypassSubmit = true;
+              if (typeof hostForm.requestSubmit === 'function') {
+                //2.- Prefer requestSubmit so Drupal AJAX preserves the original triggering element.
+                if (submitter) {
+                  hostForm.requestSubmit(submitter);
+                  return;
+                }
+                hostForm.requestSubmit();
+                return;
+              }
+
+              if (submitter && typeof submitter.click === 'function') {
+                //3.- Fall back to a synthetic click when requestSubmit() is unavailable.
+                submitter.click();
+                return;
+              }
+
+              //4.- Last resort, rely on the native submit() for legacy browsers.
               hostForm.submit();
             });
           });
