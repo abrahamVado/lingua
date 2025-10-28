@@ -183,13 +183,15 @@ trait PdsTemplateBlockStateTrait {
    * Get items to prefill the modal when editing.
    */
   private function getWorkingItems(FormStateInterface $form_state): array {
-    // Prefer temp state inside this LB dialog request.
+    //1.- Prefer temp state inside this LB dialog request so AJAX rebuilds keep the latest edits.
     if ($form_state->has('working_items')) {
       $tmp = $form_state->get('working_items');
       if (is_array($tmp)) {
         return array_values($tmp);
       }
     }
+
+    //2.- Inspect the temporary value bag used by nested subforms during AJAX operations.
     if ($form_state->hasTemporaryValue('working_items')) {
       $tmp = $form_state->getTemporaryValue('working_items');
       if (is_array($tmp)) {
@@ -197,9 +199,22 @@ trait PdsTemplateBlockStateTrait {
       }
     }
 
-    // Fallback to last saved snapshot in config.
+    //3.- Reuse the snapshot stored in block configuration when available.
     $saved = $this->configuration['items'] ?? [];
-    return is_array($saved) ? array_values($saved) : [];
+    if (is_array($saved) && $saved !== []) {
+      return array_values($saved);
+    }
+
+    //4.- Pull the canonical dataset from storage when configuration is empty but persisted rows exist.
+    if (method_exists($this, 'loadItemsForBlock')) {
+      $db_rows = $this->loadItemsForBlock();
+      if (is_array($db_rows) && $db_rows !== []) {
+        return array_values($db_rows);
+      }
+    }
+
+    //5.- Return a normalized empty array when no cached or persisted rows were found.
+    return [];
   }
 
 }
