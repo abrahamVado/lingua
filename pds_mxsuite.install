@@ -41,6 +41,20 @@ function pds_mxsuite_install(): void {
 }
 
 /**
+ * Implements hook_schema().
+ */
+function pds_mxsuite_schema(): array {
+  //1.- Hand Drupal the canonical schema so core can manage installs and updates.
+  $definitions = _pds_mxsuite_get_table_definitions();
+
+  //2.- Return the subset keyed by table name to satisfy the hook contract.
+  return [
+    'pds_template_group' => $definitions['pds_template_group'],
+    'pds_template_item' => $definitions['pds_template_item'],
+  ];
+}
+
+/**
  * Shared helper.
  *
  * Creates the two core tables:
@@ -51,145 +65,157 @@ function pds_mxsuite_install(): void {
  */
 function _pds_mxsuite_create_tables(): void {
   $schema = \Drupal::database()->schema();
+  $definitions = _pds_mxsuite_get_table_definitions();
 
   // Master table = one component/group instance.
   if (!$schema->tableExists('pds_template_group')) {
-    $schema->createTable('pds_template_group', [
-      'description' => 'Logical group of template items (one rendered component instance).',
-      'fields' => [
-        'id' => [
-          'type' => 'serial',
-          'not null' => TRUE,
-        ],
-        'uuid' => [
-          'type' => 'varchar',
-          'length' => 128,
-          'not null' => TRUE,
-        ],
-        'type' => [
-          'type' => 'varchar',
-          'length' => 64,
-          'not null' => TRUE,
-          'default' => '',
-          // e.g. "pds_recipe_executives"
-          //      "pds_recipe_formas_de_invertir"
-        ],
-        'created_at' => [
-          'type' => 'int',
-          'not null' => TRUE,
-          'default' => 0,
-        ],
-        'deleted_at' => [
-          'type' => 'int',
-          'not null' => FALSE,
-        ],
-      ],
-      'primary key' => ['id'],
-      'unique keys' => [
-        'uuid' => ['uuid'],
-      ],
-      'indexes' => [
-        'type' => ['type'],
-        'deleted_at' => ['deleted_at'],
-      ],
-    ]);
+    $schema->createTable('pds_template_group', $definitions['pds_template_group']);
   }
 
   // Child table = many cards per group.
   if (!$schema->tableExists('pds_template_item')) {
-    $schema->createTable('pds_template_item', [
-      'description' => 'Items/cards that belong to a template group.',
-      'fields' => [
-        'id' => [
-          'type' => 'serial',
-          'not null' => TRUE,
-        ],
-        'uuid' => [
-          'type' => 'varchar',
-          'length' => 128,
-          'not null' => TRUE,
-        ],
-
-        'group_id' => [
-          'type' => 'int',
-          'not null' => TRUE,
-          'default' => 0,
-          // FK to pds_template_group.id
-        ],
-
-        'weight' => [
-          'type' => 'int',
-          'not null' => TRUE,
-          'default' => 0,
-        ],
-
-        'header' => [
-          'type' => 'varchar',
-          'length' => 255,
-          'not null' => TRUE,
-          'default' => '',
-        ],
-        'subheader' => [
-          'type' => 'varchar',
-          'length' => 255,
-          'not null' => TRUE,
-          'default' => '',
-        ],
-        'description' => [
-          'type' => 'text',
-          'size' => 'big',
-          'not null' => FALSE,
-        ],
-        'url' => [
-          'type' => 'varchar',
-          'length' => 512,
-          'not null' => TRUE,
-          'default' => '',
-        ],
-
-        'desktop_img' => [
-          'type' => 'varchar',
-          'length' => 512,
-          'not null' => TRUE,
-          'default' => '',
-        ],
-        'mobile_img' => [
-          'type' => 'varchar',
-          'length' => 512,
-          'not null' => TRUE,
-          'default' => '',
-        ],
-
-        'latitud' => [
-          'type' => 'float',
-          'not null' => FALSE,
-        ],
-        'longitud' => [
-          'type' => 'float',
-          'not null' => FALSE,
-        ],
-
-        'created_at' => [
-          'type' => 'int',
-          'not null' => TRUE,
-          'default' => 0,
-        ],
-        'deleted_at' => [
-          'type' => 'int',
-          'not null' => FALSE,
-        ],
-      ],
-      'primary key' => ['id'],
-      'unique keys' => [
-        'uuid' => ['uuid'],
-      ],
-      'indexes' => [
-        'group_id' => ['group_id'],
-        'weight' => ['weight'],
-        'deleted_at' => ['deleted_at'],
-      ],
-    ]);
+    $schema->createTable('pds_template_item', $definitions['pds_template_item']);
   }
+}
+
+/**
+ * Build the canonical table definitions used across install-time helpers.
+ */
+function _pds_mxsuite_get_table_definitions(): array {
+  //1.- Describe the group table exactly once so schema(), install(), and repairs share it.
+  $group_definition = [
+    'description' => 'Logical group of template items (one rendered component instance).',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'uuid' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ],
+      'type' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        // e.g. "pds_recipe_executives"
+        //      "pds_recipe_formas_de_invertir"
+      ],
+      'created_at' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'deleted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'uuid' => ['uuid'],
+    ],
+    'indexes' => [
+      'type' => ['type'],
+      'deleted_at' => ['deleted_at'],
+    ],
+  ];
+
+  //2.- Mirror the runtime expectations for items so every code path provisions the same schema.
+  $item_definition = [
+    'description' => 'Items/cards that belong to a template group.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'uuid' => [
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+      ],
+      'group_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        // FK to pds_template_group.id
+      ],
+      'weight' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'header' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'subheader' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'description' => [
+        'type' => 'text',
+        'size' => 'big',
+        'not null' => FALSE,
+      ],
+      'url' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'desktop_img' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'mobile_img' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'latitud' => [
+        'type' => 'float',
+        'not null' => FALSE,
+      ],
+      'longitud' => [
+        'type' => 'float',
+        'not null' => FALSE,
+      ],
+      'created_at' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'deleted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+      ],
+    ],
+    'primary key' => ['id'],
+    'unique keys' => [
+      'uuid' => ['uuid'],
+    ],
+    'indexes' => [
+      'group_id' => ['group_id'],
+      'weight' => ['weight'],
+      'deleted_at' => ['deleted_at'],
+    ],
+  ];
+
+  //3.- Cache the definitions in memory for the current request so repeated calls stay cheap.
+  return [
+    'pds_template_group' => $group_definition,
+    'pds_template_item' => $item_definition,
+  ];
 }
 
 /**
