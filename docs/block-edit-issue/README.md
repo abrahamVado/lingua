@@ -28,6 +28,9 @@
 - Compare the behavior with a previous known-good commit to determine if a recent change introduced the regression.
 - Validate whether legacy blocks rely solely on the stored `group_id` and, if so, hydrate the missing `instance_uuid` from that identifier to keep tab B connected to historical rows.
 
-//7.- Additional Notes
+//7.- Immediate Fix Attempt
+- Adjust the PHP block loader so legacy records that only retained `group_id` still repopulate the hidden JSON state and refresh the stored `instance_uuid`, ensuring tab B receives rows during edits.
+
+//8.- Additional Notes
 - Capture screenshots or network logs during reproduction to share findings with the team.
 - Prioritize fixing any data loss risks if tab B modifications overwrite existing items.

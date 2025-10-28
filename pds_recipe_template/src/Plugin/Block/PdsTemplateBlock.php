@@ -7,6 +7,7 @@ namespace Drupal\pds_recipe_template\Plugin\Block;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Block\BlockBase;
+use Drupal\Core\Database\Connection;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
@@ -111,72 +112,101 @@ final class PdsTemplateBlock extends BlockBase {
     $uuid = $this->getBlockInstanceUuid();
 
     try {
-      // 1. Find group id for this block UUID.
+      //1.- Resolve the numeric group id that matches the current UUID so AJAX previews stay in sync.
       $group_row = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
+        ->range(0, 1)
         ->execute()
         ->fetchAssoc();
 
-      if (!$group_row || empty($group_row['id'])) {
-        // No rows yet in DB. Use config snapshot.
-        return $this->configuration['items'] ?? [];
+      $group_id = 0;
+      if ($group_row && !empty($group_row['id'])) {
+        $group_id = (int) $group_row['id'];
       }
+      else {
+        //2.- Fall back to the stored group id when legacy blocks never recorded an instance UUID.
+        $legacy_group_id = $this->configuration['group_id'] ?? 0;
+        if (is_numeric($legacy_group_id) && (int) $legacy_group_id > 0) {
+          $group_id = (int) $legacy_group_id;
 
-      $group_id = (int) $group_row['id'];
+          //3.- Attempt to hydrate the cached UUID from the legacy group so subsequent requests reuse it.
+          $legacy_uuid = $connection->select('pds_template_group', 'g')
+            ->fields('g', ['uuid'])
+            ->condition('g.id', $group_id)
+            ->condition('g.deleted_at', NULL, 'IS NULL')
+            ->range(0, 1)
+            ->execute()
+            ->fetchField();
 
-      // 2. Load all active items for that group.
-      $query = $connection->select('pds_template_item', 'i')
-        ->fields('i', [
-          'header',
-          'subheader',
-          'description',
-          'url',
-          'desktop_img',
-          'mobile_img',
-          'latitud',
-          'longitud',
-        ])
-        ->condition('i.group_id', $group_id)
-        ->condition('i.deleted_at', NULL, 'IS NULL')
-        ->orderBy('i.weight', 'ASC');
-
-      $result = $query->execute();
-
-      $rows = [];
-      foreach ($result as $record) {
-        //1.- Prefer the stored desktop asset when generating the preview image URL.
-        $primary_image = (string) $record->desktop_img;
-        if ($primary_image === '') {
-          //2.- Fall back to the mobile slot so legacy rows still expose an image URL.
-          $primary_image = (string) $record->mobile_img;
+          if (is_string($legacy_uuid) && $legacy_uuid !== '') {
+            $this->configuration['instance_uuid'] = $legacy_uuid;
+          }
         }
-
-        $rows[] = [
-          'header'      => $record->header,
-          'subheader'   => $record->subheader,
-          'description' => $record->description,
-          'link'        => $record->url,
-          'desktop_img' => $record->desktop_img,
-          'mobile_img'  => $record->mobile_img,
-          'image_url'   => $primary_image,
-          'latitud'     => $record->latitud,
-          'longitud'    => $record->longitud,
-        ];
       }
 
-      if ($rows) {
-        return $rows;
+      if ($group_id > 0) {
+        $rows = $this->loadRowsForGroup($connection, $group_id);
+        if ($rows !== []) {
+          return $rows;
+        }
       }
 
-      // If DB empty, fallback to snapshot.
+      //4.- If no active rows exist yet, reuse the configuration snapshot to keep previews hydrated.
       return $this->configuration['items'] ?? [];
     }
     catch (\Exception $e) {
-      // Tables not created yet or DB error.
+      //5.- Tables not created yet or DB error.
       return $this->configuration['items'] ?? [];
     }
+  }
+
+  /**
+   * Load and normalize rows for the provided group id.
+   */
+  private function loadRowsForGroup(Connection $connection, int $group_id): array {
+    //1.- Query the active items for the group while ignoring soft-deleted records.
+    $query = $connection->select('pds_template_item', 'i')
+      ->fields('i', [
+        'header',
+        'subheader',
+        'description',
+        'url',
+        'desktop_img',
+        'mobile_img',
+        'latitud',
+        'longitud',
+      ])
+      ->condition('i.group_id', $group_id)
+      ->condition('i.deleted_at', NULL, 'IS NULL')
+      ->orderBy('i.weight', 'ASC');
+
+    $result = $query->execute();
+
+    $rows = [];
+    foreach ($result as $record) {
+      //2.- Prefer the stored desktop asset when generating the preview image URL.
+      $primary_image = (string) $record->desktop_img;
+      if ($primary_image === '') {
+        //3.- Fall back to the mobile slot so legacy rows still expose an image URL.
+        $primary_image = (string) $record->mobile_img;
+      }
+
+      $rows[] = [
+        'header'      => $record->header,
+        'subheader'   => $record->subheader,
+        'description' => $record->description,
+        'link'        => $record->url,
+        'desktop_img' => $record->desktop_img,
+        'mobile_img'  => $record->mobile_img,
+        'image_url'   => $primary_image,
+        'latitud'     => $record->latitud,
+        'longitud'    => $record->longitud,
+      ];
+    }
+
+    return $rows;
   }
 
   /**
