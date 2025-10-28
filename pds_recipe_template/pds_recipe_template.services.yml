@@ -1,9 +1,4 @@
 services:
-  pds_recipe_template.group_manager:
-    class: 'Drupal\\pds_recipe_template\\Service\\TemplateGroupManager'
-    arguments:
-      - '@database'
-      - '@datetime.time'
   pds_recipe_template.row_image_promoter:
     class: 'Drupal\\pds_recipe_template\\Service\\RowImagePromoter'
     arguments:

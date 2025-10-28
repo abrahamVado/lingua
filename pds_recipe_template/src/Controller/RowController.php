@@ -76,8 +76,7 @@ final class RowController extends ControllerBase {
 
     try {
       //4.- Resolve the numeric group id so we can assert ownership before updating anything.
-      $group_manager = \Drupal::service('pds_recipe_template.group_manager');
-      $group_id = $group_manager->ensureGroupAndGetId($uuid, $type);
+      $group_id = \pds_recipe_template_ensure_group_and_get_id($uuid, $type);
       if (!$group_id) {
         return new JsonResponse([
           'status' => 'error',
@@ -328,8 +327,7 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      $group_manager = \Drupal::service('pds_recipe_template.group_manager');
-      $group_id = $group_manager->ensureGroupAndGetId($uuid, $type);
+      $group_id = \pds_recipe_template_ensure_group_and_get_id($uuid, $type);
       if (!$group_id) {
         return new JsonResponse([
           'status' => 'error',

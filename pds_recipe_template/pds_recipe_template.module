@@ -1,43 +1,9 @@
 <?php
 
-use Drupal\pds_recipe_template\Service\RowImagePromoter;
-use Drupal\pds_recipe_template\Service\TemplateGroupManager;
-
 /**
  * @file
  * Hooks for pds_recipe_template.
  */
-
-use Composer\Autoload\ClassLoader;
-
-//1.- Ensure the module's namespace is registered on Composer's primary loader
-//    so services stay discoverable even when Composer runs with an authoritative
-//    class map and skips dynamic file discovery.
-static $pdsRecipeTemplateAutoloaderRegistered = FALSE;
-if (!$pdsRecipeTemplateAutoloaderRegistered) {
-  //2.- Inspect the registered autoload callbacks to locate the Composer loader
-  //    instance that Drupal bootstraps with; this keeps the solution consistent
-  //    with Drupal's dependency injection and avoids manual file includes.
-  $composerLoader = NULL;
-  foreach (spl_autoload_functions() as $autoloadCallback) {
-    if (is_array($autoloadCallback) && $autoloadCallback[0] instanceof ClassLoader) {
-      $composerLoader = $autoloadCallback[0];
-      break;
-    }
-    if ($autoloadCallback instanceof ClassLoader) {
-      $composerLoader = $autoloadCallback;
-      break;
-    }
-  }
-
-  //3.- Once the loader is available, register the module's PSR-4 prefix pointing
-  //    at the src directory so Composer resolves classes instead of falling back
-  //    to brittle require statements.
-  if ($composerLoader instanceof ClassLoader) {
-    $composerLoader->addPsr4('Drupal\\pds_recipe_template\\', __DIR__ . '/src');
-    $pdsRecipeTemplateAutoloaderRegistered = TRUE;
-  }
-}
 
 /**
  * Implements hook_theme().
@@ -57,4 +23,62 @@ function pds_recipe_template_theme($existing, $type, $theme, $path) {
       ],
     ],
   ];
+}
+
+/**
+ * Ensure a template group exists for the provided UUID and return its id.
+ */
+function pds_recipe_template_ensure_group_and_get_id(string $uuid, string $type = 'pds_recipe_template'): ?int {
+  //1.- Reject empty UUIDs immediately so no database work happens without an identifier.
+  if ($uuid === '') {
+    return NULL;
+  }
+
+  $normalized_type = $type !== '' ? $type : 'pds_recipe_template';
+
+  try {
+    //2.- Attempt to reuse an existing active group row for this UUID.
+    $connection = \Drupal::database();
+    $existing_id = $connection->select('pds_template_group', 'g')
+      ->fields('g', ['id'])
+      ->condition('g.uuid', $uuid)
+      ->condition('g.deleted_at', NULL, 'IS NULL')
+      ->execute()
+      ->fetchField();
+
+    if ($existing_id) {
+      return (int) $existing_id;
+    }
+
+    $now = \Drupal::time()->getRequestTime();
+
+    try {
+      //3.- Insert a fresh group row when the UUID has never been persisted before.
+      $connection->insert('pds_template_group')
+        ->fields([
+          'uuid' => $uuid,
+          'type' => $normalized_type,
+          'created_at' => $now,
+          'deleted_at' => NULL,
+        ])
+        ->execute();
+    }
+    catch (\Throwable $insert_exception) {
+      //4.- Ignore duplicate key races because concurrent requests may create it too.
+    }
+
+    //5.- Resolve the identifier again to cover both inserts and duplicates gracefully.
+    $new_id = $connection->select('pds_template_group', 'g')
+      ->fields('g', ['id'])
+      ->condition('g.uuid', $uuid)
+      ->condition('g.deleted_at', NULL, 'IS NULL')
+      ->execute()
+      ->fetchField();
+
+    return $new_id ? (int) $new_id : NULL;
+  }
+  catch (\Throwable $exception) {
+    //6.- Fail softly so callers can fall back to configuration snapshots when DB errors appear.
+    return NULL;
+  }
 }
