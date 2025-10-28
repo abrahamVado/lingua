@@ -455,18 +455,24 @@ function clearInputs(root) {
           };
         }
 
-        //2.- Copy the confirmed identifiers so the local cache stays in sync with DB state.
-        if (typeof json.id === 'number') {
-          row.id = json.id;
-        }
-        if (json.uuid) {
-          row.uuid = json.uuid;
-        }
-        if (typeof json.weight === 'number') {
-          row.weight = json.weight;
+        //2.- Clone before merging so we always return the canonical payload provided by the backend.
+        var finalRow = Object.assign({}, row);
+
+        if (json.row && typeof json.row === 'object') {
+          finalRow = Object.assign(finalRow, json.row);
         }
 
-        return { success: true, row: row };
+        if (typeof json.id === 'number') {
+          finalRow.id = json.id;
+        }
+        if (json.uuid) {
+          finalRow.uuid = json.uuid;
+        }
+        if (typeof json.weight === 'number') {
+          finalRow.weight = json.weight;
+        }
+
+        return { success: true, row: finalRow };
       })
       .catch(function () {
         return {
