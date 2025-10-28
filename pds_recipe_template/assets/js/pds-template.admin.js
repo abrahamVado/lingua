@@ -199,6 +199,8 @@
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
+      //4.- Send the Drupal session cookie so permission checks pass during modal saves.
+      credentials: 'same-origin',
       body: JSON.stringify({})
     })
       .then(function (response) {
@@ -366,6 +368,8 @@ function clearInputs(root) {
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
         },
+        //5.- Include credentials so AJAX promotions inherit the authenticated editor context.
+        credentials: 'same-origin',
         body: JSON.stringify({ row: row })
       })
         .then(function (response) {
@@ -438,6 +442,8 @@ function clearInputs(root) {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
+      //3.- Preserve the admin's session so Drupal authorizes the create-row request.
+      credentials: 'same-origin',
       body: JSON.stringify(payload)
     })
       .then(function (response) {
@@ -523,6 +529,8 @@ function clearInputs(root) {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
+      //3.- Carry the editor's session cookie so Drupal accepts the update request.
+      credentials: 'same-origin',
       body: JSON.stringify(payload)
     })
       .then(function (response) {

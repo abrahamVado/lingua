@@ -9,4 +9,5 @@
 5. Normalized the cached submitter by walking up from inner spans/icons to the actual submit button before calling `requestSubmit()`, preventing Layout Builder from silently ignoring the retry when decorators wrap the primary control.
 6. Switched the block form container to `#tree` mode so the modal's hidden JSON (`cards_state`) stays nested under `pds_template_admin`, letting `blockSubmit()` read the saved rows when Layout Builder's **Add block** action fires.
 7. Added a resilient form state extractor that checks both direct and `settings`-prefixed parent paths so `blockSubmit()` always receives the `cards_state` and `group_id` values regardless of how Layout Builder nests the subform.
+8. Propagated `credentials: 'same-origin'` across every admin fetch call so Drupal receives the authenticated editor's session cookie during Create/Update/ensure-group requests, restoring **Add block** saves when CSRF checks reject anonymous AJAX calls.
 
