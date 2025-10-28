@@ -644,6 +644,16 @@ function clearInputs(root) {
     }
 
     if (!rows.length) {
+      //1.- Kick off a single remote hydration when legacy blocks lack serialized rows in the hidden JSON field.
+      if (!root._pdsPreviewAutoLoaded) {
+        var listingUrl = root.getAttribute('data-pds-template-list-rows-url');
+        if (listingUrl) {
+          //2.- Remember the attempt before calling the fetch helper to prevent infinite retry loops on empty responses.
+          root._pdsPreviewAutoLoaded = true;
+          refreshPreviewFromServer(root);
+          return;
+        }
+      }
       if (hasStates) {
         content.innerHTML = '';
         setPreviewState(wrapper, 'empty');
