@@ -12,4 +12,6 @@
 8. Propagated `credentials: 'same-origin'` across every admin fetch call so Drupal receives the authenticated editor's session cookie during Create/Update/ensure-group requests, restoring **Add block** saves when CSRF checks reject anonymous AJAX calls.
 9. Expanded the AJAX endpoint access checks so roles with Layout Builder configuration permissions can reach the JSON routes without needing **Administer blocks**, fixing Add block saves for editors who lacked that elevated permission.
 10. Added a recursive form-state fallback that scans newly introduced Layout Builder wrappers for `cards_state`/`group_id`, ensuring the server still receives the saved rows even when core reshuffles the modal structure.
+11. Normalized nested form values in `PdsTemplateBlockStateTrait::extractNestedFormValue()` so the save handler keeps working after Layout Builder wraps hidden inputs in `[value]` arrays during Add block submissions.
+12. Converted the modal's hidden `group_id`, `cards_state`, and `edit_index` fields to use `#default_value` so JavaScript mutations survive the submit pipeline instead of being overwritten by immutable `#value` defaults.
 

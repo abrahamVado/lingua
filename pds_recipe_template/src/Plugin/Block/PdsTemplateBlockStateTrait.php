@@ -21,7 +21,13 @@ trait PdsTemplateBlockStateTrait {
       $normalized_parents = is_array($parents) ? $parents : [$parents];
       $value = $form_state->getValue($normalized_parents);
       if ($value !== NULL) {
-        //2.- Return the first non-null match to honor the value closest to the triggering element.
+        //2.- Normalize the value because Layout Builder sometimes wraps scalars in nested arrays.
+        $coerced = $this->coerceFormStateScalar($value);
+        if ($coerced !== NULL) {
+          return $coerced;
+        }
+
+        //3.- Fall back to the original payload when the coercion did not find a scalar match.
         return $value;
       }
     }
@@ -43,13 +49,19 @@ trait PdsTemplateBlockStateTrait {
         foreach (array_keys($keys_to_scan) as $key) {
           [$found, $resolved] = $this->searchFormValuesForKey($values, $key);
           if ($found) {
+            //5.- Attempt to flatten the resolved value so callers receive the same scalar they expect.
+            $coerced = $this->coerceFormStateScalar($resolved);
+            if ($coerced !== NULL) {
+              return $coerced;
+            }
+
             return $resolved;
           }
         }
       }
     }
 
-    //5.- Fall back to the supplied default when none of the candidate paths produced a value.
+    //6.- Fall back to the supplied default when none of the candidate paths produced a value.
     return $default;
   }
 
@@ -74,6 +86,37 @@ trait PdsTemplateBlockStateTrait {
 
     //3.- Return a miss marker so callers can continue scanning other branches.
     return [FALSE, NULL];
+  }
+
+  /**
+   * Collapse Form API values into direct scalars when possible.
+   */
+  private function coerceFormStateScalar($value) {
+    //1.- Accept primitive scalars immediately so the caller receives the exact submitted value.
+    if (is_string($value) || is_numeric($value) || is_bool($value)) {
+      return $value;
+    }
+
+    if (is_array($value)) {
+      //2.- Respect the Drupal pattern of storing values under a 'value' key before scanning children.
+      if (array_key_exists('value', $value)) {
+        $direct = $this->coerceFormStateScalar($value['value']);
+        if ($direct !== NULL) {
+          return $direct;
+        }
+      }
+
+      //3.- Search the remaining children recursively so deeply nested wrappers still resolve.
+      foreach ($value as $child) {
+        $resolved = $this->coerceFormStateScalar($child);
+        if ($resolved !== NULL) {
+          return $resolved;
+        }
+      }
+    }
+
+    //4.- Signal that no scalar was discovered so callers can fall back to their defaults.
+    return NULL;
   }
 
   /**

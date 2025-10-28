@@ -356,7 +356,8 @@ final class PdsTemplateBlock extends BlockBase {
         'data-drupal-selector' => 'pds-template-group-id',
         'id' => 'pds-template-group-id',
       ],
-      '#value' => (string) $group_id,
+      //1.- Store the resolved id as a mutable default so AJAX updates from JS persist through submit.
+      '#default_value' => (string) $group_id,
     ];
 
   // Hidden JSON state.
@@ -366,7 +367,8 @@ final class PdsTemplateBlock extends BlockBase {
     '#attributes' => [
       'data-drupal-selector' => 'pds-template-cards-state',
     ],
-    '#value' => json_encode($working_items),
+    //1.- Expose the serialized rows via a default value so runtime edits reach PHP on submit.
+    '#default_value' => json_encode($working_items),
   ];
 
   // Hidden edit index.
@@ -375,7 +377,8 @@ final class PdsTemplateBlock extends BlockBase {
     '#attributes' => [
       'data-drupal-selector' => 'pds-template-edit-index',
     ],
-    '#value' => '-1',
+    //1.- Seed the edit pointer with a mutable default so JS can signal which row is active.
+    '#default_value' => '-1',
   ];
 
   // Tabs nav.
