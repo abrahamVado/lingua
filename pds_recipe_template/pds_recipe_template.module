@@ -67,10 +67,29 @@ if (!function_exists('pds_recipe_template_include_service_class')) {
 
     $logger = pds_recipe_template_get_logger();
 
-    //2.- Look inside the module directory directly so cache rebuilds keep working.
+    //2.- Prime the runtime class loader with the module namespace so Composer knows the mapping.
+    if (defined('DRUPAL_ROOT') && method_exists('\\Drupal', 'hasService') && \Drupal::hasService('class_loader')) {
+      try {
+        $class_loader = \Drupal::service('class_loader');
+        if (is_object($class_loader) && method_exists($class_loader, 'addPsr4')) {
+          //3.- Register the PSR-4 path dynamically to cover manual module deployments.
+          $class_loader->addPsr4('Drupal\\pds_recipe_template\\', __DIR__ . '/src');
+        }
+      }
+      catch (\Throwable $throwable) {
+        if ($logger) {
+          $logger->error('Unable to register PSR-4 mapping for @class: @message', [
+            '@class' => $class,
+            '@message' => $throwable->getMessage(),
+          ]);
+        }
+      }
+    }
+
+    //4.- Look inside the module directory directly so cache rebuilds keep working.
     $paths = [__DIR__ . $relative_path];
 
-    //3.- Resolve the module path from the extension list when the container is ready.
+    //5.- Resolve the module path from the extension list when the container is ready.
     if (defined('DRUPAL_ROOT') && method_exists('\Drupal', 'hasService') && \Drupal::hasService('extension.list.module')) {
       try {
         $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
@@ -88,7 +107,7 @@ if (!function_exists('pds_recipe_template_include_service_class')) {
       }
     }
 
-    //4.- Attempt each candidate path until the class definition is available.
+    //6.- Attempt each candidate path until the class definition is available.
     foreach ($paths as $path) {
       if (!is_string($path) || $path === '') {
         continue;
@@ -116,7 +135,7 @@ if (!function_exists('pds_recipe_template_include_service_class')) {
       }
     }
 
-    //5.- Report whether the helper managed to load the class so callers can fallback.
+    //7.- Report whether the helper managed to load the class so callers can fallback.
     return class_exists($class, FALSE);
   }
 }
