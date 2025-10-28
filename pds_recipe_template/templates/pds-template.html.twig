@@ -9,7 +9,10 @@
       image_url
 #}
 
-<div class="pds-template-display-wrapper">
+<div
+  class="pds-template-display-wrapper"
+  {% if group_id is not null and group_id != 0 %}data-group-id="{{ group_id }}"{% endif %}
+  {% if instance_uuid %}data-instance-uuid="{{ instance_uuid|e }}"{% endif %}>
   {% if items is iterable and items|length > 0 %}
     <table class="pds-template-display-table">
       <thead>

@@ -18,6 +18,8 @@ function pds_recipe_template_theme($existing, $type, $theme, $path) {
       'path' => $path . '/templates',
       'variables' => [
         'items' => [],
+        'group_id' => NULL,
+        'instance_uuid' => '',
       ],
     ],
   ];

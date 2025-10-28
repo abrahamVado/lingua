@@ -30,6 +30,8 @@ final class PdsTemplateBlock extends BlockBase {
     return [
       // Snapshot fallback for render if DB or tables are not available yet.
       'items' => [],
+      //1.- Persist the numeric group id so front-end renderers can reference it.
+      'group_id' => 0,
       // Stable UUID to tie this block instance to rows in pds_template_group.
       'instance_uuid' => '',
       // Logical type of this block. Adjust per block subtype if needed.
@@ -143,9 +145,12 @@ final class PdsTemplateBlock extends BlockBase {
    * Overwrite existing active items for this group.
    * Also update configuration['items'] snapshot.
    */
-  private function saveItemsForBlock(array $clean_items): void {
+  private function saveItemsForBlock(array $clean_items, ?int $group_id = NULL): void {
     $connection = \Drupal::database();
-    $group_id = $this->ensureGroupAndGetId();
+    if ($group_id === NULL || $group_id === 0) {
+      //1.- Resolve the backing group row when the caller did not provide one explicitly.
+      $group_id = $this->ensureGroupAndGetId();
+    }
     $now = \Drupal::time()->getRequestTime();
 
     // Soft-delete all previous active items for this group.
@@ -180,6 +185,10 @@ final class PdsTemplateBlock extends BlockBase {
 
     // Keep snapshot for fallback render.
     $this->configuration['items'] = $clean_items;
+    if ($group_id) {
+      //2.- Mirror the id in configuration so future renders expose it without DB lookups.
+      $this->configuration['group_id'] = (int) $group_id;
+    }
   }
 
   /**
@@ -188,10 +197,23 @@ final class PdsTemplateBlock extends BlockBase {
    */
   public function build(): array {
     $items = $this->loadItemsForBlock();
+    $group_id = (int) ($this->configuration['group_id'] ?? 0);
+    if ($group_id === 0) {
+      //1.- Guarantee a persisted identifier exists even on early renders.
+      $group_id = $this->ensureGroupAndGetId();
+      if ($group_id) {
+        //2.- Cache the freshly resolved id so subsequent renders reuse it.
+        $this->configuration['group_id'] = $group_id;
+      }
+    }
+
+    $instance_uuid = $this->getBlockInstanceUuid();
 
     return [
       '#theme' => 'pds_template_block',
       '#items' => $items,
+      '#group_id' => $group_id,
+      '#instance_uuid' => $instance_uuid,
       '#cache' => [
         'tags' => [],
         'contexts' => ['route'],
@@ -500,6 +522,28 @@ final class PdsTemplateBlock extends BlockBase {
       'cards_state',
     ]);
 
+    $group_id = NULL;
+    $raw_group = $form_state->getValue([
+      'pds_template_admin',
+      'group_id',
+    ]);
+    if (is_scalar($raw_group) && $raw_group !== '') {
+      //1.- Prefer the hidden field payload so the exact id from JS persists.
+      $group_id = (int) $raw_group;
+    }
+    if (!$group_id) {
+      //2.- Fallback to the cached state helpers when the hidden input is missing.
+      $group_id = $this->getGroupIdFromFormState($form_state) ?? 0;
+    }
+    if (!$group_id) {
+      //3.- Ensure a record exists when both previous lookups failed (fresh block).
+      $group_id = $this->ensureGroupAndGetId();
+    }
+    if ($group_id) {
+      //4.- Mirror the resolved id to configuration for quick reuse on render.
+      $this->configuration['group_id'] = (int) $group_id;
+    }
+
     $items = [];
     if (is_string($raw_json) && $raw_json !== '') {
       $decoded = json_decode($raw_json, TRUE);
@@ -569,7 +613,7 @@ final class PdsTemplateBlock extends BlockBase {
     }
 
     // Persist items in DB and config snapshot.
-    $this->saveItemsForBlock($clean);
+    $this->saveItemsForBlock($clean, $group_id);
 
     // Make sure dialog reopens prefilled.
     $this->setWorkingItems($form_state, $clean);
