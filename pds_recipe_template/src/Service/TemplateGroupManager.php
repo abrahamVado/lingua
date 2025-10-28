@@ -10,10 +10,26 @@ use Throwable;
 
 final class TemplateGroupManager {
 
+  /**
+   * Database connection used to resolve and persist template groups.
+   */
+  private Connection $connection;
+
+  /**
+   * Time service leveraged for timestamp generation.
+   */
+  private TimeInterface $time;
+
   public function __construct(
-    private readonly Connection $connection,
-    private readonly TimeInterface $time,
-  ) {}
+    Connection $connection,
+    TimeInterface $time,
+  ) {
+    //1.- Store the shared database connection for future queries and inserts.
+    $this->connection = $connection;
+
+    //2.- Keep a reference to the time service for timestamp creation.
+    $this->time = $time;
+  }
 
   public function ensureGroupAndGetId(string $uuid, string $type = 'pds_recipe_template'): ?int {
     //1.- Reject empty UUIDs early so we avoid unnecessary database work.
