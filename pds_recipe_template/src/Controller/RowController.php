@@ -12,7 +12,7 @@ use Throwable;
 
 final class RowController extends ControllerBase {
 
-  public function create(Request $request, string $uuid): JsonResponse {
+  public function createRow(Request $request, string $uuid): JsonResponse {
     //1.- Validate UUID upfront so we never attempt inserts with malformed identifiers.
     if (!Uuid::isValid($uuid)) {
       return new JsonResponse([
