@@ -1,5 +1,48 @@
 <?php
 
+if (!function_exists('pds_recipe_template_register_runtime_autoloader')) {
+  /**
+   * Register a PSR-4 autoloader for the module during manual deployments.
+   */
+  function pds_recipe_template_register_runtime_autoloader(): void {
+    static $registered = FALSE;
+
+    //1.- Ensure the autoloader only runs once per request to avoid duplicates.
+    if ($registered) {
+      return;
+    }
+
+    $registered = TRUE;
+
+    $base_directory = __DIR__ . '/src/';
+
+    //2.- Skip the registration when the expected src directory is missing.
+    if (!is_dir($base_directory)) {
+      return;
+    }
+
+    spl_autoload_register(static function (string $class) use ($base_directory): void {
+      //1.- Only handle classes that belong to the module's namespace prefix.
+      $prefix = 'Drupal\\pds_recipe_template\\';
+      if (strncmp($class, $prefix, strlen($prefix)) !== 0) {
+        return;
+      }
+
+      //2.- Translate the remainder of the namespace into a filesystem path.
+      $relative_class = substr($class, strlen($prefix));
+      $relative_path = str_replace('\\', DIRECTORY_SEPARATOR, $relative_class) . '.php';
+
+      //3.- Require the file when it exists so the class becomes available instantly.
+      $candidate = $base_directory . $relative_path;
+      if (is_readable($candidate)) {
+        require_once $candidate;
+      }
+    });
+  }
+}
+
+pds_recipe_template_register_runtime_autoloader();
+
 /**
  * @file
  * Hooks for pds_recipe_template.
