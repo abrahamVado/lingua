@@ -222,18 +222,27 @@ function _pds_mxsuite_get_table_definitions(): array {
  * Include the schema repairer class when the container cannot autoload it.
  */
 function _pds_mxsuite_include_schema_repairer(?LoggerChannelInterface $logger = NULL): bool {
-  //1.- Skip the include work when the class is already present in memory.
+  //1.- Delegate to the shared helper when it exists so both modules stay aligned.
+  if (function_exists('pds_recipe_template_include_service_class')) {
+    if (pds_recipe_template_include_service_class('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer', '/src/Service/LegacySchemaRepairer.php')) {
+      return TRUE;
+    }
+  }
+
+  //2.- Skip the include work when the class is already present in memory.
   if (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
     return TRUE;
   }
 
   try {
-    //2.- Look up the module path dynamically so multisite installs remain compatible.
-    $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
-    if (is_string($module_path) && $module_path !== '') {
-      $legacy_repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
-      if (is_readable($legacy_repairer_path)) {
-        require_once $legacy_repairer_path;
+    //3.- Look up the module path dynamically so multisite installs remain compatible.
+    if (\Drupal::hasService('extension.list.module')) {
+      $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+      if (is_string($module_path) && $module_path !== '') {
+        $legacy_repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
+        if (is_readable($legacy_repairer_path)) {
+          require_once $legacy_repairer_path;
+        }
       }
     }
   }
@@ -245,7 +254,7 @@ function _pds_mxsuite_include_schema_repairer(?LoggerChannelInterface $logger = 
     }
   }
 
-  //3.- Report whether the class could be loaded so callers can attempt manual instantiation.
+  //4.- Report whether the class could be loaded so callers can attempt manual instantiation.
   return class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer');
 }
 
