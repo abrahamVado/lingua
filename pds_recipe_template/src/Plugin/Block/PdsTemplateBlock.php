@@ -61,9 +61,8 @@ final class PdsTemplateBlock extends BlockBase {
     $uuid = $this->getBlockInstanceUuid();
     $type = $this->configuration['recipe_type'] ?? 'pds_recipe_template';
 
-    //1.- Delegate the persistence work to the shared service so controllers reuse it too.
-    $group_id = \Drupal::service('pds_recipe_template.group_manager')
-      ->ensureGroupAndGetId($uuid, $type);
+    //1.- Leverage the shared procedural helper so controllers and forms reuse identical logic.
+    $group_id = \pds_recipe_template_ensure_group_and_get_id($uuid, $type);
 
     if (!$group_id) {
       return 0;
