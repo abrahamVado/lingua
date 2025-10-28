@@ -344,13 +344,34 @@ function pds_mxsuite_update_9011(): void {
     }
   }
   else {
-    //4.- Attempt to instantiate the repairer manually when the service is missing entirely.
-    $repairer = _pds_mxsuite_build_schema_repairer($logger);
-  }
+    //3.- Attempt to include the repairer class explicitly when the module is disabled during database updates.
+    if (!class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+      try {
+        //4.- Resolve the module path dynamically so the installer works in any docroot layout.
+        $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+        if (is_string($module_path) && $module_path !== '') {
+          $legacy_repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
+          if (is_readable($legacy_repairer_path)) {
+            require_once $legacy_repairer_path;
+          }
+        }
+      }
+      catch (\Throwable $throwable) {
+        $logger->error('Unable to include schema repairer during update 9011: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+      }
+    }
 
-  if (!$repairer) {
-    //5.- Retry manual construction when the service container call failed earlier.
-    $repairer = _pds_mxsuite_build_schema_repairer($logger);
+    if (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+      //5.- Instantiate the repairer manually when the module service container is unavailable during updates.
+      $repairer = new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+        \Drupal::database(),
+        \Drupal::service('datetime.time'),
+        \Drupal::service('uuid'),
+        \Drupal::service('logger.factory')
+      );
+    }
   }
 
   if ($repairer) {
