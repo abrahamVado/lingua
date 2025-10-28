@@ -675,17 +675,26 @@ final class PdsTemplateBlock extends BlockBase {
       $payload = $payload['row'];
     }
 
-    $result = \Drupal::service('pds_recipe_template.row_image_promoter')->promote($payload);
+    //3.- Use the shared helper so AJAX uploads work even during cache rebuilds.
+    $promoter = \pds_recipe_template_resolve_row_image_promoter();
+    if (!$promoter) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Image promotion is unavailable. Rebuild caches and try again.',
+      ], 500);
+    }
+
+    $result = $promoter->promote($payload);
 
     if (($result['status'] ?? '') !== 'ok') {
-      //3.- Propagate the precise failure so the front-end knows whether to retry or reset the fid.
+      //4.- Propagate the precise failure so the front-end knows whether to retry or reset the fid.
       return new JsonResponse([
         'status' => 'error',
         'message' => $result['message'] ?? 'Unable to promote image.',
       ], $result['code'] ?? 500);
     }
 
-    //4.- Hand the resolved payload back so the caller can cache the canonical URLs immediately.
+    //5.- Hand the resolved payload back so the caller can cache the canonical URLs immediately.
     return new JsonResponse([
       'status' => 'ok',
       'image_url' => $result['image_url'] ?? '',
