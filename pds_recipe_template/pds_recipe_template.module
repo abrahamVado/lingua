@@ -144,12 +144,9 @@ function pds_recipe_template_resolve_schema_repairer(): ?object {
   //1.- Attempt to include the class definition manually when the autoloader misses it.
   if (!class_exists($repairer_class, FALSE)) {
     try {
-      $module_path = drupal_get_path('module', 'pds_recipe_template');
-      if (is_string($module_path) && $module_path !== '') {
-        $repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
-        if (is_readable($repairer_path)) {
-          require_once $repairer_path;
-        }
+      $repairer_path = __DIR__ . '/src/Service/LegacySchemaRepairer.php';
+      if (is_readable($repairer_path)) {
+        require_once $repairer_path;
       }
     }
     catch (\Throwable $throwable) {
@@ -174,12 +171,9 @@ function pds_recipe_template_resolve_schema_repairer(): ?object {
   //3.- Retry the manual include once more when the service container failed to bootstrap the class.
   if (!class_exists($repairer_class, FALSE)) {
     try {
-      $module_path = drupal_get_path('module', 'pds_recipe_template');
-      if (is_string($module_path) && $module_path !== '') {
-        $repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
-        if (is_readable($repairer_path)) {
-          require_once $repairer_path;
-        }
+      $repairer_path = __DIR__ . '/src/Service/LegacySchemaRepairer.php';
+      if (is_readable($repairer_path)) {
+        require_once $repairer_path;
       }
     }
     catch (\Throwable $throwable) {
