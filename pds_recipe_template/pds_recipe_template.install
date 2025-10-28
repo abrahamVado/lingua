@@ -255,7 +255,7 @@ function pds_recipe_template_update_9002(): void {
     return;
   }
 
-  //4.- Detect installations that already expose every expected field.
+  //4.- Detect missing or legacy columns so the rebuild only runs when schema drift exists.
   $expected_fields = array_keys($schema_definition['pds_template_item']['fields']);
   $missing_fields = [];
   foreach ($expected_fields as $field) {
@@ -264,7 +264,16 @@ function pds_recipe_template_update_9002(): void {
     }
   }
 
-  if (!$missing_fields) {
+  $legacy_fields_present = FALSE;
+  $legacy_fields = ['block_uuid', 'link', 'image_url', 'latitude', 'longitude'];
+  foreach ($legacy_fields as $legacy_field) {
+    if ($schema->fieldExists('pds_template_item', $legacy_field)) {
+      $legacy_fields_present = TRUE;
+      break;
+    }
+  }
+
+  if (!$missing_fields && !$legacy_fields_present) {
     return;
   }
 
