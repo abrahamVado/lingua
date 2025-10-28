@@ -26,8 +26,54 @@ trait PdsTemplateBlockStateTrait {
       }
     }
 
-    //3.- Fall back to the supplied default when none of the candidate paths produced a value.
+    //3.- Gather every unique key name so deep searches target only relevant branches.
+    $keys_to_scan = [];
+    foreach ($candidate_parents as $parents) {
+      $normalized_parents = is_array($parents) ? $parents : [$parents];
+      $tail = end($normalized_parents);
+      if (is_string($tail) && $tail !== '') {
+        $keys_to_scan[$tail] = TRUE;
+      }
+    }
+
+    if ($keys_to_scan !== []) {
+      //4.- Inspect the entire values tree once to cover newly introduced Layout Builder wrappers.
+      $values = $form_state->getValues();
+      if (is_array($values)) {
+        foreach (array_keys($keys_to_scan) as $key) {
+          [$found, $resolved] = $this->searchFormValuesForKey($values, $key);
+          if ($found) {
+            return $resolved;
+          }
+        }
+      }
+    }
+
+    //5.- Fall back to the supplied default when none of the candidate paths produced a value.
     return $default;
+  }
+
+  /**
+   * Recursively search form values for the first match of the provided key.
+   */
+  private function searchFormValuesForKey(array $values, string $target): array {
+    //1.- Honor direct matches immediately so shallow parents remain the fastest path.
+    if (array_key_exists($target, $values)) {
+      return [TRUE, $values[$target]];
+    }
+
+    //2.- Traverse nested arrays to support additional Layout Builder wrappers.
+    foreach ($values as $value) {
+      if (is_array($value)) {
+        [$found, $resolved] = $this->searchFormValuesForKey($value, $target);
+        if ($found) {
+          return [TRUE, $resolved];
+        }
+      }
+    }
+
+    //3.- Return a miss marker so callers can continue scanning other branches.
+    return [FALSE, NULL];
   }
 
   /**
