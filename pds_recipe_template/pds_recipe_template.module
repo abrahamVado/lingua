@@ -1,5 +1,8 @@
 <?php
 
+use Drupal\pds_recipe_template\Service\RowImagePromoter;
+use Drupal\pds_recipe_template\Service\TemplateGroupManager;
+
 /**
  * @file
  * Hooks for pds_recipe_template.
