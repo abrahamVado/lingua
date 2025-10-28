@@ -54,6 +54,7 @@ final class RowController extends ControllerBase {
     $link = isset($row['link']) && is_string($row['link']) ? $row['link'] : '';
     $desktop_img = isset($row['desktop_img']) && is_string($row['desktop_img']) ? $row['desktop_img'] : '';
     $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
+    $image_url = isset($row['image_url']) && is_string($row['image_url']) ? $row['image_url'] : '';
 
     $latitud = NULL;
     if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
@@ -86,6 +87,26 @@ final class RowController extends ControllerBase {
 
       $connection = \Drupal::database();
       $now = \Drupal::time()->getRequestTime();
+
+      $row['desktop_img'] = $desktop_img;
+      $row['mobile_img'] = $mobile_img;
+      $row['image_url'] = $image_url;
+
+      $promotion = \Drupal::service('pds_recipe_template.row_image_promoter')->promote($row);
+      if (($promotion['status'] ?? '') !== 'ok') {
+        $message = $promotion['message'] ?? 'Unable to promote image.';
+        $code = $promotion['code'] ?? 500;
+
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => $message,
+        ], $code);
+      }
+
+      $desktop_img = (string) ($promotion['desktop_img'] ?? $desktop_img);
+      $mobile_img = (string) ($promotion['mobile_img'] ?? $mobile_img);
+      $image_url = (string) ($promotion['image_url'] ?? $image_url);
+      $image_fid = $promotion['image_fid'] ?? NULL;
 
       if ($weight === NULL) {
         //3.- When the caller omits weight we append to the end by using max + 1.
@@ -123,12 +144,35 @@ final class RowController extends ControllerBase {
         ])
         ->execute();
 
-      //5.- Confirm success so the client can store the stable identifiers locally.
+      $response_row = [
+        'header' => $header,
+        'subheader' => $subheader,
+        'description' => $description,
+        'link' => $link,
+        'desktop_img' => $desktop_img,
+        'mobile_img' => $mobile_img,
+        'latitud' => $latitud,
+        'longitud' => $longitud,
+      ];
+
+      if ($image_url !== '') {
+        $response_row['image_url'] = $image_url;
+      }
+      if ($image_fid) {
+        $response_row['image_fid'] = $image_fid;
+      }
+
+      if ($weight !== NULL) {
+        $response_row['weight'] = $weight;
+      }
+
+      //5.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
       return new JsonResponse([
         'status' => 'ok',
         'id' => (int) $insert_id,
         'uuid' => $row_uuid,
         'weight' => $weight,
+        'row' => $response_row,
       ]);
     }
     catch (Throwable $throwable) {
@@ -231,6 +275,26 @@ final class RowController extends ControllerBase {
         ], 403);
       }
 
+      $row['desktop_img'] = $desktop_img;
+      $row['mobile_img'] = $mobile_img;
+      $row['image_url'] = $image_url;
+
+      $promotion = \Drupal::service('pds_recipe_template.row_image_promoter')->promote($row);
+      if (($promotion['status'] ?? '') !== 'ok') {
+        $message = $promotion['message'] ?? 'Unable to promote image.';
+        $code = $promotion['code'] ?? 500;
+
+        return new JsonResponse([
+          'status' => 'error',
+          'message' => $message,
+        ], $code);
+      }
+
+      $desktop_img = (string) ($promotion['desktop_img'] ?? $desktop_img);
+      $mobile_img = (string) ($promotion['mobile_img'] ?? $mobile_img);
+      $image_url = (string) ($promotion['image_url'] ?? $image_url);
+      $image_fid = $promotion['image_fid'] ?? NULL;
+
       //5.- Build the sanitized update payload while preserving numeric and nullable columns.
       $fields = [
         'header' => $header,
@@ -263,6 +327,13 @@ final class RowController extends ControllerBase {
         'latitud' => $fields['latitud'],
         'longitud' => $fields['longitud'],
       ];
+
+      if ($image_url !== '') {
+        $response_row['image_url'] = $image_url;
+      }
+      if ($image_fid) {
+        $response_row['image_fid'] = $image_fid;
+      }
 
       if (array_key_exists('weight', $fields)) {
         $response_row['weight'] = $fields['weight'];

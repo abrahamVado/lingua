@@ -578,57 +578,23 @@ final class PdsTemplateBlock extends BlockBase {
       $payload = $payload['row'];
     }
 
-    $image_fid_raw = $payload['image_fid'] ?? NULL;
-    $image_fid = is_numeric($image_fid_raw) ? (int) $image_fid_raw : 0;
+    $result = \Drupal::service('pds_recipe_template.row_image_promoter')->promote($payload);
 
-    if ($image_fid === 0) {
-      //3.- When no fid was provided (editing an existing row) simply echo URLs back.
-      $fallback_url = (string) ($payload['desktop_img']
-        ?? $payload['mobile_img']
-        ?? $payload['image_url']
-        ?? ''
-      );
-
-      return new JsonResponse([
-        'status' => 'ok',
-        'image_url' => $fallback_url,
-        'image_fid' => NULL,
-        'desktop_img' => (string) ($payload['desktop_img'] ?? $fallback_url),
-        'mobile_img' => (string) ($payload['mobile_img'] ?? $fallback_url),
-      ]);
-    }
-
-    $file = File::load($image_fid);
-    if (!$file) {
-      //4.- Let the UI know the fid is stale so it can react accordingly.
+    if (($result['status'] ?? '') !== 'ok') {
+      //3.- Propagate the precise failure so the front-end knows whether to retry or reset the fid.
       return new JsonResponse([
         'status' => 'error',
-        'message' => 'File not found.',
-      ], 404);
+        'message' => $result['message'] ?? 'Unable to promote image.',
+      ], $result['code'] ?? 500);
     }
 
-    try {
-      //5.- Flip the upload to permanent straight away so later loads work without the final save.
-      $file->setPermanent();
-      $file->save();
-      $url = \Drupal::service('file_url_generator')
-        ->generateString($file->getFileUri());
-    }
-    catch (\Exception $e) {
-      //6.- Fail gracefully so the front-end can keep the temporary state.
-      return new JsonResponse([
-        'status' => 'error',
-        'message' => 'Unable to persist file.',
-      ], 500);
-    }
-
-    //7.- Hand the resolved URL back to the caller along with the confirmed fid.
+    //4.- Hand the resolved payload back so the caller can cache the canonical URLs immediately.
     return new JsonResponse([
       'status' => 'ok',
-      'image_url' => $url,
-      'image_fid' => (int) $file->id(),
-      'desktop_img' => $url,
-      'mobile_img' => $url,
+      'image_url' => $result['image_url'] ?? '',
+      'image_fid' => $result['image_fid'] ?? NULL,
+      'desktop_img' => $result['desktop_img'] ?? '',
+      'mobile_img' => $result['mobile_img'] ?? '',
     ]);
   }
 
