@@ -1,6 +1,8 @@
 (function (Drupal, once) {
   'use strict';
 
+  /* global drupalSettings */
+
   //
   // DOM helpers
   //
@@ -374,7 +376,7 @@ function commitRow(root) {
 
 
 function initFileWidgetTemplate(root) {
-  // Find the managed_file wrapper for panel A.
+  //1.- Locate the managed_file wrapper for panel A so we can snapshot its pristine markup.
   var wrapper = root.querySelector(
     '.js-form-managed-file.form-managed-file.is-single'
   );
@@ -382,8 +384,7 @@ function initFileWidgetTemplate(root) {
     return;
   }
 
-  // Only capture once. We want the "clean upload" state.
-  // If we capture after upload we just snapshot the preview state which is useless.
+  //2.- Cache the clean upload state only once so later restores always return to a valid baseline.
   if (!wrapper._pdsPristineHTML) {
 
     // Store the full innerHTML and the classList snapshot.
@@ -393,6 +394,7 @@ function initFileWidgetTemplate(root) {
 }
 
 function resetFileWidgetToPristine(root) {
+  //1.- Locate the managed_file wrapper that needs to be cleared.
   var wrapper = root.querySelector(
     '.js-form-managed-file.form-managed-file.is-single'
   );
@@ -400,13 +402,14 @@ function resetFileWidgetToPristine(root) {
     return;
   }
 
-  // If we captured pristine state earlier, restore it.
+  //2.- Restore the previously captured pristine markup when available.
   if (wrapper._pdsPristineHTML && wrapper._pdsPristineClasses) {
     wrapper.innerHTML = wrapper._pdsPristineHTML;
 
-    // Restore classes, but force a "no-value" state to be safe.
+    //3.- Reinstate the wrapper classes and force the "no-value" state to keep UI consistent.
     wrapper.className = wrapper._pdsPristineClasses;
 
+    //4.- Clear any stray fid leftovers from previous uploads.
     // Safety: make sure no-value not has-value.
     wrapper.classList.add('no-value');
     wrapper.classList.remove('has-value');
@@ -419,7 +422,7 @@ function resetFileWidgetToPristine(root) {
       fidHidden.value = '';
     }
   } else {
-    // Fallback if no pristine snapshot. Best-effort partial reset:
+    //2.- Fallback: when no snapshot exists, perform a best-effort manual reset.
     // just clear fid and strip has-value/no-upload so Drupal shows file input
     var fidHidden2 = wrapper.querySelector(
       'input[type="hidden"][name$="[image][fids]"]'
@@ -430,6 +433,15 @@ function resetFileWidgetToPristine(root) {
     wrapper.classList.add('no-value');
     wrapper.classList.remove('has-value');
     wrapper.classList.remove('no-upload');
+  }
+
+  //5.- Re-run Drupal behaviors so AJAX bindings return to the rebuilt widget.
+  if (typeof Drupal !== 'undefined' && typeof Drupal.attachBehaviors === 'function') {
+    if (typeof drupalSettings !== 'undefined') {
+      Drupal.attachBehaviors(wrapper, drupalSettings);
+    } else {
+      Drupal.attachBehaviors(wrapper);
+    }
   }
 }
 
@@ -468,7 +480,7 @@ function resetManagedFileManually(wrapper) {
 
 // Try AJAX "Remove". If found, click it. Otherwise fall back to manual reset.
 function rebuildManagedFileEmpty(root) {
-  // Find wrapper.
+  //1.- Locate the managed_file wrapper that needs to be rebuilt from scratch.
   var wrapper = root.querySelector(
     '#pds-template-image,' +
     '[id^="pds-template-image"],' +
@@ -479,7 +491,7 @@ function rebuildManagedFileEmpty(root) {
     return;
   }
 
-  // Try to discover original dynamic names/ids from whatever is there now.
+  //2.- Gather the original dynamic attributes so Drupal recognizes the widget on submit.
 
   // Hidden fid input. We keep its name attr because Drupal expects that exact name on submit.
   var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[image][fids]"]');
@@ -495,6 +507,7 @@ function rebuildManagedFileEmpty(root) {
     }
   }
 
+  //3.- Recover or reconstruct the file input markup needed for the AJAX upload control.
   // File input. We grab its name/id/data-drupal-selector so Drupal upload still works for next file.
   // Note: After upload Drupal often *removes* the file input. If it's gone we can't read these.
   // In that case we try to recover from previous clone we inserted. If still not found we bail.
@@ -538,9 +551,7 @@ function rebuildManagedFileEmpty(root) {
     uploadDataOnce = uploadBtn.getAttribute('data-once') || '';
   }
 
-  // Now hard reset wrapper markup.
-  // We keep wrapper's own id/class so Drupal behaviors still see it as a managed_file widget.
-  // We rebuild the inner HTML to match the empty state.
+  //4.- Rebuild the wrapper's inner HTML to mimic Drupal's empty managed_file state.
 
   var html = '';
   html += '<div class="form-managed-file__main">';
@@ -569,9 +580,18 @@ function rebuildManagedFileEmpty(root) {
 
   wrapper.innerHTML = html;
 
-  // Make sure classes signal "no file"
+  //5.- Force the visual state to "no file" so the UI renders correctly.
   wrapper.classList.add('no-value');
   wrapper.classList.remove('has-value');
+
+  //6.- Re-run Drupal behaviors so the recreated markup gains the expected AJAX wiring.
+  if (typeof Drupal !== 'undefined' && typeof Drupal.attachBehaviors === 'function') {
+    if (typeof drupalSettings !== 'undefined') {
+      Drupal.attachBehaviors(wrapper, drupalSettings);
+    } else {
+      Drupal.attachBehaviors(wrapper);
+    }
+  }
 }
 
   //
@@ -628,6 +648,9 @@ function rebuildManagedFileEmpty(root) {
 
         // Initial preview from hidden state
         renderPreviewTable(root);
+
+        //1.- Snapshot the pristine managed file widget so we can fully reset it after commits.
+        initFileWidgetTemplate(root);
 
         // Add row / Save changes button.
         // Accept <a ... data-drupal-selector="pds-template-add-card"> or <div ... same attrs>.
