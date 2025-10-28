@@ -1,5 +1,6 @@
 <?php
 
+use Drupal\Core\Logger\LoggerChannelInterface;
 use Drupal\Core\Recipe\Recipe;
 use Drupal\Core\Recipe\RecipeRunner;
 
@@ -192,6 +193,65 @@ function _pds_mxsuite_create_tables(): void {
 }
 
 /**
+ * Include the schema repairer class when the container cannot autoload it.
+ */
+function _pds_mxsuite_include_schema_repairer(?LoggerChannelInterface $logger = NULL): bool {
+  //1.- Skip the include work when the class is already present in memory.
+  if (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+    return TRUE;
+  }
+
+  try {
+    //2.- Look up the module path dynamically so multisite installs remain compatible.
+    $module_path = \Drupal::service('extension.list.module')->getPath('pds_recipe_template');
+    if (is_string($module_path) && $module_path !== '') {
+      $legacy_repairer_path = DRUPAL_ROOT . '/' . $module_path . '/src/Service/LegacySchemaRepairer.php';
+      if (is_readable($legacy_repairer_path)) {
+        require_once $legacy_repairer_path;
+      }
+    }
+  }
+  catch (\Throwable $throwable) {
+    if ($logger) {
+      $logger->error('Unable to include schema repairer class manually: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+  }
+
+  //3.- Report whether the class could be loaded so callers can attempt manual instantiation.
+  return class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer');
+}
+
+/**
+ * Build the schema repairer without the service container when necessary.
+ */
+function _pds_mxsuite_build_schema_repairer(?LoggerChannelInterface $logger = NULL): ?object {
+  //1.- Ensure the class definition is available before attempting instantiation.
+  if (!_pds_mxsuite_include_schema_repairer($logger)) {
+    return NULL;
+  }
+
+  try {
+    //2.- Construct the repairer directly so update hooks can run during cache rebuilds.
+    return new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+      \Drupal::database(),
+      \Drupal::service('datetime.time'),
+      \Drupal::service('uuid'),
+      \Drupal::service('logger.factory')
+    );
+  }
+  catch (\Throwable $throwable) {
+    if ($logger) {
+      $logger->error('Unable to instantiate schema repairer manually: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+    return NULL;
+  }
+}
+
+/**
  * Cleanup dup config and re-run recipes.
  *
  * This is your existing update 8013.
@@ -269,7 +329,19 @@ function pds_mxsuite_update_9011(): void {
 
   //2.- Run the runtime repairer when the pds_recipe_template module is available.
   if (\Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
-    $repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+    if (!_pds_mxsuite_include_schema_repairer($logger)) {
+      $logger->error('Unable to load schema repairer class via the service container.');
+    }
+    try {
+      //3.- Defer to the registered service so shared state remains consistent.
+      $repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+    }
+    catch (\Throwable $throwable) {
+      $logger->error('Unable to load schema repairer service during update 9011: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      $repairer = NULL;
+    }
   }
   else {
     //3.- Attempt to include the repairer class explicitly when the module is disabled during database updates.
