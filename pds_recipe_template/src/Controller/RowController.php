@@ -184,7 +184,13 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //7.- Shield the UI from low-level errors by returning a clear failure response.
+      //7.- Record the underlying reason so administrators can diagnose failed insert attempts from dblog.
+      \Drupal::logger('pds_recipe_template')->error('Row creation failed for group @group: @message', [
+        '@group' => $uuid,
+        '@message' => $throwable->getMessage(),
+      ]);
+
+      //8.- Shield the UI from low-level errors by returning a clear failure response.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to create row.',

@@ -264,25 +264,41 @@ function pds_mxsuite_update_9011(): void {
   //1.- Create missing tables first so the schema repairer can safely rebuild them.
   _pds_mxsuite_create_tables();
 
+  $logger = \Drupal::logger('pds_mxsuite');
+  $repairer = NULL;
+
   //2.- Run the runtime repairer when the pds_recipe_template module is available.
   if (\Drupal::hasService('pds_recipe_template.legacy_schema_repairer')) {
     $repairer = \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+  }
+  elseif (class_exists('\\Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer')) {
+    //3.- Instantiate the repairer manually when the module service container is unavailable during updates.
+    $repairer = new \Drupal\pds_recipe_template\Service\LegacySchemaRepairer(
+      \Drupal::database(),
+      \Drupal::service('datetime.time'),
+      \Drupal::service('uuid'),
+      \Drupal::service('logger.factory')
+    );
+  }
+
+  if ($repairer) {
+    //4.- Stop early when the repairer reports success so the deployment log highlights the completed check.
     if ($repairer->ensureItemTableUpToDate()) {
-      \Drupal::logger('pds_mxsuite')->notice(
+      $logger->notice(
         'Verified pds_template_item schema after installing the consolidated update.'
       );
       return;
     }
 
-    //3.- Warn administrators when the rebuild fails so they can inspect dblog for details.
-    \Drupal::logger('pds_mxsuite')->warning(
+    //5.- Warn administrators when the rebuild fails so they can inspect dblog for details.
+    $logger->warning(
       'Unable to refresh the pds_template_item schema automatically. Check recent log messages for the exact cause.'
     );
     return;
   }
 
-  //4.- Fall back to a notice when the recipe module is not enabled yet on the site.
-  \Drupal::logger('pds_mxsuite')->notice(
-    'Skipped pds_template_item schema verification because the recipe template module is not installed.'
+  //6.- Flag the absence of the repairer so site owners know manual intervention is required.
+  $logger->warning(
+    'The pds_recipe_template schema repairer is unavailable. Manually review the pds_template_item table for legacy columns such as link or image_url.'
   );
 }
