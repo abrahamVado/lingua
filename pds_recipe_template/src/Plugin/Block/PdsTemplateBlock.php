@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Drupal\pds_recipe_template\Plugin\Block;
 
 use Drupal\Component\Utility\Html;
-use Drupal\Component\Utility\Uuid;
+use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
