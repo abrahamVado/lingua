@@ -48,7 +48,14 @@ final class PdsTemplateBlock extends BlockBase {
   private function getBlockInstanceUuid(): string {
     $stored_uuid = $this->configuration['instance_uuid'] ?? '';
     if (is_string($stored_uuid) && $stored_uuid !== '') {
-      return $stored_uuid;
+      if (Uuid::isValid($stored_uuid)) {
+        return $stored_uuid;
+      }
+
+      //1.- Clear malformed identifiers so the legacy recovery path can repair the
+      //    configuration using the persisted numeric group id.
+      $stored_uuid = '';
+      $this->configuration['instance_uuid'] = '';
     }
 
     //1.- Attempt to recover the historical UUID from the persisted group id so
