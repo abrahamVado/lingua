@@ -51,15 +51,17 @@ function pds_mxsuite_schema(): array {
   return [
     'pds_template_group' => $definitions['pds_template_group'],
     'pds_template_item' => $definitions['pds_template_item'],
+    'pds_template_item_timeline' => $definitions['pds_template_item_timeline'],
   ];
 }
 
 /**
  * Shared helper.
  *
- * Creates the two core tables:
+ * Creates the core tables:
  * - pds_template_group
  * - pds_template_item
+ * - pds_template_item_timeline
  *
  * Safe to call multiple times. It will skip if tables already exist.
  */
@@ -75,6 +77,11 @@ function _pds_mxsuite_create_tables(): void {
   // Child table = many cards per group.
   if (!$schema->tableExists('pds_template_item')) {
     $schema->createTable('pds_template_item', $definitions['pds_template_item']);
+  }
+
+  // Child table for timeline entries associated with template items.
+  if (!$schema->tableExists('pds_template_item_timeline')) {
+    $schema->createTable('pds_template_item_timeline', $definitions['pds_template_item_timeline']);
   }
 }
 
@@ -211,10 +218,60 @@ function _pds_mxsuite_get_table_definitions(): array {
     ],
   ];
 
-  //3.- Cache the definitions in memory for the current request so repeated calls stay cheap.
+  //3.- Describe the timeline table so each item can expose multiple year+label pairs.
+  $timeline_definition = [
+    'description' => 'Timeline entries linked to a template item for chronological rendering.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'item_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        // FK to pds_template_item.id
+      ],
+      'year' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'label' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'weight' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'created_at' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'deleted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'item_id' => ['item_id'],
+      'year' => ['year'],
+      'weight' => ['weight'],
+      'deleted_at' => ['deleted_at'],
+    ],
+  ];
+
+  //4.- Cache the definitions in memory for the current request so repeated calls stay cheap.
   return [
     'pds_template_group' => $group_definition,
     'pds_template_item' => $item_definition,
+    'pds_template_item_timeline' => $timeline_definition,
   ];
 }
 
@@ -348,7 +405,7 @@ function pds_mxsuite_update_9010(): void {
   _pds_mxsuite_create_tables();
 
   \Drupal::logger('pds_mxsuite')->notice(
-    'Ensured pds_template_group and pds_template_item tables exist.'
+    'Ensured template tables (group, item, timeline) exist.'
   );
 }
 
@@ -411,7 +468,7 @@ function pds_mxsuite_update_9012(): void {
  */
 function pds_mxsuite_update_9015(): void {
   //1.- Delegate to the shared rebuild helper so future updates can reuse the routine.
-  _pds_mxsuite_rebuild_template_tables('Rebuilt pds_template_group and pds_template_item via update 9015.');
+  _pds_mxsuite_rebuild_template_tables('Rebuilt template tables (group, item, timeline) via update 9015.');
 }
 
 /**
@@ -419,7 +476,20 @@ function pds_mxsuite_update_9015(): void {
  */
 function pds_mxsuite_update_9020(): void {
   //1.- Reuse the rebuild helper so update.php can refresh the tables during this deployment.
-  _pds_mxsuite_rebuild_template_tables('Rebuilt pds_template_group and pds_template_item via update 9020.');
+  _pds_mxsuite_rebuild_template_tables('Rebuilt template tables (group, item, timeline) via update 9020.');
+}
+
+/**
+ * Ensure the timeline table exists for template item chronology data.
+ */
+function pds_mxsuite_update_9021(): void {
+  //1.- Reuse the shared helper so all required tables are present.
+  _pds_mxsuite_create_tables();
+
+  //2.- Provide an explicit log message for deployment visibility.
+  \Drupal::logger('pds_mxsuite')->notice(
+    'Ensured pds_template_item_timeline table exists for item timelines.'
+  );
 }
 
 /**
@@ -428,7 +498,7 @@ function pds_mxsuite_update_9020(): void {
 function _pds_mxsuite_rebuild_template_tables(string $log_message): void {
   //1.- Drop dependent tables first so stale schema fragments never survive the rebuild.
   $schema = \Drupal::database()->schema();
-  foreach (['pds_template_item', 'pds_template_group'] as $table) {
+  foreach (['pds_template_item_timeline', 'pds_template_item', 'pds_template_group'] as $table) {
     if ($schema->tableExists($table)) {
       $schema->dropTable($table);
     }
