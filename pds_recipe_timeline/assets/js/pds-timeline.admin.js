@@ -632,99 +632,179 @@
     }
 
     var entries = collectEntries(modal);
-    //13.4.- Reemplazamos el marcador de UUID o anexamos el identificador cuando el atributo ya expone la ruta final.
-    var updateUrl = updateUrlTemplate;
-    var identifier = rowUuid && isValidUuid(rowUuid) ? rowUuid : '';
-    if (!identifier) {
-      if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
-        identifier = String(rowIdNumber);
-      }
-      else if (rowIdString && rowIdString !== '') {
-        identifier = rowIdString;
-      }
-    }
-    if (!identifier) {
-      return Promise.reject(new Error('Timeline endpoint is missing the row identifier.'));
-    }
-    if (updateUrl.indexOf(UPDATE_PLACEHOLDER) !== -1) {
-      updateUrl = updateUrl.replace(UPDATE_PLACEHOLDER, identifier);
-    }
-    else {
-      //13.4.1.- Inserta el identificador antes de los parámetros cuando el endpoint no usa placeholder.
-      var queryIndex = updateUrl.indexOf('?');
-      if (queryIndex !== -1) {
-        var baseUrl = updateUrl.slice(0, queryIndex).replace(/\/$/, '');
-        var query = updateUrl.slice(queryIndex);
-        updateUrl = baseUrl + '/' + identifier + query;
-      }
-      else {
-        updateUrl = updateUrl.replace(/\/$/, '') + '/' + identifier;
-      }
-    }
-
-    var payloadRow = {
-      header: row.header || '',
-      subheader: row.subheader || '',
-      description: row.description || '',
-      link: row.link || '',
-      desktop_img: row.desktop_img || '',
-      mobile_img: row.mobile_img || '',
-      image_url: row.image_url || '',
-      latitud: typeof row.latitud === 'number' ? row.latitud : null,
-      longitud: typeof row.longitud === 'number' ? row.longitud : null,
-      timeline: entries
-    };
-
-    if (typeof row.image_fid !== 'undefined') {
-      payloadRow.image_fid = row.image_fid;
+    //13.4.- Construimos una lista priorizada de identificadores para reintentar cuando el UUID almacenado falle.
+    var identifierCandidates = [];
+    if (rowUuid && isValidUuid(rowUuid)) {
+      identifierCandidates.push({ type: 'uuid', value: rowUuid });
     }
     if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
-      payloadRow.id = rowIdNumber;
-    }
-    else if (rowIdString) {
-      payloadRow.id = rowIdString;
-    }
-    else if (typeof row.id !== 'undefined') {
-      payloadRow.id = row.id;
-    }
-    if (rowUuid) {
-      payloadRow.uuid = rowUuid;
-    }
-
-    var payload = {
-      row: payloadRow,
-      recipe_type: recipeType,
-      weight: typeof row.weight === 'number' ? row.weight : index
-    };
-
-    if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
-      payload.row_id = rowIdNumber;
+      identifierCandidates.push({ type: 'id', value: String(rowIdNumber), numeric: rowIdNumber });
     }
     else if (rowIdString && rowIdString !== '') {
-      payload.row_id = rowIdString;
-    }
-    else if (rowIdRawString) {
-      payload.row_id = rowIdRawString;
+      identifierCandidates.push({ type: 'id', value: rowIdString });
     }
 
-    return fetch(updateUrl, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify(payload)
-    }).then(function (response) {
-      if (!response.ok) {
-        throw new Error('Request failed');
-      }
-      return response.json();
-    }).then(function (json) {
-      if (!json || json.status !== 'ok') {
-        throw new Error(json && json.message ? json.message : 'Unable to save timeline.');
+    if (identifierCandidates.length === 0) {
+      return Promise.reject(new Error('Timeline endpoint is missing the row identifier.'));
+    }
+
+    var lastError = null;
+
+    return attemptPersistence(0);
+
+    function attemptPersistence(position) {
+      if (position >= identifierCandidates.length) {
+        return Promise.reject(lastError || new Error('Unable to save timeline.'));
       }
 
+      var candidate = identifierCandidates[position];
+
+      return dispatchPersistence(candidate).catch(function (error) {
+        lastError = error;
+        var fallbackMessage = error && error.message ? error.message.toLowerCase() : '';
+        var shouldRetryWithId = candidate.type === 'uuid'
+          && position + 1 < identifierCandidates.length
+          && (error && (error.status === 404 || error.status === 400 || fallbackMessage.indexOf('uuid') !== -1));
+        if (shouldRetryWithId) {
+          rowUuid = '';
+          row.uuid = '';
+          rows[index].uuid = '';
+          return attemptPersistence(position + 1);
+        }
+        throw error;
+      });
+    }
+
+    function dispatchPersistence(candidate) {
+      var targetUrl = buildUpdateUrl(updateUrlTemplate, candidate.value);
+      var payload = buildPersistencePayload(candidate);
+
+      return fetch(targetUrl, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+      }).then(function (response) {
+        return response.text().then(function (body) {
+          var json = null;
+          if (body) {
+            try {
+              json = JSON.parse(body);
+            } catch (parseError) {
+              //13.4.1.- Ignoramos el fallo de parseo para construir mensajes descriptivos abajo.
+            }
+          }
+          if (!response.ok) {
+            var message = json && json.message ? json.message : 'Unable to save timeline.';
+            var error = new Error(message);
+            error.status = response.status;
+            error.responseJson = json;
+            throw error;
+          }
+          if (!json || json.status !== 'ok') {
+            var fallbackMessage = json && json.message ? json.message : 'Unable to save timeline.';
+            var rejection = new Error(fallbackMessage);
+            rejection.status = response.status;
+            rejection.responseJson = json;
+            throw rejection;
+          }
+          return handleSuccessfulResponse(json);
+        });
+      });
+    }
+
+    function buildUpdateUrl(template, identifier) {
+      if (template.indexOf(UPDATE_PLACEHOLDER) !== -1) {
+        return template.replace(UPDATE_PLACEHOLDER, identifier);
+      }
+      var queryIndex = template.indexOf('?');
+      if (queryIndex !== -1) {
+        var baseUrl = template.slice(0, queryIndex).replace(/\/$/, '');
+        var query = template.slice(queryIndex);
+        return baseUrl + '/' + identifier + query;
+      }
+      return template.replace(/\/$/, '') + '/' + identifier;
+    }
+
+    function buildPersistencePayload(candidate) {
+      var payloadRow = {
+        header: row.header || '',
+        subheader: row.subheader || '',
+        description: row.description || '',
+        link: row.link || '',
+        desktop_img: row.desktop_img || '',
+        mobile_img: row.mobile_img || '',
+        image_url: row.image_url || '',
+        latitud: typeof row.latitud === 'number' ? row.latitud : null,
+        longitud: typeof row.longitud === 'number' ? row.longitud : null,
+        timeline: entries
+      };
+
+      if (typeof row.image_fid !== 'undefined') {
+        payloadRow.image_fid = row.image_fid;
+      }
+
+      var candidateId = null;
+      if (candidate.type === 'id') {
+        if (typeof candidate.numeric === 'number' && !isNaN(candidate.numeric)) {
+          candidateId = candidate.numeric;
+        }
+        else if (candidate.value) {
+          candidateId = candidate.value;
+        }
+      }
+      else if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
+        candidateId = rowIdNumber;
+      }
+      else if (rowIdString) {
+        candidateId = rowIdString;
+      }
+
+      if (candidateId !== null && candidateId !== '') {
+        payloadRow.id = candidateId;
+      }
+      else if (typeof row.id !== 'undefined') {
+        payloadRow.id = row.id;
+      }
+
+      if (candidate.type === 'uuid' && candidate.value) {
+        payloadRow.uuid = candidate.value;
+      }
+      else if (typeof payloadRow.uuid !== 'undefined') {
+        delete payloadRow.uuid;
+      }
+
+      var payload = {
+        row: payloadRow,
+        recipe_type: recipeType,
+        weight: typeof row.weight === 'number' ? row.weight : index
+      };
+
+      var payloadRowIdValue = null;
+      if (candidate.type === 'id') {
+        payloadRowIdValue = candidateId;
+      }
+      else if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
+        payloadRowIdValue = rowIdNumber;
+      }
+      else if (rowIdString) {
+        payloadRowIdValue = rowIdString;
+      }
+      else if (rowIdRawString) {
+        payloadRowIdValue = rowIdRawString;
+      }
+
+      if (payloadRowIdValue !== null && payloadRowIdValue !== '') {
+        payload.row_id = payloadRowIdValue;
+      }
+
+      return payload;
+    }
+
+    function handleSuccessfulResponse(json) {
       var finalRow = Object.assign({}, row);
       if (json.row && typeof json.row === 'object') {
         finalRow = Object.assign(finalRow, json.row);
@@ -734,6 +814,7 @@
       }
       if (json.uuid) {
         finalRow.uuid = json.uuid;
+        rowUuid = json.uuid;
       }
       if (typeof json.weight === 'number') {
         finalRow.weight = json.weight;
@@ -752,7 +833,7 @@
       syncTimelineDataset(root, finalRow);
 
       return finalRow;
-    });
+    }
   }
 
   //14.- Ejecuta la persistencia del modal y muestra feedback visual.
