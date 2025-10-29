@@ -130,7 +130,14 @@ final class PdsTemplateBlock extends BlockBase {
     $uuid = $this->getBlockInstanceUuid();
 
     try {
-      //1.- Resolve the numeric group id that matches the current UUID so AJAX previews stay in sync.
+      //1.- Remember the historical numeric identifier stored in configuration for legacy fallbacks.
+      $legacy_group_id = 0;
+      $raw_legacy_group = $this->configuration['group_id'] ?? 0;
+      if (is_numeric($raw_legacy_group) && (int) $raw_legacy_group > 0) {
+        $legacy_group_id = (int) $raw_legacy_group;
+      }
+
+      //2.- Resolve the numeric group id that matches the current UUID so AJAX previews stay in sync.
       $group_row = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
@@ -144,12 +151,11 @@ final class PdsTemplateBlock extends BlockBase {
         $group_id = (int) $group_row['id'];
       }
       else {
-        //2.- Fall back to the stored group id when legacy blocks never recorded an instance UUID.
-        $legacy_group_id = $this->configuration['group_id'] ?? 0;
-        if (is_numeric($legacy_group_id) && (int) $legacy_group_id > 0) {
-          $group_id = (int) $legacy_group_id;
+        //3.- Fall back to the stored group id when legacy blocks never recorded an instance UUID.
+        if ($legacy_group_id > 0) {
+          $group_id = $legacy_group_id;
 
-          //3.- Attempt to hydrate the cached UUID from the legacy group so subsequent requests reuse it.
+          //4.- Attempt to hydrate the cached UUID from the legacy group so subsequent requests reuse it.
           $legacy_uuid = $connection->select('pds_template_group', 'g')
             ->fields('g', ['uuid'])
             ->condition('g.id', $group_id)
@@ -168,6 +174,32 @@ final class PdsTemplateBlock extends BlockBase {
         $rows = $this->loadRowsForGroup($connection, $group_id);
         if ($rows !== []) {
           return $rows;
+        }
+
+        if ($legacy_group_id > 0 && $legacy_group_id !== $group_id) {
+          //5.- Retry the historical group id so legacy datasets created before UUID storage still hydrate the preview.
+          $fallback_rows = $this->loadRowsForGroup($connection, $legacy_group_id);
+          if ($fallback_rows !== []) {
+            //6.- Repair the legacy record by storing the active UUID and caching the recovered identifier.
+            $legacy_uuid = $connection->select('pds_template_group', 'g')
+              ->fields('g', ['uuid'])
+              ->condition('g.id', $legacy_group_id)
+              ->condition('g.deleted_at', NULL, 'IS NULL')
+              ->range(0, 1)
+              ->execute()
+              ->fetchField();
+
+            if ($uuid !== '' && (!is_string($legacy_uuid) || !Uuid::isValid((string) $legacy_uuid) || (string) $legacy_uuid !== $uuid)) {
+              $connection->update('pds_template_group')
+                ->fields(['uuid' => $uuid])
+                ->condition('id', $legacy_group_id)
+                ->condition('deleted_at', NULL, 'IS NULL')
+                ->execute();
+            }
+
+            $this->configuration['group_id'] = $legacy_group_id;
+            return $fallback_rows;
+          }
         }
       }
 
