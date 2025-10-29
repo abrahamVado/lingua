@@ -170,9 +170,105 @@
     return { rows: rows, row: null, index: -1 };
   }
 
+  //3.3.- Recupera el dataset de timeline expuesto por drupalSettings para el bloque activo.
+  function readTimelineDataset(root) {
+    if (!drupalSettings || !drupalSettings.pdsRecipeTemplate) {
+      return null;
+    }
+
+    var instanceUuid = root.getAttribute('data-pds-template-block-uuid');
+    if (!instanceUuid) {
+      return null;
+    }
+
+    var masters = drupalSettings.pdsRecipeTemplate.masters;
+    if (!masters || !masters[instanceUuid] || !masters[instanceUuid].datasets) {
+      return null;
+    }
+
+    var dataset = masters[instanceUuid].datasets.timeline;
+    if (!dataset || typeof dataset !== 'object') {
+      return null;
+    }
+
+    return dataset;
+  }
+
+  //3.4.- Genera una copia normalizada de los hitos almacenados en drupalSettings.
+  function cloneTimelineEntries(source) {
+    if (!Array.isArray(source) || source.length === 0) {
+      return [];
+    }
+
+    return source.map(function (entry, position) {
+      var label = '';
+      if (entry && typeof entry.label === 'string') {
+        label = entry.label;
+      } else if (entry && typeof entry.label !== 'undefined') {
+        label = String(entry.label || '');
+      }
+
+      var year = 0;
+      if (entry && typeof entry.year === 'number') {
+        year = entry.year;
+      } else if (entry && typeof entry.year !== 'undefined') {
+        var parsedYear = parseInt(entry.year, 10);
+        year = isNaN(parsedYear) ? 0 : parsedYear;
+      }
+
+      var weight = position;
+      if (entry && typeof entry.weight === 'number') {
+        weight = entry.weight;
+      } else if (entry && typeof entry.weight !== 'undefined') {
+        var parsedWeight = parseInt(entry.weight, 10);
+        weight = isNaN(parsedWeight) ? position : parsedWeight;
+      }
+
+      return {
+        year: year,
+        label: label,
+        weight: weight
+      };
+    });
+  }
+
+  //3.5.- Rellena el snapshot del renglón con el dataset público cuando el estado local está vacío.
+  function mergeTimelineFromSettings(root, snapshot, key) {
+    if (!snapshot || !snapshot.row || snapshot.index < 0) {
+      return snapshot;
+    }
+
+    if (Array.isArray(snapshot.row.timeline) && snapshot.row.timeline.length > 0) {
+      return snapshot;
+    }
+
+    var dataset = readTimelineDataset(root);
+    if (!dataset) {
+      return snapshot;
+    }
+
+    var datasetKey = typeof key === 'string' && key.trim() !== '' ? key.trim() : buildRowKey(snapshot.row);
+    if (!datasetKey || !dataset[datasetKey]) {
+      return snapshot;
+    }
+
+    var timelineSource = dataset[datasetKey].timeline;
+    var cloned = cloneTimelineEntries(timelineSource);
+    if (cloned.length === 0) {
+      return snapshot;
+    }
+
+    snapshot.row.timeline = cloned;
+    snapshot.rows[snapshot.index] = snapshot.row;
+    writeState(root, snapshot.rows);
+
+    return snapshot;
+  }
+
   //9.- Abre el modal con los datos del índice solicitado.
   function openModal(root, index, key) {
     var snapshot = resolveRowSnapshot(root, index, key);
+    snapshot = mergeTimelineFromSettings(root, snapshot, key);
     if (!snapshot.row) {
       var fallbackModal = ensureModal(root);
       clearModalMessage(fallbackModal);
