@@ -59,7 +59,7 @@ final class GroupController extends ControllerBase {
             ->execute();
         }
         catch (\Exception $insert_exception) {
-          // Silence race-condition duplicate errors and fall through to reselect.
+          //6.- Silence race-condition duplicate errors and fall through to reselect.
         }
 
         $existing_id = $connection->select('pds_template_group', 'g')
