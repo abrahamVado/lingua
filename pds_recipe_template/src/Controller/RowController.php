@@ -255,21 +255,25 @@ final class RowController extends ControllerBase {
       if (!$group_id) {
         //5.- Attempt to reuse a legacy group identifier supplied by the caller when the UUID lookup fails.
         $legacy_candidates = [];
-        $raw_group = $request->query->get('group_id');
-        if (is_scalar($raw_group) && $raw_group !== '') {
-          $legacy_candidates[] = (int) $raw_group;
-        }
 
         $raw_fallback = $request->query->get('fallback_group_id');
         if (is_scalar($raw_fallback) && $raw_fallback !== '') {
-          $legacy_candidates[] = (int) $raw_fallback;
+          $candidate = (int) $raw_fallback;
+          if ($candidate > 0) {
+            $legacy_candidates[] = $candidate;
+          }
+        }
+
+        $raw_group = $request->query->get('group_id');
+        if (is_scalar($raw_group) && $raw_group !== '') {
+          $candidate = (int) $raw_group;
+          if ($candidate > 0 && !in_array($candidate, $legacy_candidates, TRUE)) {
+            //6.- Append the modal's active identifier while keeping fallbacks first so historical rows win.
+            $legacy_candidates[] = $candidate;
+          }
         }
 
         foreach ($legacy_candidates as $candidate_id) {
-          if ($candidate_id <= 0) {
-            continue;
-          }
-
           $legacy_row = $connection->select('pds_template_group', 'g')
             ->fields('g', ['id', 'uuid'])
             ->condition('g.id', $candidate_id)
@@ -288,7 +292,7 @@ final class RowController extends ControllerBase {
             : '';
 
           if ($uuid !== '' && (!Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
-            //6.- Repair the legacy record by storing the fresh UUID so future AJAX calls no longer need the fallback id.
+            //7.- Repair the legacy record by storing the fresh UUID so future AJAX calls no longer need the fallback id.
             $connection->update('pds_template_group')
               ->fields(['uuid' => $uuid])
               ->condition('id', $group_id)
@@ -301,7 +305,7 @@ final class RowController extends ControllerBase {
       }
 
       if (!$group_id) {
-        //7.- Return an empty dataset when no active record matched either lookup strategy.
+        //8.- Return an empty dataset when no active record matched either lookup strategy.
         return new JsonResponse([
           'status' => 'ok',
           'rows' => [],
