@@ -540,6 +540,28 @@
     };
   }
 
+  //13.5.- Alterna el estado de guardado para inhabilitar el botón y anunciar progreso accesible.
+  function setModalSavingState(modal, saving) {
+    if (!modal) {
+      return;
+    }
+
+    modal.classList.toggle('is-saving', !!saving);
+
+    var saveButton = modal.querySelector('[data-pds-timeline-save]');
+    if (!saveButton) {
+      return;
+    }
+
+    if (saving) {
+      saveButton.setAttribute('disabled', 'disabled');
+      saveButton.setAttribute('aria-busy', 'true');
+    } else {
+      saveButton.removeAttribute('disabled');
+      saveButton.removeAttribute('aria-busy');
+    }
+  }
+
   //13.- Serializa y envía el timeline al backend usando el endpoint de actualización del template base.
   function persistTimeline(modal) {
     var storedRoot = modal._pdsTimelineRoot || null;
@@ -723,7 +745,13 @@
       }
       var payload = buildPersistencePayload(candidate);
 
-      return sendPersistenceRequest(targetUrl, payload).then(function (result) {
+      return sendPersistenceRequest(targetUrl, payload, 'PATCH').then(function (result) {
+        if (!result.ok && (result.status === 405 || result.status === 501)) {
+          //13.4.4.- Reintentamos con POST cuando el servidor no acepta PATCH para preservar compatibilidad heredada.
+          return sendPersistenceRequest(targetUrl, payload, 'POST');
+        }
+        return result;
+      }).then(function (result) {
         var status = result.status;
         var ok = result.ok;
         var body = result.body;
@@ -753,12 +781,13 @@
       });
     }
 
-    function sendPersistenceRequest(url, payload) {
+    function sendPersistenceRequest(url, payload, method) {
       //13.4.2.- Estandarizamos la solicitud PATCH en JSON y aplicamos un respaldo con XMLHttpRequest cuando fetch no existe.
       var requestBody = JSON.stringify(payload);
+      var verb = typeof method === 'string' && method ? method : 'PATCH';
       if (typeof window.fetch === 'function') {
         return window.fetch(url, {
-          method: 'PATCH',
+          method: verb,
           headers: {
             'Content-Type': 'application/json',
             'X-Requested-With': 'XMLHttpRequest'
@@ -779,7 +808,7 @@
       return new Promise(function (resolve, reject) {
         try {
           var xhr = new XMLHttpRequest();
-          xhr.open('PATCH', url, true);
+          xhr.open(verb, url, true);
           xhr.withCredentials = true;
           xhr.setRequestHeader('Content-Type', 'application/json');
           xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
@@ -927,7 +956,12 @@
   //14.- Ejecuta la persistencia del modal y muestra feedback visual.
   function submitModal(modal) {
     clearModalMessage(modal);
-    modal.classList.add('is-saving');
+    setModalSavingState(modal, true);
+
+    var finalize = function () {
+      setModalSavingState(modal, false);
+    };
+
     persistTimeline(modal)
       .then(function () {
         closeModal(modal);
@@ -938,9 +972,7 @@
       .catch(function (error) {
         showModalMessage(modal, error.message || Drupal.t('Unable to save timeline.'));
       })
-      .finally(function () {
-        modal.classList.remove('is-saving');
-      });
+      .then(finalize, finalize);
   }
 
   //15.- Inserta el botón "Timeline" dentro de la tabla de vista previa.
