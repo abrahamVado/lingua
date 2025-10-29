@@ -1,0 +1,5 @@
+services:
+  pds_recipe_timeline.route_subscriber:
+    class: Drupal\pds_recipe_timeline\Routing\TimelineRouteSubscriber
+    tags:
+      - { name: event_subscriber }

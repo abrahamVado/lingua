@@ -8,3 +8,15 @@ pds_recipe_timeline.public:
   dependencies:
     - core/drupal
     - core/once
+
+pds_recipe_timeline.admin:
+  version: 1.x
+  css:
+    theme:
+      assets/css/pds-timeline.admin.css: {}
+  js:
+    assets/js/pds-timeline.admin.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+    - core/drupalSettings

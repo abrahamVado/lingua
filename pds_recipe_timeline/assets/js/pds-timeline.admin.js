@@ -1,0 +1,421 @@
+(function (Drupal, once, drupalSettings) {
+  'use strict';
+
+  //1.- Local helper que resuelve el contenedor de vista previa generado por el template base.
+  function resolvePreviewContent(root) {
+    var wrapper = root.querySelector('[data-pds-template-preview-state="content"]');
+    if (wrapper) {
+      return wrapper;
+    }
+    return root.querySelector('#pds-template-preview-list');
+  }
+
+  //2.- Lector del snapshot JSON almacenado en el textarea oculto por el template.
+  function readState(root) {
+    var field = root.querySelector('[data-drupal-selector="pds-template-cards-state"]');
+    if (!field) {
+      return [];
+    }
+    try {
+      return field.value ? JSON.parse(field.value) : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  //3.- Escritor del snapshot JSON para que Layout Builder detecte los cambios en la configuración.
+  function writeState(root, rows) {
+    var field = root.querySelector('[data-drupal-selector="pds-template-cards-state"]');
+    if (!field) {
+      return;
+    }
+    try {
+      field.value = JSON.stringify(rows || []);
+    } catch (error) {
+      //4.- Si la serialización falla dejamos el valor previo intacto para no corromper la configuración.
+    }
+  }
+
+  //5.- Preparamos el modal reutilizable que hospedará el editor de hitos cronológicos.
+  function ensureModal(root) {
+    var modal = document.querySelector('.pds-timeline-admin-modal');
+    if (modal) {
+      return modal;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'pds-timeline-admin-modal';
+    modal.setAttribute('hidden', 'hidden');
+    modal.tabIndex = -1;
+    modal.innerHTML = '' +
+      '<div class="pds-timeline-admin-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="pdsTimelineAdminTitle">' +
+        '<h2 id="pdsTimelineAdminTitle">' + Drupal.t('Timeline entries') + '</h2>' +
+        '<div class="pds-timeline-admin-modal__message" data-pds-timeline-message hidden></div>' +
+        '<div class="pds-timeline-admin-modal__list" data-pds-timeline-list></div>' +
+        '<button type="button" class="pds-timeline-admin-add" data-pds-timeline-add>+' + Drupal.t('Add milestone') + '</button>' +
+        '<div class="pds-timeline-admin-modal__actions">' +
+          '<button type="button" class="pds-timeline-admin-cancel" data-pds-timeline-cancel>' + Drupal.t('Cancel') + '</button>' +
+          '<button type="button" class="pds-timeline-admin-save" data-pds-timeline-save>' + Drupal.t('Save timeline') + '</button>' +
+        '</div>' +
+      '</div>';
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) {
+        event.preventDefault();
+        closeModal(modal);
+        return;
+      }
+      if (event.target.matches('[data-pds-timeline-cancel]')) {
+        event.preventDefault();
+        closeModal(modal);
+      }
+      if (event.target.matches('[data-pds-timeline-add]')) {
+        event.preventDefault();
+        appendRowEditor(modal.querySelector('[data-pds-timeline-list]'), { year: '', label: '' });
+      }
+      if (event.target.matches('[data-pds-timeline-save]')) {
+        event.preventDefault();
+        submitModal(modal);
+      }
+      if (event.target.classList.contains('pds-timeline-admin-row__remove')) {
+        event.preventDefault();
+        var row = event.target.closest('.pds-timeline-admin-row');
+        if (row) {
+          row.remove();
+        }
+      }
+    });
+
+    modal.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeModal(modal);
+      }
+    });
+
+    return modal;
+  }
+
+  //6.- Construimos una fila editable para año y etiqueta del hito.
+  function appendRowEditor(container, entry) {
+    if (!container) {
+      return;
+    }
+    var row = document.createElement('div');
+    row.className = 'pds-timeline-admin-row';
+    row.innerHTML = '' +
+      '<label class="visually-hidden">' + Drupal.t('Year') + '</label>' +
+      '<input type="number" min="0" step="1" value="' + (entry && entry.year !== undefined ? entry.year : '') + '" />' +
+      '<label class="visually-hidden">' + Drupal.t('Description') + '</label>' +
+      '<input type="text" value="' + (entry && entry.label ? entry.label : '') + '" />' +
+      '<button type="button" class="pds-timeline-admin-row__remove" aria-label="' + Drupal.t('Remove milestone') + '">&times;</button>';
+    container.appendChild(row);
+  }
+
+  //7.- Limpia el mensaje de error/suceso mostrado en el modal.
+  function clearModalMessage(modal) {
+    var message = modal.querySelector('[data-pds-timeline-message]');
+    if (!message) {
+      return;
+    }
+    message.textContent = '';
+    message.setAttribute('hidden', 'hidden');
+  }
+
+  //8.- Muestra mensajes informativos en el modal.
+  function showModalMessage(modal, text) {
+    var message = modal.querySelector('[data-pds-timeline-message]');
+    if (!message) {
+      return;
+    }
+    message.textContent = text;
+    message.removeAttribute('hidden');
+  }
+
+  //9.- Abre el modal con los datos del índice solicitado.
+  function openModal(root, index) {
+    var rows = readState(root);
+    if (index < 0 || index >= rows.length) {
+      return;
+    }
+
+    var modal = ensureModal(root);
+    modal.dataset.rootId = root.getAttribute('data-pds-template-block-uuid') || '';
+    modal.dataset.rowIndex = String(index);
+    modal.dataset.recipeType = root.getAttribute('data-pds-template-recipe-type') || 'pds_recipe_timeline';
+    modal.dataset.updateUrl = root.getAttribute('data-pds-template-update-row-url') || '';
+
+    var list = modal.querySelector('[data-pds-timeline-list]');
+    if (list) {
+      list.innerHTML = '';
+      var source = rows[index] && Array.isArray(rows[index].timeline) ? rows[index].timeline : [];
+      if (source.length === 0) {
+        appendRowEditor(list, { year: '', label: '' });
+      } else {
+        source.forEach(function (entry) {
+          appendRowEditor(list, entry);
+        });
+      }
+    }
+
+    clearModalMessage(modal);
+    modal.removeAttribute('hidden');
+    modal.focus();
+  }
+
+  //10.- Cierra el modal y elimina estados temporales.
+  function closeModal(modal) {
+    modal.setAttribute('hidden', 'hidden');
+    delete modal.dataset.rowIndex;
+  }
+
+  //11.- Recolecta los hitos escritos en el modal y devuelve un array ordenado.
+  function collectEntries(modal) {
+    var entries = [];
+    modal.querySelectorAll('.pds-timeline-admin-row').forEach(function (row, position) {
+      var inputs = row.querySelectorAll('input');
+      if (inputs.length < 2) {
+        return;
+      }
+      var rawYear = inputs[0].value;
+      var rawLabel = inputs[1].value;
+      var label = typeof rawLabel === 'string' ? rawLabel.trim() : '';
+      var year = parseInt(rawYear, 10);
+      if (!label) {
+        return;
+      }
+      if (isNaN(year)) {
+        year = 0;
+      }
+      entries.push({
+        year: year,
+        label: label,
+        weight: position
+      });
+    });
+    return entries;
+  }
+
+  //12.- Actualiza el dataset de drupalSettings para que otros scripts compartan el nuevo estado.
+  function syncTimelineDataset(root, row) {
+    if (!drupalSettings || !drupalSettings.pdsRecipeTemplate) {
+      return;
+    }
+    var instanceUuid = root.getAttribute('data-pds-template-block-uuid');
+    if (!instanceUuid) {
+      return;
+    }
+    if (!drupalSettings.pdsRecipeTemplate.masters) {
+      drupalSettings.pdsRecipeTemplate.masters = {};
+    }
+    if (!drupalSettings.pdsRecipeTemplate.masters[instanceUuid]) {
+      drupalSettings.pdsRecipeTemplate.masters[instanceUuid] = { datasets: {} };
+    }
+    var master = drupalSettings.pdsRecipeTemplate.masters[instanceUuid];
+    if (!master.datasets) {
+      master.datasets = {};
+    }
+    if (!master.datasets.timeline) {
+      master.datasets.timeline = {};
+    }
+
+    var key = '';
+    if (row.uuid) {
+      key = row.uuid;
+    } else if (typeof row.id === 'number') {
+      key = 'id:' + row.id;
+    }
+    if (!key) {
+      return;
+    }
+
+    master.datasets.timeline[key] = {
+      id: typeof row.id === 'number' ? row.id : null,
+      uuid: row.uuid || '',
+      timeline: Array.isArray(row.timeline) ? row.timeline : []
+    };
+  }
+
+  //13.- Serializa y envía el timeline al backend usando el endpoint de actualización del template base.
+  function persistTimeline(modal) {
+    var rootId = modal.dataset.rootId;
+    var index = parseInt(modal.dataset.rowIndex || '-1', 10);
+    var updateUrlTemplate = modal.dataset.updateUrl || '';
+    var recipeType = modal.dataset.recipeType || 'pds_recipe_timeline';
+    if (!rootId || isNaN(index) || !updateUrlTemplate) {
+      return Promise.reject(new Error('Missing context.'));
+    }
+
+    var root = document.querySelector('.js-pds-template-admin[data-pds-template-block-uuid="' + rootId + '"]');
+    if (!root) {
+      return Promise.reject(new Error('Block root not found.'));
+    }
+
+    var rows = readState(root);
+    if (index < 0 || index >= rows.length) {
+      return Promise.reject(new Error('Row not found.'));
+    }
+
+    var row = rows[index] || {};
+    if (!row.uuid) {
+      return Promise.reject(new Error('Row UUID is required to persist timeline.'));
+    }
+
+    var entries = collectEntries(modal);
+    var updateUrl = updateUrlTemplate.replace('00000000-0000-0000-0000-000000000000', row.uuid);
+
+    var payloadRow = {
+      header: row.header || '',
+      subheader: row.subheader || '',
+      description: row.description || '',
+      link: row.link || '',
+      desktop_img: row.desktop_img || '',
+      mobile_img: row.mobile_img || '',
+      image_url: row.image_url || '',
+      latitud: typeof row.latitud === 'number' ? row.latitud : null,
+      longitud: typeof row.longitud === 'number' ? row.longitud : null,
+      timeline: entries
+    };
+
+    if (typeof row.image_fid !== 'undefined') {
+      payloadRow.image_fid = row.image_fid;
+    }
+
+    var payload = {
+      row: payloadRow,
+      recipe_type: recipeType,
+      weight: typeof row.weight === 'number' ? row.weight : index
+    };
+
+    return fetch(updateUrl, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      if (!response.ok) {
+        throw new Error('Request failed');
+      }
+      return response.json();
+    }).then(function (json) {
+      if (!json || json.status !== 'ok') {
+        throw new Error(json && json.message ? json.message : 'Unable to save timeline.');
+      }
+
+      var finalRow = Object.assign({}, row);
+      if (json.row && typeof json.row === 'object') {
+        finalRow = Object.assign(finalRow, json.row);
+      }
+      if (typeof json.id === 'number') {
+        finalRow.id = json.id;
+      }
+      if (json.uuid) {
+        finalRow.uuid = json.uuid;
+      }
+      if (typeof json.weight === 'number') {
+        finalRow.weight = json.weight;
+      }
+
+      finalRow.timeline = entries;
+      rows[index] = finalRow;
+      writeState(root, rows);
+      syncTimelineDataset(root, finalRow);
+
+      return finalRow;
+    });
+  }
+
+  //14.- Ejecuta la persistencia del modal y muestra feedback visual.
+  function submitModal(modal) {
+    clearModalMessage(modal);
+    modal.classList.add('is-saving');
+    persistTimeline(modal)
+      .then(function () {
+        closeModal(modal);
+        if (typeof Drupal !== 'undefined' && Drupal.announce) {
+          Drupal.announce(Drupal.t('Timeline saved.'));
+        }
+      })
+      .catch(function (error) {
+        showModalMessage(modal, error.message || Drupal.t('Unable to save timeline.'));
+      })
+      .finally(function () {
+        modal.classList.remove('is-saving');
+      });
+  }
+
+  //15.- Inserta el botón "Timeline" dentro de la tabla de vista previa.
+  function annotatePreview(root) {
+    var container = resolvePreviewContent(root);
+    if (!container) {
+      return;
+    }
+    container.querySelectorAll('tr[data-row-index]').forEach(function (rowEl) {
+      var idx = parseInt(rowEl.getAttribute('data-row-index'), 10);
+      if (isNaN(idx)) {
+        return;
+      }
+      var actionsCell = rowEl.querySelector('td:last-child');
+      if (!actionsCell) {
+        return;
+      }
+      if (actionsCell.querySelector('.pds-timeline-admin-manage')) {
+        return;
+      }
+      var manage = document.createElement('button');
+      manage.type = 'button';
+      manage.className = 'pds-timeline-admin-manage';
+      manage.textContent = Drupal.t('Timeline');
+      manage.setAttribute('data-pds-timeline-index', String(idx));
+      actionsCell.appendChild(manage);
+    });
+  }
+
+  //16.- Observa cambios en la tabla para reinyectar botones tras renders AJAX.
+  function observePreview(root) {
+    var container = resolvePreviewContent(root);
+    if (!container || container._pdsTimelineObserver) {
+      return;
+    }
+    var observer = new MutationObserver(function () {
+      annotatePreview(root);
+    });
+    observer.observe(container, { childList: true, subtree: true });
+    container._pdsTimelineObserver = observer;
+  }
+
+  //17.- Inicializa listeners para aperturar el modal desde los botones agregados.
+  function bindManageClick(root) {
+    if (root._pdsTimelineManageBound) {
+      return;
+    }
+    root.addEventListener('click', function (event) {
+      var button = event.target.closest('.pds-timeline-admin-manage');
+      if (!button) {
+        return;
+      }
+      event.preventDefault();
+      var idx = parseInt(button.getAttribute('data-pds-timeline-index'), 10);
+      if (isNaN(idx)) {
+        return;
+      }
+      openModal(root, idx);
+    });
+    root._pdsTimelineManageBound = true;
+  }
+
+  Drupal.behaviors.pdsTimelineAdmin = {
+    attach: function (context) {
+      once('pdsTimelineAdminRoot', '.js-pds-template-admin', context).forEach(function (root) {
+        annotatePreview(root);
+        observePreview(root);
+        bindManageClick(root);
+      });
+    }
+  };
+
+})(Drupal, once, drupalSettings);
