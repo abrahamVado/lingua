@@ -1,7 +1,7 @@
 pds_recipe_slider_banner.ensure_group:
   path: '/pds-slider-banner/ensure-group/{uuid}'
   defaults:
-    _controller: '\\Drupal\\pds_recipe_slider_banner\\Controller\\GroupController::ensureGroup'
+    _controller: '\Drupal\pds_recipe_slider_banner\Controller\GroupController::ensureGroup'
     _title: 'Ensure PDS Slider Banner group'
   requirements:
     _permission: 'access content'
@@ -11,7 +11,7 @@ pds_recipe_slider_banner.ensure_group:
 pds_recipe_slider_banner.resolve_row:
   path: '/pds-slider-banner/resolve-row/{uuid}'
   defaults:
-    _controller: '\\Drupal\\pds_recipe_slider_banner\\Plugin\\Block\\PdsSliderBannerBlock::ajaxResolveRow'
+    _controller: '\Drupal\pds_recipe_slider_banner\Plugin\Block\PdsSliderBannerBlock::ajaxResolveRow'
     _title: 'Resolve PDS Slider Banner row'
   requirements:
     _permission: 'access content'
@@ -21,7 +21,7 @@ pds_recipe_slider_banner.resolve_row:
 pds_recipe_slider_banner.create_row:
   path: '/pds-slider-banner/create-row/{uuid}'
   defaults:
-    _controller: '\\Drupal\\pds_recipe_slider_banner\\Controller\\RowController::createRow'
+    _controller: '\Drupal\pds_recipe_slider_banner\Controller\RowController::createRow'
     _title: 'Create PDS Slider Banner row'
   requirements:
     _permission: 'access content'
@@ -31,7 +31,7 @@ pds_recipe_slider_banner.create_row:
 pds_recipe_slider_banner.update_row:
   path: '/pds-slider-banner/update-row/{uuid}/{row_uuid}'
   defaults:
-    _controller: '\\Drupal\\pds_recipe_slider_banner\\Controller\\RowController::update'
+    _controller: '\Drupal\pds_recipe_slider_banner\Controller\RowController::update'
     _title: 'Update PDS Slider Banner row'
   requirements:
     _permission: 'access content'
@@ -42,7 +42,7 @@ pds_recipe_slider_banner.update_row:
 pds_recipe_slider_banner.list_rows:
   path: '/pds-slider-banner/list-rows/{uuid}'
   defaults:
-    _controller: '\\Drupal\\pds_recipe_slider_banner\\Controller\\RowController::list'
+    _controller: '\Drupal\pds_recipe_slider_banner\Controller\RowController::list'
     _title: 'List PDS Slider Banner rows'
   requirements:
     _permission: 'access content'
