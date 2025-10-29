@@ -511,15 +511,22 @@
     var rowUuid = typeof row.uuid === 'string' ? row.uuid.trim() : '';
     var rowIdNumber = NaN;
     var rowIdString = '';
+    var rowIdRawString = '';
     if (typeof row.id === 'number' && !isNaN(row.id)) {
       rowIdNumber = row.id;
       rowIdString = String(row.id);
     }
     else if (typeof row.id === 'string' && row.id.trim() !== '') {
-      rowIdString = row.id.trim();
+      rowIdRawString = row.id.trim();
+      rowIdString = rowIdRawString;
+      //13.3.1a.- Remove the legacy `id:` prefix so numeric identifiers remain usable without UUIDs.
+      if (rowIdString.length > 3 && rowIdString.slice(0, 3).toLowerCase() === 'id:') {
+        rowIdString = rowIdString.slice(3).trim();
+      }
       var parsedId = parseInt(rowIdString, 10);
       if (!isNaN(parsedId)) {
         rowIdNumber = parsedId;
+        rowIdString = String(parsedId);
       }
     }
 
@@ -546,13 +553,22 @@
             if (!candidateUuid) {
               return false;
             }
-            var candidateIdNumber = typeof candidate.id === 'number'
-              ? candidate.id
-              : (typeof candidate.id === 'string' ? parseInt(candidate.id, 10) : NaN);
-            var candidateIdString = typeof candidate.id === 'string'
-              ? candidate.id.trim()
-              : (typeof candidate.id === 'number' ? String(candidate.id) : '');
-            if (stringCandidate && candidateIdString && candidateIdString === stringCandidate) {
+            var candidateIdNumber = NaN;
+            var candidateComparableId = '';
+            if (typeof candidate.id === 'number' && !isNaN(candidate.id)) {
+              candidateIdNumber = candidate.id;
+              candidateComparableId = String(candidate.id);
+            }
+            else if (typeof candidate.id === 'string') {
+              candidateComparableId = candidate.id.trim();
+              if (candidateComparableId.length > 3 && candidateComparableId.slice(0, 3).toLowerCase() === 'id:') {
+                candidateComparableId = candidateComparableId.slice(3).trim();
+              }
+              if (candidateComparableId && /^\d+$/.test(candidateComparableId)) {
+                candidateIdNumber = parseInt(candidateComparableId, 10);
+              }
+            }
+            if (stringCandidate && candidateComparableId && candidateComparableId === stringCandidate) {
               rowUuid = candidateUuid;
               return true;
             }
@@ -578,7 +594,15 @@
     var entries = collectEntries(modal);
     //13.4.- Reemplazamos el marcador de UUID o anexamos el identificador cuando el atributo ya expone la ruta final.
     var updateUrl = updateUrlTemplate;
-    var identifier = rowUuid || (rowIdString || String(rowIdNumber));
+    var identifier = rowUuid;
+    if (!identifier) {
+      if (!isNaN(rowIdNumber)) {
+        identifier = String(rowIdNumber);
+      }
+      else if (rowIdString && /^\d+$/.test(rowIdString)) {
+        identifier = rowIdString;
+      }
+    }
     if (!identifier) {
       return Promise.reject(new Error('Timeline endpoint is missing the row identifier.'));
     }
@@ -614,7 +638,13 @@
     if (typeof row.image_fid !== 'undefined') {
       payloadRow.image_fid = row.image_fid;
     }
-    if (typeof row.id !== 'undefined') {
+    if (!isNaN(rowIdNumber)) {
+      payloadRow.id = rowIdNumber;
+    }
+    else if (rowIdString) {
+      payloadRow.id = rowIdString;
+    }
+    else if (typeof row.id !== 'undefined') {
       payloadRow.id = row.id;
     }
     if (rowUuid) {
@@ -630,8 +660,11 @@
     if (!isNaN(rowIdNumber)) {
       payload.row_id = rowIdNumber;
     }
-    else if (rowIdString) {
+    else if (rowIdString && /^\d+$/.test(rowIdString)) {
       payload.row_id = rowIdString;
+    }
+    else if (rowIdRawString) {
+      payload.row_id = rowIdRawString;
     }
 
     return fetch(updateUrl, {
