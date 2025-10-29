@@ -30,13 +30,13 @@ final class PdsTemplateBlock extends BlockBase {
    */
   public function defaultConfiguration(): array {
     return [
-      // Snapshot fallback for render if DB or tables are not available yet.
+      //1.- Snapshot fallback for render if DB or tables are not available yet.
       'items' => [],
-      //1.- Persist the numeric group id so front-end renderers can reference it.
+      //2.- Persist the numeric group id so front-end renderers can reference it.
       'group_id' => 0,
-      // Stable UUID to tie this block instance to rows in pds_template_group.
+      //3.- Store the stable UUID that ties this block instance to rows in pds_template_group.
       'instance_uuid' => '',
-      // Logical type of this block. Adjust per block subtype if needed.
+      //4.- Keep track of the logical recipe type so derivatives can specialize behavior.
       'recipe_type' => 'pds_recipe_template',
     ];
   }
@@ -52,15 +52,12 @@ final class PdsTemplateBlock extends BlockBase {
         return $stored_uuid;
       }
 
-      //1.- Clear malformed identifiers so the legacy recovery path can repair the
-      //    configuration using the persisted numeric group id.
+      //1.- Clear malformed identifiers so the legacy recovery path can repair the configuration using the persisted numeric group id.
       $stored_uuid = '';
       $this->configuration['instance_uuid'] = '';
     }
 
-    //1.- Attempt to recover the historical UUID from the persisted group id so
-    //    legacy blocks created before instance_uuid was stored continue to load
-    //    their saved rows when editors reopen the modal.
+    //1.- Attempt to recover the historical UUID from the persisted group id so legacy blocks created before instance_uuid was stored continue to load their saved rows when editors reopen the modal.
     $stored_group_id = $this->configuration['group_id'] ?? 0;
     if (is_numeric($stored_group_id) && (int) $stored_group_id > 0) {
       try {
@@ -74,16 +71,13 @@ final class PdsTemplateBlock extends BlockBase {
           ->fetchField();
 
         if (is_string($group_uuid) && $group_uuid !== '' && Uuid::isValid($group_uuid)) {
-          //2.- Cache the recovered identifier so future lookups skip the
-          //    database round-trip while keeping old rows linked to the block.
+          //2.- Cache the recovered identifier so future lookups skip the database round-trip while keeping old rows linked to the block.
           $this->configuration['instance_uuid'] = $group_uuid;
           return $group_uuid;
         }
 
         if ($group_uuid !== FALSE) {
-          //3.- Repair legacy rows that never stored a UUID so historical data
-          //    continues to load in the editor by assigning a fresh identifier
-          //    directly on the existing group record.
+          //3.- Repair legacy rows that never stored a UUID so historical data continues to load in the editor by assigning a fresh identifier directly on the existing group record.
           $replacement_uuid = \Drupal::service('uuid')->generate();
           $connection->update('pds_template_group')
             ->fields(['uuid' => $replacement_uuid])
@@ -91,20 +85,17 @@ final class PdsTemplateBlock extends BlockBase {
             ->condition('deleted_at', NULL, 'IS NULL')
             ->execute();
 
-          //4.- Persist the new identifier so subsequent AJAX requests reuse
-          //    the repaired value instead of generating more UUIDs.
+          //4.- Persist the new identifier so subsequent AJAX requests reuse the repaired value instead of generating more UUIDs.
           $this->configuration['instance_uuid'] = $replacement_uuid;
           return $replacement_uuid;
         }
       }
       catch (\Exception $exception) {
-        //5.- Ignore lookup failures so newly created blocks can still receive
-        //    a fresh UUID without interrupting the editor experience.
+        //5.- Ignore lookup failures so newly created blocks can still receive a fresh UUID without interrupting the editor experience.
       }
     }
 
-    //6.- Fallback to generating a new UUID for brand-new blocks or when the
-    //    historical lookup could not find a matching record.
+    //6.- Fallback to generating a new UUID for brand-new blocks or when the historical lookup could not find a matching record.
     $uuid = \Drupal::service('uuid')->generate();
     $this->configuration['instance_uuid'] = $uuid;
     return $uuid;
@@ -253,9 +244,7 @@ final class PdsTemplateBlock extends BlockBase {
         $primary_image = (string) $record->mobile_img;
       }
 
-      //4.- Normalize identifier metadata so the modal preview can reuse the same
-      //    payload structure as the JSON listing endpoint and keep edit actions
-      //    wired to the persisted rows.
+      //4.- Normalize identifier metadata so the modal preview can reuse the same payload structure as the JSON listing endpoint and keep edit actions wired to the persisted rows.
       $resolved_id = isset($record->id) ? (int) $record->id : 0;
       $resolved_uuid = isset($record->uuid) ? (string) $record->uuid : '';
       if ($resolved_uuid !== '' && !Uuid::isValid($resolved_uuid)) {
@@ -300,14 +289,14 @@ final class PdsTemplateBlock extends BlockBase {
     }
     $now = \Drupal::time()->getRequestTime();
 
-    // Soft-delete all previous active items for this group.
+    //2.- Soft-delete all previous active items for this group.
     $connection->update('pds_template_item')
       ->fields(['deleted_at' => $now])
       ->condition('group_id', $group_id)
       ->condition('deleted_at', NULL, 'IS NULL')
       ->execute();
 
-    // Insert new items in the given order.
+    //3.- Insert new items in the given order so database state mirrors the snapshot sequence.
     foreach ($clean_items as $delta => $row) {
       $row_uuid = \Drupal::service('uuid')->generate();
 
@@ -330,10 +319,10 @@ final class PdsTemplateBlock extends BlockBase {
         ->execute();
     }
 
-    // Keep snapshot for fallback render.
+    //4.- Keep a configuration snapshot for fallback renders when the database is unavailable.
     $this->configuration['items'] = $clean_items;
     if ($group_id) {
-      //2.- Mirror the id in configuration so future renders expose it without DB lookups.
+      //5.- Mirror the id in configuration so future renders expose it without DB lookups.
       $this->configuration['group_id'] = (int) $group_id;
     }
   }
@@ -519,92 +508,91 @@ final class PdsTemplateBlock extends BlockBase {
       '#default_value' => (string) $group_id,
     ];
 
-  // Hidden JSON state.
-  $form['pds_template_admin']['cards_state'] = [
-    '#type' => 'hidden',
-    // Drupal won't keep #id stable for hidden, so we rely on data-drupal-selector.
-    '#attributes' => [
-      'data-drupal-selector' => 'pds-template-cards-state',
-    ],
-    //1.- Expose the serialized rows via a default value so runtime edits reach PHP on submit.
-    '#default_value' => json_encode($working_items),
-  ];
-
-  // Hidden edit index.
-  $form['pds_template_admin']['edit_index'] = [
-    '#type' => 'hidden',
-    '#attributes' => [
-      'data-drupal-selector' => 'pds-template-edit-index',
-    ],
-    //1.- Seed the edit pointer with a mutable default so JS can signal which row is active.
-    '#default_value' => '-1',
-  ];
-
-  // Tabs nav.
-  $form['pds_template_admin']['tabs_nav'] = [
-    '#type' => 'container',
-    '#attributes' => [
-      'class' => [
-        'pds-template-admin__tabs-horizontal',
+    //2.- Hidden JSON state keeps the serialized rows synchronized with PHP submissions.
+    $form['pds_template_admin']['cards_state'] = [
+      '#type' => 'hidden',
+      //3.- Use data-drupal-selector because Drupal does not preserve raw #id attributes on hidden elements.
+      '#attributes' => [
+        'data-drupal-selector' => 'pds-template-cards-state',
       ],
-      'data-pds-template-tabs' => 'nav',
-    ],
-  ];
+      //4.- Expose the serialized rows via a default value so runtime edits reach PHP on submit.
+      '#default_value' => json_encode($working_items),
+    ];
 
-  // We keep these as buttons but Drupal will render them as submit inputs.
-  // That is fine for tab switching because our JS does preventDefault().
-  $form['pds_template_admin']['tabs_nav']['tab_a'] = [
-    '#type' => 'button',
-    '#value' => $this->t('Tab A'),
-    '#attributes' => [
-      'class' => [
-        'pds-template-admin__tab-btn-horizontal',
+    //5.- Hidden edit index tracks which card is being edited for JS interactions.
+    $form['pds_template_admin']['edit_index'] = [
+      '#type' => 'hidden',
+      '#attributes' => [
+        'data-drupal-selector' => 'pds-template-edit-index',
       ],
-      'data-pds-template-tab-target' => 'panel-a',
-    ],
-  ];
+      //6.- Seed the edit pointer with a mutable default so JS can signal which row is active.
+      '#default_value' => '-1',
+    ];
 
-  $form['pds_template_admin']['tabs_nav']['tab_b'] = [
-    '#type' => 'button',
-    '#value' => $this->t('Tab B'),
-    '#attributes' => [
-      'class' => [
-        'pds-template-admin__tab-btn-horizontal',
+    //7.- Build the tabs navigation wrapper that Layout Builder renders inside the modal.
+    $form['pds_template_admin']['tabs_nav'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => [
+          'pds-template-admin__tabs-horizontal',
+        ],
+        'data-pds-template-tabs' => 'nav',
       ],
-      'data-pds-template-tab-target' => 'panel-b',
-    ],
-  ];
+    ];
 
-  // Panels wrapper.
-  $form['pds_template_admin']['tabs_panels_wrapper'] = [
-    '#type' => 'container',
-    '#attributes' => [
-      'id' => 'pds-template-panels-wrapper',
-    ],
-  ];
-
-  $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels'] = [
-    '#type' => 'container',
-    '#attributes' => [
-      'class' => [
-        'pds-template-admin__panels-horizontal',
+    //8.- Keep these elements as buttons even though Drupal renders submit inputs because JS cancels submission.
+    $form['pds_template_admin']['tabs_nav']['tab_a'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Tab A'),
+      '#attributes' => [
+        'class' => [
+          'pds-template-admin__tab-btn-horizontal',
+        ],
+        'data-pds-template-tab-target' => 'panel-a',
       ],
-      'data-pds-template-tabs' => 'panels',
-    ],
-  ];
+    ];
 
-  // Panel A (edit form).
-  $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a'] = [
-    '#type' => 'container',
-    '#attributes' => [
-      'id' => 'pds-template-panel-a',
-      'class' => [
-        'pds-template-admin__panel-horizontal',
-        'js-pds-template-panel',
+    $form['pds_template_admin']['tabs_nav']['tab_b'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Tab B'),
+      '#attributes' => [
+        'class' => [
+          'pds-template-admin__tab-btn-horizontal',
+        ],
+        'data-pds-template-tab-target' => 'panel-b',
       ],
-      'data-pds-template-panel-id' => 'panel-a',
-    ],
-  ];
+    ];
+
+    //9.- Create the panels wrapper that houses the editable form and preview tabs.
+    $form['pds_template_admin']['tabs_panels_wrapper'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'pds-template-panels-wrapper',
+      ],
+    ];
+
+    $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => [
+          'pds-template-admin__panels-horizontal',
+        ],
+        'data-pds-template-tabs' => 'panels',
+      ],
+    ];
+
+    //10.- Provide the edit panel container where the form widgets live.
+    $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'pds-template-panel-a',
+        'class' => [
+          'pds-template-admin__panel-horizontal',
+          'js-pds-template-panel',
+        ],
+        'data-pds-template-panel-id' => 'panel-a',
+      ],
+    ];
 
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['header'] = [
     '#type' => 'textfield',
@@ -659,16 +647,16 @@ final class PdsTemplateBlock extends BlockBase {
     ],
   ];
 
-  // Add row button.
+  //11.- Render the add row trigger that allows editors to append new cards via JS.
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['add_item'] = [
     '#type' => 'markup',
-    // Use a <div> instead of <button> because Layout Builder strips <button>.
-    // Keep data-drupal-selector and id so JS can find it.
+    //12.- Use a <div> instead of <button> because Layout Builder strips button elements while rendering the form.
+    //13.- Keep data-drupal-selector and id so JS can consistently find the trigger element.
     '#markup' => '<div class="pds-template-admin__add-btn" data-drupal-selector="pds-template-add-card" id="pds-template-add-card" role="button" tabindex="0">Add row</div>',
   ];
 
 
-  // Panel B (preview).
+  //14.- Define the preview panel container that receives hydrated markup from AJAX calls.
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_b'] = [
     '#type' => 'container',
     '#attributes' => [
@@ -815,10 +803,10 @@ final class PdsTemplateBlock extends BlockBase {
       ];
     }
 
-    // Persist items in DB and config snapshot.
+    //4.- Persist items in both the database and the configuration snapshot for future renders.
     $this->saveItemsForBlock($clean, $group_id);
 
-    // Make sure dialog reopens prefilled.
+    //5.- Refresh the working state so the dialog reopens with the newly saved rows.
     $this->setWorkingItems($form_state, $clean);
   }
 
@@ -946,7 +934,7 @@ final class PdsTemplateBlock extends BlockBase {
    * Kept only so LB AJAX callbacks referencing old code do not fatal.
    */
   public function addItemSubmit(array &$form, FormStateInterface $form_state): void {
-    // No-op.
+    //1.- Intentionally left empty so historical AJAX callbacks referencing this handler continue to succeed.
   }
 
   public function ajaxItems(array &$form, FormStateInterface $form_state) {
