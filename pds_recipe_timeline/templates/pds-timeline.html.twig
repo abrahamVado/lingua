@@ -20,6 +20,8 @@
           </div>
           {# //4.- Iteramos los elementos guardados para dibujar cada persona y sus datos asociados. #}
           {% for row in items %}
+            {# //3.a.- Normalizamos la lista de hitos cronológicos asociados al ejecutivo actual. #}
+            {% set timeline_entries = row.timeline is iterable ? row.timeline : [] %}
             <div class="principal-timeline__row" data-pds-template-row-index="{{ loop.index0 }}">
               <div class="principal-timeline__person">
                 <span class="principal-timeline__person-name">{{ row.header }}</span>
@@ -29,6 +31,7 @@
               </div>
               <div class="principal-timeline__jobs">
                 <div class="principal-timeline__job-segment principal-timeline__job-segment--principal">
+                  <span class="principal-timeline__job-segment-line" aria-hidden="true"></span>
                   {% if row.description %}
                     <span class="principal-timeline__job-info">{{ row.description }}</span>
                   {% endif %}
@@ -43,6 +46,18 @@
                     </span>
                   {% endif %}
                 </div>
+                {% for milestone in timeline_entries %}
+                  <div
+                    class="principal-timeline__job-segment"
+                    data-pds-template-timeline-year="{{ milestone.year }}"
+                  >
+                    <span class="principal-timeline__job-segment-line" aria-hidden="true"></span>
+                    <span class="principal-timeline__job-year">{{ milestone.year }}</span>
+                    {% if milestone.label %}
+                      <span class="principal-timeline__job-label">{{ milestone.label }}</span>
+                    {% endif %}
+                  </div>
+                {% endfor %}
               </div>
             </div>
           {% endfor %}

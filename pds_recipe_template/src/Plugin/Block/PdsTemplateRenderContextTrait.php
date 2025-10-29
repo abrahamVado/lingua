@@ -49,6 +49,10 @@ trait PdsTemplateRenderContextTrait {
     $desktop_images = [];
     $mobile_images = [];
     $geo_coordinates = [];
+    $timeline_segments = [];
+
+    $recipe_type = (string) ($this->configuration['recipe_type'] ?? 'pds_recipe_template');
+    $is_timeline_recipe = $recipe_type === 'pds_recipe_timeline';
 
     foreach ($items as $delta => $row) {
       //2.- Extract the canonical label to pair with derivative information.
@@ -107,15 +111,48 @@ trait PdsTemplateRenderContextTrait {
           'longitude' => (float) $row['longitud'],
         ];
       }
+
+      if ($is_timeline_recipe && isset($row['timeline']) && is_array($row['timeline'])) {
+        //8.- Expose chronological milestones so timeline consumers can render per-item segments.
+        foreach ($row['timeline'] as $timeline_entry) {
+          if (!is_array($timeline_entry)) {
+            continue;
+          }
+
+          $entry_year = isset($timeline_entry['year']) && is_numeric($timeline_entry['year'])
+            ? (int) $timeline_entry['year']
+            : NULL;
+          $entry_label = isset($timeline_entry['label'])
+            ? trim((string) $timeline_entry['label'])
+            : '';
+
+          if ($entry_year === NULL || $entry_label === '') {
+            continue;
+          }
+
+          $timeline_segments[] = [
+            'item_index' => $delta,
+            'year' => $entry_year,
+            'label' => $entry_label,
+          ];
+        }
+      }
     }
 
-    return [
+    $datasets = [
       'media' => [
         'desktop' => $desktop_images,
         'mobile' => $mobile_images,
       ],
       'geo' => $geo_coordinates,
     ];
+
+    if ($is_timeline_recipe) {
+      //9.- Publish the assembled timeline entries to ease front-end integrations.
+      $datasets['timeline'] = $timeline_segments;
+    }
+
+    return $datasets;
   }
 
 }

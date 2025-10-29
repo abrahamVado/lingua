@@ -217,6 +217,181 @@ if (!function_exists('pds_recipe_template_include_service_class')) {
   }
 }
 
+if (!function_exists('pds_recipe_template_normalize_timeline_entries')) {
+  /**
+   * Sanitize timeline payloads captured from the admin modal.
+   */
+  function pds_recipe_template_normalize_timeline_entries($entries): array {
+    //1.- Bail out early when the provided data is not iterable to avoid notices.
+    if (!is_array($entries) || $entries === []) {
+      return [];
+    }
+
+    $normalized = [];
+    $weight = 0;
+
+    foreach ($entries as $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      //2.- Accept numeric strings and integers while ignoring malformed years.
+      $raw_year = $entry['year'] ?? NULL;
+      if ($raw_year === NULL || $raw_year === '') {
+        continue;
+      }
+      if (!is_numeric($raw_year)) {
+        continue;
+      }
+
+      $year = (int) $raw_year;
+      $label = isset($entry['label']) ? trim((string) $entry['label']) : '';
+      if ($label === '') {
+        continue;
+      }
+
+      //3.- Keep weights sequential regardless of the original order to simplify storage.
+      $normalized[] = [
+        'year' => $year,
+        'label' => $label,
+        'weight' => $weight,
+      ];
+      $weight++;
+    }
+
+    return $normalized;
+  }
+}
+
+if (!function_exists('pds_recipe_template_load_timelines_for_items')) {
+  /**
+   * Load active timeline entries grouped by template item id.
+   */
+  function pds_recipe_template_load_timelines_for_items(\Drupal\Core\Database\Connection $connection, array $item_ids): array {
+    //1.- Normalize identifiers to integers and remove duplicates before querying.
+    $normalized_ids = [];
+    foreach ($item_ids as $id) {
+      if (!is_numeric($id)) {
+        continue;
+      }
+      $cast = (int) $id;
+      if ($cast <= 0) {
+        continue;
+      }
+      $normalized_ids[$cast] = TRUE;
+    }
+
+    if ($normalized_ids === []) {
+      return [];
+    }
+
+    $query = $connection->select('pds_template_item_timeline', 'timeline')
+      ->fields('timeline', ['id', 'item_id', 'year', 'label', 'weight'])
+      ->condition('timeline.item_id', array_keys($normalized_ids), 'IN')
+      ->condition('timeline.deleted_at', NULL, 'IS NULL')
+      ->orderBy('timeline.item_id', 'ASC')
+      ->orderBy('timeline.weight', 'ASC')
+      ->orderBy('timeline.year', 'ASC');
+
+    $result = $query->execute();
+    $grouped = [];
+
+    foreach ($result as $record) {
+      $item_id = (int) $record->item_id;
+      if (!isset($grouped[$item_id])) {
+        $grouped[$item_id] = [];
+      }
+
+      //2.- Store the normalized entry so both PHP and JS consumers receive consistent keys.
+      $grouped[$item_id][] = [
+        'id' => (int) $record->id,
+        'year' => (int) $record->year,
+        'label' => (string) $record->label,
+        'weight' => (int) $record->weight,
+      ];
+    }
+
+    foreach ($grouped as &$entries) {
+      //3.- Reset array keys so JSON encoding produces a compact list.
+      $entries = array_values($entries);
+    }
+    unset($entries);
+
+    return $grouped;
+  }
+}
+
+if (!function_exists('pds_recipe_template_soft_delete_group_timelines')) {
+  /**
+   * Mark existing timeline entries as deleted for every active item in the group.
+   */
+  function pds_recipe_template_soft_delete_group_timelines(\Drupal\Core\Database\Connection $connection, int $group_id, int $timestamp): void {
+    //1.- Skip the operation when the provided identifier is invalid.
+    if ($group_id <= 0) {
+      return;
+    }
+
+    $subquery = $connection->select('pds_template_item', 'items')
+      ->fields('items', ['id'])
+      ->condition('items.group_id', $group_id)
+      ->condition('items.deleted_at', NULL, 'IS NULL');
+
+    //2.- Mark every related entry as deleted so fresh inserts can replace them cleanly.
+    $connection->update('pds_template_item_timeline')
+      ->fields(['deleted_at' => $timestamp])
+      ->condition('item_id', $subquery, 'IN')
+      ->condition('deleted_at', NULL, 'IS NULL')
+      ->execute();
+  }
+}
+
+if (!function_exists('pds_recipe_template_replace_item_timeline')) {
+  /**
+   * Replace the active timeline entries for a specific template item.
+   */
+  function pds_recipe_template_replace_item_timeline(\Drupal\Core\Database\Connection $connection, int $item_id, array $entries, int $timestamp): void {
+    //1.- Validate the identifier so no unintended updates run with invalid ids.
+    if ($item_id <= 0) {
+      return;
+    }
+
+    //2.- Remove previous active entries before inserting the refreshed collection.
+    $connection->update('pds_template_item_timeline')
+      ->fields(['deleted_at' => $timestamp])
+      ->condition('item_id', $item_id)
+      ->condition('deleted_at', NULL, 'IS NULL')
+      ->execute();
+
+    if ($entries === []) {
+      return;
+    }
+
+    foreach ($entries as $position => $entry) {
+      if (!is_array($entry)) {
+        continue;
+      }
+
+      $year = isset($entry['year']) && is_numeric($entry['year']) ? (int) $entry['year'] : NULL;
+      $label = isset($entry['label']) ? trim((string) $entry['label']) : '';
+      if ($year === NULL || $label === '') {
+        continue;
+      }
+
+      //3.- Persist each entry preserving the provided order through the weight column.
+      $connection->insert('pds_template_item_timeline')
+        ->fields([
+          'item_id' => $item_id,
+          'year' => $year,
+          'label' => $label,
+          'weight' => (int) $position,
+          'created_at' => $timestamp,
+          'deleted_at' => NULL,
+        ])
+        ->execute();
+    }
+  }
+}
+
 if (!function_exists('pds_recipe_template_create_row_image_promoter')) {
   /**
    * Factory callback so the container can instantiate the row image promoter.
