@@ -4,6 +4,18 @@
   //3.5.- Define el marcador de UUID usado por los endpoints para que los reemplazos funcionen incluso sin plantillas.
   var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
+  //3.8.- Validador ligero de UUID para descartar cadenas inválidas antes de usar el identificador.
+  function isValidUuid(value) {
+    if (typeof value !== 'string') {
+      return false;
+    }
+    var trimmed = value.trim();
+    if (trimmed === '') {
+      return false;
+    }
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(trimmed);
+  }
+
   //1.- Local helper que resuelve el contenedor de vista previa generado por el template base.
   function resolvePreviewContent(root) {
     var wrapper = root.querySelector('[data-pds-template-preview-state="content"]');
@@ -509,6 +521,11 @@
 
     var row = rows[index] || {};
     var rowUuid = typeof row.uuid === 'string' ? row.uuid.trim() : '';
+    if (rowUuid && !isValidUuid(rowUuid)) {
+      rowUuid = '';
+      row.uuid = '';
+      rows[index].uuid = '';
+    }
     var rowIdNumber = NaN;
     var rowIdString = '';
     var rowIdRawString = '';
@@ -537,7 +554,7 @@
         var datasetKey = buildRowKey(row);
         if (datasetKey && dataset[datasetKey] && typeof dataset[datasetKey].uuid === 'string') {
           var datasetUuid = dataset[datasetKey].uuid.trim();
-          if (datasetUuid) {
+          if (datasetUuid && isValidUuid(datasetUuid)) {
             rowUuid = datasetUuid;
           }
         }
@@ -550,7 +567,7 @@
               return false;
             }
             var candidateUuid = typeof candidate.uuid === 'string' ? candidate.uuid.trim() : '';
-            if (!candidateUuid) {
+            if (!candidateUuid || !isValidUuid(candidateUuid)) {
               return false;
             }
             var candidateIdNumber = NaN;
@@ -582,7 +599,7 @@
       }
     }
 
-    if (rowUuid) {
+    if (rowUuid && isValidUuid(rowUuid)) {
       row.uuid = rowUuid;
       rows[index].uuid = rowUuid;
     }
@@ -594,7 +611,7 @@
     var entries = collectEntries(modal);
     //13.4.- Reemplazamos el marcador de UUID o anexamos el identificador cuando el atributo ya expone la ruta final.
     var updateUrl = updateUrlTemplate;
-    var identifier = rowUuid;
+    var identifier = rowUuid && isValidUuid(rowUuid) ? rowUuid : '';
     if (!identifier) {
       if (!isNaN(rowIdNumber)) {
         identifier = String(rowIdNumber);
