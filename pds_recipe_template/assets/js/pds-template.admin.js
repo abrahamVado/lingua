@@ -77,80 +77,6 @@
       .replace(/'/g, '&#039;');
   }
 
-  function parseTimelineTextarea(value) {
-    //1.- Split newline-separated entries into pairs while trimming surrounding whitespace.
-    if (typeof value !== 'string' || value.trim() === '') {
-      return [];
-    }
-
-    return value
-      .split(/\r?\n/)
-      .map(function (line) { return line.trim(); })
-      .filter(function (line) { return line !== ''; })
-      .map(function (line) {
-        var parts = line.split('|');
-        var year = parts.shift();
-        var label = parts.join('|');
-        year = typeof year === 'string' ? year.trim() : '';
-        label = typeof label === 'string' ? label.trim() : '';
-
-        if (year === '' && label === '') {
-          return null;
-        }
-
-        return {
-          year: year,
-          label: label
-        };
-      })
-      .filter(function (segment) { return segment !== null; });
-  }
-
-  function formatTimelineSegments(segments) {
-    //1.- Join stored objects back into the textarea representation without mutating the payload.
-    if (!Array.isArray(segments) || segments.length === 0) {
-      return '';
-    }
-
-    var formatted = segments
-      .map(function (segment) {
-        if (!segment) {
-          return null;
-        }
-
-        var year = '';
-        if (typeof segment.year === 'string') {
-          year = segment.year.trim();
-        } else if (Array.isArray(segment) && typeof segment[0] === 'string') {
-          year = segment[0].trim();
-        }
-
-        var label = '';
-        if (typeof segment.label === 'string') {
-          label = segment.label.trim();
-        } else if (Array.isArray(segment) && typeof segment[1] === 'string') {
-          label = segment[1].trim();
-        }
-
-        if (year === '' && label === '') {
-          return null;
-        }
-
-        if (label === '') {
-          return year;
-        }
-
-        if (year === '') {
-          return label;
-        }
-
-        return year + '|' + label;
-      })
-      .filter(function (line) { return line !== null; });
-
-    return formatted.join('\n');
-  }
-
   var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
   function ensureErrorContainer(root) {
@@ -379,30 +305,26 @@
 
 
 
-  function clearInputs(root) {
-    //1.- Reset every core text field so the modal starts from a blank state.
-    var f;
-    f = sel(root, 'pds-template-header', 'pds-template-header');
-    if (f) {
-      f.value = '';
-    }
-    f = sel(root, 'pds-template-subheader', 'pds-template-subheader');
-    if (f) {
-      f.value = '';
-    }
-    f = sel(root, 'pds-template-description', 'pds-template-description');
-    if (f) {
-      f.value = '';
-    }
-    f = sel(root, 'pds-template-link', 'pds-template-link');
-    if (f) {
-      f.value = '';
-    }
-    f = sel(root, 'pds-template-timeline', 'pds-template-timeline');
-    if (f) {
-      f.value = '';
-    }
+function clearInputs(root) {
+  //1.- Reset every core text field so the modal starts from a blank state.
+  var f;
+  f = sel(root, 'pds-template-header', 'pds-template-header');
+  if (f) {
+    f.value = '';
   }
+  f = sel(root, 'pds-template-subheader', 'pds-template-subheader');
+  if (f) {
+    f.value = '';
+  }
+  f = sel(root, 'pds-template-description', 'pds-template-description');
+  if (f) {
+    f.value = '';
+  }
+  f = sel(root, 'pds-template-link', 'pds-template-link');
+  if (f) {
+    f.value = '';
+  }
+}
 
 
 
@@ -425,10 +347,6 @@
     if (f) {
       f.value = row.link || '';
     }
-    f = sel(root, 'pds-template-timeline', 'pds-template-timeline');
-    if (f) {
-      f.value = formatTimelineSegments(row.timeline_segments);
-    }
   }
 
   function buildRowFromInputs(root, existingRow) {
@@ -439,7 +357,6 @@
     var subEl    = sel(root, 'pds-template-subheader', 'pds-template-subheader');
     var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
     var linkEl   = sel(root, 'pds-template-link', 'pds-template-link');
-    var timelineEl = sel(root, 'pds-template-timeline', 'pds-template-timeline');
 
     //2.- Read each field while falling back to empty strings for optional values.
     var header      = headerEl ? headerEl.value : '';
@@ -452,13 +369,6 @@
     var latValue = (typeof existingRow.latitud !== 'undefined') ? existingRow.latitud : null;
     var lngValue = (typeof existingRow.longitud !== 'undefined') ? existingRow.longitud : null;
 
-    var timelineSegments = [];
-    if (timelineEl) {
-      timelineSegments = parseTimelineTextarea(timelineEl.value);
-    } else if (Array.isArray(existingRow.timeline_segments)) {
-      timelineSegments = existingRow.timeline_segments.slice();
-    }
-
     //4.- Assemble the canonical payload expected by the AJAX endpoints.
     var baseRow = {
       header: header,
@@ -470,8 +380,7 @@
       desktop_img: existingRow.desktop_img || existingRow.image_url || '',
       mobile_img: existingRow.mobile_img || existingRow.image_url || '',
       latitud: latValue,
-      longitud: lngValue,
-      timeline_segments: timelineSegments
+      longitud: lngValue
     };
 
     if (fid) {
