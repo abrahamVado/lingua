@@ -64,7 +64,10 @@ final class RowController extends ControllerBase {
     $desktop_img = isset($row['desktop_img']) && is_string($row['desktop_img']) ? $row['desktop_img'] : '';
     $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
     $image_url = isset($row['image_url']) && is_string($row['image_url']) ? $row['image_url'] : '';
-
+    $image_fid = isset($row['image_fid']) && is_numeric($row['image_fid']) ? (int) $row['image_fid'] : NULL;
+    $mobile_image_fid = isset($row['mobile_image_fid']) && is_numeric($row['mobile_image_fid'])
+      ? (int) $row['mobile_image_fid']
+      : NULL;
     $latitud = NULL;
     if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
       $latitud = $row['latitud'] === NULL ? NULL : (float) $row['latitud'];
@@ -108,6 +111,8 @@ final class RowController extends ControllerBase {
       $row['desktop_img'] = $desktop_img;
       $row['mobile_img'] = $mobile_img;
       $row['image_url'] = $image_url;
+      $row['image_fid'] = $image_fid;
+      $row['mobile_image_fid'] = $mobile_image_fid;
 
       //8.- Resolve the promoter through the helper so cache rebuilds do not break uploads.
       $promoter = \pds_recipe_slider_banner_resolve_row_image_promoter();
@@ -132,7 +137,8 @@ final class RowController extends ControllerBase {
       $desktop_img = (string) ($promotion['desktop_img'] ?? $desktop_img);
       $mobile_img = (string) ($promotion['mobile_img'] ?? $mobile_img);
       $image_url = (string) ($promotion['image_url'] ?? $image_url);
-      $image_fid = $promotion['image_fid'] ?? NULL;
+      $image_fid = $promotion['image_fid'] ?? $image_fid;
+      $mobile_image_fid = $promotion['mobile_image_fid'] ?? $mobile_image_fid;
 
       if ($weight === NULL) {
         //9.- When the caller omits weight we append to the end by using max + 1.
@@ -186,6 +192,9 @@ final class RowController extends ControllerBase {
       }
       if ($image_fid) {
         $response_row['image_fid'] = $image_fid;
+      }
+      if ($mobile_image_fid) {
+        $response_row['mobile_image_fid'] = $mobile_image_fid;
       }
 
       if ($weight !== NULL) {
@@ -532,6 +541,8 @@ final class RowController extends ControllerBase {
       $row['desktop_img'] = $desktop_img;
       $row['mobile_img'] = $mobile_img;
       $row['image_url'] = $image_url;
+      $row['image_fid'] = $image_fid;
+      $row['mobile_image_fid'] = $mobile_image_fid;
 
       //5.- Reuse the helper to avoid hard dependencies on the service container during edits.
       $promoter = \pds_recipe_slider_banner_resolve_row_image_promoter();
@@ -556,7 +567,8 @@ final class RowController extends ControllerBase {
       $desktop_img = (string) ($promotion['desktop_img'] ?? $desktop_img);
       $mobile_img = (string) ($promotion['mobile_img'] ?? $mobile_img);
       $image_url = (string) ($promotion['image_url'] ?? $image_url);
-      $image_fid = $promotion['image_fid'] ?? NULL;
+      $image_fid = $promotion['image_fid'] ?? $image_fid;
+      $mobile_image_fid = $promotion['mobile_image_fid'] ?? $mobile_image_fid;
 
       //6.- Build the sanitized update payload while preserving numeric and nullable columns.
       $fields = [
@@ -596,6 +608,9 @@ final class RowController extends ControllerBase {
       }
       if ($image_fid) {
         $response_row['image_fid'] = $image_fid;
+      }
+      if ($mobile_image_fid) {
+        $response_row['mobile_image_fid'] = $mobile_image_fid;
       }
 
       if (array_key_exists('weight', $fields)) {
