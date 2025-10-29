@@ -1,0 +1,32 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Ensure helper functions from pds_recipe_template remain disponibles.
+ */
+function pds_recipe_timeline_bootstrap_shared_helpers(): void {
+  //1.- Delegamos al módulo base para garantizar que los helpers comunes
+  //2.- estén registrados antes de utilizar sus servicios.
+  if (function_exists('pds_recipe_template_register_runtime_autoloader')) {
+    pds_recipe_template_register_runtime_autoloader();
+  }
+}
+
+pds_recipe_timeline_bootstrap_shared_helpers();
+
+/**
+ * Implements hook_theme().
+ */
+function pds_recipe_timeline_theme($existing, $type, $theme, $path): array {
+  //1.- Registramos la plantilla Twig que renderiza el timeline con la librería.
+  return [
+    'pds_timeline_block' => [
+      'template' => 'pds-timeline',
+      'path' => $path . '/templates',
+      'variables' => [
+        'attributes' => [],
+      ],
+    ],
+  ];
+}
