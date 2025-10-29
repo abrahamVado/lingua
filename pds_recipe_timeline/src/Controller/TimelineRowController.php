@@ -233,14 +233,24 @@ final class TimelineRowController extends ControllerBase {
    * Resolve the canonical row UUID even when callers provide numeric identifiers.
    */
   private function resolveRowUuid(array $payload, string $fallback): ?string {
-    //1.- Honor valid UUIDs coming from the request payload or routing fallback immediately.
+    //1.- Sanitize UUID literales enviados como 'null' o 'undefined' antes de intentar validarlos.
+    if ($fallback === 'undefined' || $fallback === 'null') {
+      $fallback = '';
+    }
+
+    //1.1.- Honor valid UUIDs coming from the request payload or routing fallback immediately.
     if (is_string($fallback) && Uuid::isValid($fallback)) {
       return $fallback;
     }
 
     $row = $payload['row'] ?? [];
-    if (isset($row['uuid']) && is_string($row['uuid']) && Uuid::isValid($row['uuid'])) {
-      return $row['uuid'];
+    if (isset($row['uuid']) && is_string($row['uuid'])) {
+      if ($row['uuid'] === 'undefined' || $row['uuid'] === 'null') {
+        $row['uuid'] = '';
+      }
+      if ($row['uuid'] !== '' && Uuid::isValid($row['uuid'])) {
+        return $row['uuid'];
+      }
     }
 
     //2.- Extract the numeric id from either the top-level payload or the nested row definition.

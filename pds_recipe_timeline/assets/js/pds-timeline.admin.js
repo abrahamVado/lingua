@@ -642,6 +642,13 @@
       rows[index].uuid = rowUuid;
     }
 
+    if (rowUuid === 'undefined' || rowUuid === 'null') {
+      //13.3.0.- Limpia UUIDs serializados como cadenas literales provenientes de estados viejos.
+      rowUuid = '';
+      row.uuid = '';
+      rows[index].uuid = '';
+    }
+
     if (!rowUuid && !rowIdString && (isNaN(rowIdNumber) || rowIdNumber <= 0)) {
       return Promise.reject(new Error('Row identifier is required to persist timeline.'));
     }
@@ -665,6 +672,12 @@
 
     var lastError = null;
 
+    if (updateUrlTemplate && updateUrlTemplate.indexOf('type=') === -1 && recipeType) {
+      //13.2.1.- Reanexamos el tipo de receta al endpoint cuando el atributo se hidrata sin el query string.
+      var joiner = updateUrlTemplate.indexOf('?') === -1 ? '?' : '&';
+      updateUrlTemplate += joiner + 'type=' + encodeURIComponent(recipeType);
+    }
+
     return attemptPersistence(0);
 
     function attemptPersistence(position) {
@@ -679,7 +692,17 @@
         var fallbackMessage = error && error.message ? error.message.toLowerCase() : '';
         var shouldRetryWithId = candidate.type === 'uuid'
           && position + 1 < identifierCandidates.length
-          && (error && (error.status === 404 || error.status === 400 || error.status === 422 || fallbackMessage.indexOf('uuid') !== -1));
+          && (error && (
+            error.status === 404
+            || error.status === 400
+            || error.status === 403
+            || error.status === 409
+            || error.status === 422
+            || fallbackMessage.indexOf('uuid') !== -1
+            || fallbackMessage.indexOf('identifier') !== -1
+            || fallbackMessage.indexOf('row not found') !== -1
+            || fallbackMessage.indexOf('row does not belong') !== -1
+          ));
         if (shouldRetryWithId) {
           //13.4.2.- Clear the cached UUID so the subsequent retry builds the request around the numeric identifier instead.
           rowUuid = '';
@@ -693,6 +716,11 @@
 
     function dispatchPersistence(candidate) {
       var targetUrl = buildUpdateUrl(updateUrlTemplate, candidate.value);
+      if (targetUrl.indexOf('type=') === -1 && recipeType) {
+        //13.4.3.- Aseguramos que cada intento conserve el tipo de receta para alcanzar el decorador de timeline.
+        var glue = targetUrl.indexOf('?') === -1 ? '?' : '&';
+        targetUrl += glue + 'type=' + encodeURIComponent(recipeType);
+      }
       var payload = buildPersistencePayload(candidate);
 
       return sendPersistenceRequest(targetUrl, payload).then(function (result) {
