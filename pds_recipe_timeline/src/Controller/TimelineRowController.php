@@ -245,23 +245,21 @@ final class TimelineRowController extends ControllerBase {
 
     //2.- Extract the numeric id from either the top-level payload or the nested row definition.
     $candidates = [];
-    if (isset($payload['row_id']) && is_numeric($payload['row_id'])) {
-      $candidates[] = (int) $payload['row_id'];
+    $row_id = $this->normalizeRowIdCandidate($payload['row_id'] ?? NULL);
+    if ($row_id !== NULL) {
+      $candidates[] = $row_id;
     }
-    elseif (isset($row['id']) && is_numeric($row['id'])) {
-      $candidates[] = (int) $row['id'];
+
+    $embedded_row_id = $this->normalizeRowIdCandidate($row['id'] ?? NULL);
+    if ($embedded_row_id !== NULL) {
+      $candidates[] = $embedded_row_id;
     }
 
     //2.1.- Inspect the fallback route argument when callers replace the UUID placeholder with a numeric id.
     if (is_string($fallback) && $fallback !== '') {
-      if (ctype_digit($fallback)) {
-        $candidates[] = (int) $fallback;
-      }
-      elseif (strpos($fallback, 'id:') === 0) {
-        $numeric = substr($fallback, 3);
-        if (ctype_digit($numeric)) {
-          $candidates[] = (int) $numeric;
-        }
+      $fallback_candidate = $this->normalizeRowIdCandidate($fallback);
+      if ($fallback_candidate !== NULL) {
+        $candidates[] = $fallback_candidate;
       }
     }
 
@@ -284,6 +282,42 @@ final class TimelineRowController extends ControllerBase {
       if (is_string($uuid) && Uuid::isValid($uuid)) {
         return $uuid;
       }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalize row identifier candidates while stripping legacy prefixes.
+   */
+  private function normalizeRowIdCandidate($value): ?int {
+    //1.- Accept integers directly so numeric payloads remain untouched.
+    if (is_int($value) && $value > 0) {
+      return $value;
+    }
+
+    //2.- Convert numeric strings and remove the historical `id:` prefix when present.
+    if (is_string($value)) {
+      $trimmed = trim($value);
+      if ($trimmed === '') {
+        return NULL;
+      }
+      if (strncasecmp($trimmed, 'id:', 3) === 0) {
+        $trimmed = trim(substr($trimmed, 3));
+      }
+      if ($trimmed === '') {
+        return NULL;
+      }
+      if (ctype_digit($trimmed)) {
+        $normalized = (int) $trimmed;
+        return $normalized > 0 ? $normalized : NULL;
+      }
+    }
+
+    //3.- Fallback to other numeric-compatible scalars (e.g., floats) when possible.
+    if (is_numeric($value)) {
+      $normalized = (int) $value;
+      return $normalized > 0 ? $normalized : NULL;
     }
 
     return NULL;
