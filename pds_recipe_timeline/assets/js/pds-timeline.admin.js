@@ -288,6 +288,8 @@
     modal.dataset.rowIndex = String(snapshot.index);
     modal.dataset.recipeType = root.getAttribute('data-pds-template-recipe-type') || 'pds_recipe_timeline';
     modal.dataset.updateUrl = root.getAttribute('data-pds-template-update-row-url') || '';
+    //3.6.- Persist the root reference so subsequent saves survive DOM replacements triggered by AJAX renders.
+    modal._pdsTimelineRoot = root;
 
     var list = modal.querySelector('[data-pds-timeline-list]');
     if (list) {
@@ -311,6 +313,8 @@
   function closeModal(modal) {
     modal.setAttribute('hidden', 'hidden');
     delete modal.dataset.rowIndex;
+    //10.1.- Clear the cached root reference so follow-up openings refresh the context automatically.
+    modal._pdsTimelineRoot = null;
   }
 
   //11.- Recolecta los hitos escritos en el modal y devuelve un array ordenado.
@@ -382,17 +386,35 @@
 
   //13.- Serializa y envía el timeline al backend usando el endpoint de actualización del template base.
   function persistTimeline(modal) {
-    var rootId = modal.dataset.rootId;
+    var storedRoot = modal._pdsTimelineRoot || null;
+    var rootId = modal.dataset.rootId || '';
     var index = parseInt(modal.dataset.rowIndex || '-1', 10);
     var updateUrlTemplate = modal.dataset.updateUrl || '';
-    var recipeType = modal.dataset.recipeType || 'pds_recipe_timeline';
-    if (!rootId || isNaN(index) || !updateUrlTemplate) {
-      return Promise.reject(new Error('Missing context.'));
+    var recipeType = modal.dataset.recipeType || '';
+
+    //13.1.- Resolve the active admin root element even after dynamic rerenders replaced the original node.
+    var root = storedRoot && storedRoot.isConnected ? storedRoot : null;
+    if (!root && rootId) {
+      root = document.querySelector('.js-pds-template-admin[data-pds-template-block-uuid="' + rootId + '"]');
+    }
+    if (!root) {
+      return Promise.reject(new Error(Drupal.t('Unable to locate the recipe form. Refresh the page and try again.')));
     }
 
-    var root = document.querySelector('.js-pds-template-admin[data-pds-template-block-uuid="' + rootId + '"]');
-    if (!root) {
-      return Promise.reject(new Error('Block root not found.'));
+    //13.2.- Fallback to attributes on the freshly resolved root when the modal cache lacks the latest values.
+    if (!updateUrlTemplate) {
+      updateUrlTemplate = root.getAttribute('data-pds-template-update-row-url') || '';
+    }
+    if (!recipeType) {
+      recipeType = root.getAttribute('data-pds-template-recipe-type') || 'pds_recipe_timeline';
+    }
+
+    //13.3.- Abort gracefully when the admin UI cannot determine the requested timeline row.
+    if (isNaN(index) || index < 0) {
+      return Promise.reject(new Error(Drupal.t('Timeline row is unavailable. Save the block and try again.')));
+    }
+    if (!updateUrlTemplate) {
+      return Promise.reject(new Error(Drupal.t('Timeline endpoint is unavailable. Save the block and try again.')));
     }
 
     var rows = readState(root);
@@ -463,7 +485,14 @@
         finalRow.weight = json.weight;
       }
 
-      finalRow.timeline = entries;
+      var storedTimeline = [];
+      if (json.row && Array.isArray(json.row.timeline)) {
+        storedTimeline = cloneTimelineEntries(json.row.timeline);
+      } else {
+        storedTimeline = entries;
+      }
+
+      finalRow.timeline = storedTimeline;
       rows[index] = finalRow;
       writeState(root, rows);
       syncTimelineDataset(root, finalRow);
