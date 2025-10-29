@@ -10,51 +10,65 @@
   // Generic finder for problem Drupal markup.
   // Tries data-drupal-selector, then id, then name suffix.
   function findField(root, opts) {
-    // opts.ds      expected data-drupal-selector fragment, e.g. 'pds-template-cards-state'
-    // opts.id      expected id, e.g. 'pds-template-cards-state'
-    // opts.nameEnd required tail of name attr, e.g. '[cards_state]' or '[edit_index]'
-
+    //1.- Check the preferred data-drupal-selector attribute because Drupal 9 widgets expose stable selectors.
     var el;
-
     if (opts.ds) {
       el = root.querySelector('[data-drupal-selector="' + opts.ds + '"]');
-      if (el) return el;
+      if (el) {
+        return el;
+      }
     }
 
+    //2.- Fall back to direct id matches which cover older markup without data attributes.
     if (opts.id) {
       el = root.querySelector('#' + opts.id);
-      if (el) return el;
+      if (el) {
+        return el;
+      }
     }
 
+    //3.- Search by the tail of the name attribute to accommodate Layout Builder subforms.
     if (opts.nameEnd) {
       var list = root.querySelectorAll(
         'input[name$="' + opts.nameEnd + '"], textarea[name$="' + opts.nameEnd + '"]'
       );
-      if (list.length) return list[0];
+      if (list.length) {
+        return list[0];
+      }
     }
 
+    //4.- Return null when no match was discovered so callers can provide defaults.
     return null;
   }
 
   function sel(root, drupalSelector, idFallback) {
+    //1.- Prefer the explicit data-drupal-selector so Drupal-generated markup wins.
     var el = null;
     if (drupalSelector) {
       el = root.querySelector('[data-drupal-selector="' + drupalSelector + '"]');
     }
+
+    //2.- Gracefully fall back to an id lookup for legacy templates.
     if (!el && idFallback) {
       el = root.querySelector('#' + idFallback);
     }
+
+    //3.- Return the resolved element or null to mirror native querySelector behaviour.
     return el;
   }
 
   function selAll(root, css) {
+    //1.- Convert NodeList into a classic array so callers can use array helpers immediately.
     return Array.prototype.slice.call(root.querySelectorAll(css));
   }
 
   function escapeHtml(str) {
+    //1.- Replace nullish values with an empty string to avoid rendering "undefined" text.
     if (str === undefined || str === null) {
       return '';
     }
+
+    //2.- Escape the critical HTML characters to prevent accidental markup injection in previews.
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -107,52 +121,65 @@
   //
 
   function readState(root) {
+    //1.- Resolve the hidden textarea that stores the serialized rows.
     var el = findField(root, {
       ds: 'pds-template-cards-state',
       id: 'pds-template-cards-state',
       nameEnd: '[cards_state]'
     });
     if (!el) {
+      //2.- Return an empty collection when the field is missing to avoid runtime errors.
       return [];
     }
+
     try {
+      //3.- Parse the JSON payload while tolerating empty strings.
       return el.value ? JSON.parse(el.value) : [];
     } catch (e) {
+      //4.- Swallow invalid JSON so the modal still renders with an empty list.
       return [];
     }
   }
 
   function writeState(root, arr) {
+    //1.- Locate the serialized state field so edits persist across AJAX rebuilds.
     var el = findField(root, {
       ds: 'pds-template-cards-state',
       id: 'pds-template-cards-state',
       nameEnd: '[cards_state]'
     });
     if (el) {
+      //2.- Replace the stored JSON snapshot with the freshly computed array.
       el.value = JSON.stringify(arr);
     }
   }
 
   function readEditIndex(root) {
+    //1.- Extract the hidden field that marks which row is currently in edit mode.
     var el = findField(root, {
       ds: 'pds-template-edit-index',
       id: 'pds-template-edit-index',
       nameEnd: '[edit_index]'
     });
     if (!el) {
+      //2.- Return -1 to indicate no active edit session exists.
       return -1;
     }
+
+    //3.- Parse the stored index while gracefully handling non-numeric content.
     var v = parseInt(el.value, 10);
     return isNaN(v) ? -1 : v;
   }
 
   function writeEditIndex(root, idx) {
+    //1.- Grab the shared hidden field so the UI knows which row is being edited.
     var el = findField(root, {
       ds: 'pds-template-edit-index',
       id: 'pds-template-edit-index',
       nameEnd: '[edit_index]'
     });
     if (el) {
+      //2.- Persist the index as a string to align with Drupal form submissions.
       el.value = String(idx);
     }
   }
@@ -223,18 +250,23 @@
   }
 
   function getImageFid(root) {
-    // Wrapper from managed_file. Drupal mutates the id so we match prefix.
+    //1.- Locate the managed file wrapper which Drupal renames dynamically.
     var wrapper = root.querySelector('#pds-template-image,[id^="pds-template-image"],[data-drupal-selector$="image"]');
     if (!wrapper) {
       return null;
     }
+
+    //2.- Inspect all hidden inputs because managed_file stores the fid in multiple states.
     var possible = wrapper.querySelectorAll('input[type="hidden"]');
     for (var i = 0; i < possible.length; i++) {
       var val = possible[i].value;
       if (val && /^[0-9]+$/.test(val)) {
+        //3.- Return the numeric identifier as soon as one is detected.
         return val;
       }
     }
+
+    //4.- Signal that no fid was found so the caller can fall back to URLs.
     return null;
   }
 
@@ -242,8 +274,7 @@
   // Form input helpers
   //
   function triggerManagedFileRemove(root) {
-    // The wrapper ID is unstable, so match by class and by the data-drupal-selector on inner elements.
-    // We specifically look for the "is-single" managed_file in panel A.
+    //1.- Target the single-value managed_file widget regardless of Drupal's dynamic id.
     var wrapper = root.querySelector(
       '.js-form-managed-file.form-managed-file.is-single'
     );
@@ -251,10 +282,7 @@
       return;
     }
 
-    // In the uploaded state you showed, Drupal sets:
-    //  - class="remove-button button js-form-submit form-submit"
-    //  - data-drupal-selector="...-remove-button"
-    // We target that.
+    //2.- Find the remove button using both class and data-drupal-selector fallbacks.
     var removeBtn = wrapper.querySelector(
       '.remove-button.button.js-form-submit.form-submit,' +
       '[data-drupal-selector$="-remove-button"]'
@@ -264,7 +292,7 @@
       return;
     }
 
-    // Build a "real" click event so Drupal's drupal-ajax binding runs.
+    //3.- Dispatch a synthetic click so Drupal's AJAX handlers perform the deletion.
     var evt = new MouseEvent('click', {
       bubbles: true,
       cancelable: true,
@@ -278,24 +306,51 @@
 
 
 function clearInputs(root) {
+  //1.- Reset every core text field so the modal starts from a blank state.
   var f;
-  f = sel(root, 'pds-template-header', 'pds-template-header'); if (f) f.value = '';
-  f = sel(root, 'pds-template-subheader', 'pds-template-subheader'); if (f) f.value = '';
-  f = sel(root, 'pds-template-description', 'pds-template-description'); if (f) f.value = '';
-  f = sel(root, 'pds-template-link', 'pds-template-link'); if (f) f.value = '';
+  f = sel(root, 'pds-template-header', 'pds-template-header');
+  if (f) {
+    f.value = '';
+  }
+  f = sel(root, 'pds-template-subheader', 'pds-template-subheader');
+  if (f) {
+    f.value = '';
+  }
+  f = sel(root, 'pds-template-description', 'pds-template-description');
+  if (f) {
+    f.value = '';
+  }
+  f = sel(root, 'pds-template-link', 'pds-template-link');
+  if (f) {
+    f.value = '';
+  }
 }
 
 
 
   function loadInputsFromRow(root, row) {
+    //1.- Populate the modal inputs from the provided row object.
     var f;
-    f = sel(root, 'pds-template-header', 'pds-template-header'); if (f) f.value = row.header || '';
-    f = sel(root, 'pds-template-subheader', 'pds-template-subheader'); if (f) f.value = row.subheader || '';
-    f = sel(root, 'pds-template-description', 'pds-template-description'); if (f) f.value = row.description || '';
-    f = sel(root, 'pds-template-link', 'pds-template-link'); if (f) f.value = row.link || '';
+    f = sel(root, 'pds-template-header', 'pds-template-header');
+    if (f) {
+      f.value = row.header || '';
+    }
+    f = sel(root, 'pds-template-subheader', 'pds-template-subheader');
+    if (f) {
+      f.value = row.subheader || '';
+    }
+    f = sel(root, 'pds-template-description', 'pds-template-description');
+    if (f) {
+      f.value = row.description || '';
+    }
+    f = sel(root, 'pds-template-link', 'pds-template-link');
+    if (f) {
+      f.value = row.link || '';
+    }
   }
 
   function buildRowFromInputs(root, existingRow) {
+    //1.- Start from the incoming row so edits preserve unmapped properties like UUID.
     existingRow = existingRow || {};
 
     var headerEl = sel(root, 'pds-template-header', 'pds-template-header');
@@ -303,15 +358,18 @@ function clearInputs(root) {
     var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
     var linkEl   = sel(root, 'pds-template-link', 'pds-template-link');
 
+    //2.- Read each field while falling back to empty strings for optional values.
     var header      = headerEl ? headerEl.value : '';
     var subheader   = subEl ? subEl.value : '';
     var description = descEl ? descEl.value : '';
     var link        = linkEl ? linkEl.value : '';
     var fid         = getImageFid(root);
 
+    //3.- Preserve geolocation coordinates supplied by the caller even if the modal hides them.
     var latValue = (typeof existingRow.latitud !== 'undefined') ? existingRow.latitud : null;
     var lngValue = (typeof existingRow.longitud !== 'undefined') ? existingRow.longitud : null;
 
+    //4.- Assemble the canonical payload expected by the AJAX endpoints.
     var baseRow = {
       header: header,
       subheader: subheader,
@@ -420,23 +478,26 @@ function clearInputs(root) {
           resolve(row);
         })
         .catch(function () {
-          //5.- Network issues should not block the UX; keep the previous state intact.
+          //7.- Network issues should not block the UX; keep the previous state intact.
           resolve(row);
         });
     });
   }
 
   function createRowViaAjax(root, row) {
+    //1.- Guard against undefined payloads so callers receive a clear error response.
     if (!row) {
       return Promise.resolve({ success: false, row: row, message: 'Missing row payload.' });
     }
 
+    //2.- Skip remote calls when fetch is unavailable so legacy browsers remain usable.
     if (typeof window.fetch !== 'function') {
       return Promise.resolve({ success: true, row: row });
     }
 
     var url = root.getAttribute('data-pds-template-create-row-url');
     if (!url) {
+      //3.- Treat missing endpoints as a no-op to support sites without the AJAX route.
       return Promise.resolve({ success: true, row: row });
     }
 
@@ -445,7 +506,7 @@ function clearInputs(root) {
       weight: readState(root).length
     };
 
-    //1.- Reuse the recipe type when provided so the backend can scope the group correctly.
+    //4.- Reuse the recipe type when provided so the backend can scope the group correctly.
     var recipeType = root.getAttribute('data-pds-template-recipe-type');
     if (recipeType) {
       payload.recipe_type = recipeType;
@@ -457,7 +518,7 @@ function clearInputs(root) {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      //3.- Preserve the admin's session so Drupal authorizes the create-row request.
+      //5.- Preserve the admin's session so Drupal authorizes the create-row request.
       credentials: 'same-origin',
       body: JSON.stringify(payload)
     })
@@ -505,16 +566,19 @@ function clearInputs(root) {
   }
 
   function updateRowViaAjax(root, row, idx) {
+    //1.- Require a UUID so the backend can identify the existing record.
     if (!row || !row.uuid) {
       return Promise.resolve({ success: false, row: row, message: 'Missing row identifier.' });
     }
 
+    //2.- Allow legacy browsers to proceed without AJAX capabilities.
     if (typeof window.fetch !== 'function') {
       return Promise.resolve({ success: true, row: row });
     }
 
     var template = root.getAttribute('data-pds-template-update-row-url');
     if (!template) {
+      //3.- Treat missing endpoints as instant success to preserve backwards compatibility.
       return Promise.resolve({ success: true, row: row });
     }
 
@@ -525,7 +589,7 @@ function clearInputs(root) {
       url = url.replace(/\/$/, '') + '/' + row.uuid;
     }
 
-    //1.- Carry both the row data and the effective weight so the backend can persist ordering.
+    //4.- Carry both the row data and the effective weight so the backend can persist ordering.
     var payload = { row: row };
     if (typeof idx === 'number' && idx >= 0) {
       payload.weight = idx;
@@ -640,11 +704,13 @@ function clearInputs(root) {
   }
 
   function renderPreviewTable(root) {
+    //1.- Resolve the preview container so we know where to render the tabular output.
     var wrapper = getPreviewWrapper(root);
     if (!wrapper) {
       return;
     }
 
+    //2.- Decide whether we are working with the enhanced multi-state UI or the legacy markup.
     var hasStates = wrapper.hasAttribute('data-pds-template-preview-root');
     var content = hasStates
       ? wrapper.querySelector('[data-pds-template-preview-state="content"]')
@@ -653,6 +719,7 @@ function clearInputs(root) {
       return;
     }
 
+    //3.- Read the serialized rows and normalise them to an array for consistent iteration.
     var rows = readState(root);
     if (!Array.isArray(rows)) {
       rows = [];
@@ -856,6 +923,7 @@ function clearInputs(root) {
   }
 
   function bindRowButtons(root, wrapper) {
+    //1.- Attach click handlers for edit buttons so rows can be repopulated in the form.
     selAll(wrapper, '.pds-template-row-edit').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.preventDefault();
@@ -865,6 +933,7 @@ function clearInputs(root) {
       });
     });
 
+    //2.- Bind delete buttons so editors can remove rows without leaving the modal.
     selAll(wrapper, '.pds-template-row-del').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.preventDefault();
@@ -880,11 +949,13 @@ function clearInputs(root) {
   //
 
   function startEditRow(root, idx) {
+    //1.- Bail out when the requested index is outside the serialized rows array.
     var rows = readState(root);
     if (idx < 0 || idx >= rows.length) {
       return;
     }
 
+    //2.- Populate the modal inputs and track the active index for later commits.
     loadInputsFromRow(root, rows[idx]);
     writeEditIndex(root, idx);
 
@@ -893,18 +964,22 @@ function clearInputs(root) {
       btn.textContent = 'Save changes';
     }
 
+    //3.- Focus the main editing tab so editors see the form immediately.
     activateTab(root, 'panel-a');
   }
 
   function deleteRow(root, idx) {
+    //1.- Ignore invalid indexes so the state array remains untouched.
     var rows = readState(root);
     if (idx < 0 || idx >= rows.length) {
       return;
     }
 
+    //2.- Remove the requested row and persist the new snapshot to the hidden textarea.
     rows.splice(idx, 1);
     writeState(root, rows);
 
+    //3.- Exit edit mode and reset the modal to creation state.
     writeEditIndex(root, -1);
 
     var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
@@ -912,6 +987,7 @@ function clearInputs(root) {
       btn.textContent = 'Add row';
     }
 
+    //4.- Re-render the preview to reflect the removal instantly.
     renderPreviewTable(root);
   }
 
@@ -1265,6 +1341,7 @@ function rebuildManagedFileEmpty(root) {
   //
 
   function activateTab(root, panelId) {
+    //1.- Toggle the tab trigger styling based on the requested panel identifier.
     selAll(root, '[data-pds-template-tab-target]').forEach(function (btn) {
       var match = (btn.getAttribute('data-pds-template-tab-target') === panelId);
       if (match) {
@@ -1274,6 +1351,7 @@ function rebuildManagedFileEmpty(root) {
       }
     });
 
+    //2.- Reveal the matching panel while hiding the others.
     selAll(root, '.js-pds-template-panel').forEach(function (panel) {
       var match = (panel.getAttribute('data-pds-template-panel-id') === panelId);
       if (match) {
@@ -1283,12 +1361,14 @@ function rebuildManagedFileEmpty(root) {
       }
     });
 
+    //3.- Refresh the preview whenever the listing tab becomes active.
     if (panelId === 'panel-b') {
       refreshPreviewFromServer(root);
     }
   }
 
   function initTabs(root) {
+    //1.- Wire click handlers for each tab trigger so manual navigation works immediately.
     selAll(root, '[data-pds-template-tab-target]').forEach(function (btn) {
       btn.addEventListener('click', function (event) {
         event.preventDefault();
@@ -1298,7 +1378,7 @@ function rebuildManagedFileEmpty(root) {
       });
     });
 
-    // Default to first tab.
+    //2.- Default to the first tab to keep the UX predictable on initial load.
     var firstBtn = root.querySelector('[data-pds-template-tab-target]');
     if (firstBtn) {
       activateTab(root, firstBtn.getAttribute('data-pds-template-tab-target'));
@@ -1313,10 +1393,10 @@ function rebuildManagedFileEmpty(root) {
     attach: function (context) {
       once('pdsTemplateAdminRoot', '.js-pds-template-admin', context).forEach(function (root) {
 
-        // Tabs
+        //1.- Initialize tab controls so the modal navigation is ready before other actions.
         initTabs(root);
 
-        // Initial preview from hidden state
+        //2.- Render the preview immediately using any serialized configuration snapshot.
         renderPreviewTable(root);
 
         //1.- Auto-request preview rows when no local snapshot exists so Tab B hydrates legacy saves instantly.

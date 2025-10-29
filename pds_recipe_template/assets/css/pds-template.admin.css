@@ -1,16 +1,16 @@
-/* assets/css/pds_template.admin.css */
+/* //1.- Reset base button spacing to align with the vertical layout. */
 .pds-template-admin .button{
   margin-bottom: 0px;
   padding: 10px;
 }
-/* Container is vertical stack now */
+/* //1.- Organize the modal as a vertical stack so panels grow naturally. */
 .pds-template-admin {
   display: flex;
   flex-direction: column;
   max-width: 100%;
 }
 
-/* Horizontal tab bar */
+/* //1.- Style the horizontal tab bar to resemble Drupal Claro toggles. */
 .pds-template-admin__tabs-horizontal {
   display: flex;
   flex-wrap: nowrap;
@@ -21,7 +21,7 @@
   gap: .25rem;
 }
 
-/* Tab button */
+/* //1.- Draw each tab trigger as a transparent button with custom focus styles. */
 .pds-template-admin__tab-btn-horizontal {
   appearance: none;
   background: transparent;
@@ -34,6 +34,7 @@
   color: #444;
 }
 
+/* //1.- Highlight the active tab with a bold accent and underlined border. */
 .pds-template-admin__tab-btn-horizontal.is-active {
   color: #003a8c;
   font-weight: 600;
@@ -42,7 +43,7 @@
   border-radius: .5rem .5rem 0 0;
 }
 
-/* Panels wrapper */
+/* //1.- Wrap panels with a light border to separate content from the background. */
 .pds-template-admin__panels-horizontal {
   border: 1px solid #ccc;
   border-radius: 0 0 .5rem .5rem;
@@ -52,21 +53,22 @@
 #edit-settings-pds-template-admin-tabs-panels-wrapper-tabs-panels .pds-template-admin__panels-horizontal {
   padding: 0px;
 }
-/* Panel base */
+/* //1.- Hide panels by default so only the active tab is visible. */
 .pds-template-admin__panel-horizontal {
   display: none;
 }
 
+/* //1.- Display the active panel while the others remain hidden. */
 .pds-template-admin__panel-horizontal.is-active {
   display: block;
 }
 
-/* Spacing for form items */
+/* //1.- Introduce comfortable spacing between fields inside panels. */
 .pds-template-admin__panel-horizontal .form-item {
   margin-bottom: 1rem;
 }
 
-/* Add button in Tab A */
+/* //1.- Style the add-row button to match Claro primary buttons. */
 .pds-template-admin__add-btn {
   margin-top: 1rem;
 
@@ -91,13 +93,14 @@
   
 }
 
-/* Card list in Tab B */
+/* //1.- Arrange the preview cards in a single-column responsive grid. */
 .pds-template-cardlist {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
 }
 
+/* //1.- Render each card with a subtle border and spacing for readability. */
 .pds-template-card {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -108,6 +111,7 @@
   padding: .75rem;
 }
 
+/* //1.- Limit thumbnail dimensions to consistent square previews. */
 .pds-template-card__image img {
   max-width: 64px;
   max-height: 64px;
@@ -117,6 +121,7 @@
   background: #fff;
 }
 
+/* //1.- Ensure card body text wraps nicely and remains legible. */
 .pds-template-card__body {
   min-width: 0;
   font-size: .85rem;
@@ -124,24 +129,28 @@
   color: #222;
 }
 
+/* //1.- Emphasize the header as the main label for each card. */
 .pds-template-card__header {
   font-weight: 600;
   color: #000;
   font-size: .9rem;
 }
 
+/* //1.- Present the subheader as secondary metadata below the title. */
 .pds-template-card__subheader {
   color: #555;
   font-size: .8rem;
   margin-top: .25rem;
 }
 
+/* //1.- Space the description slightly so long text blocks stay readable. */
 .pds-template-card__desc {
   color: #333;
   margin-top: .5rem;
   font-size: .8rem;
 }
 
+/* //1.- Style the call-to-action link with a themed accent color. */
 .pds-template-card__link {
   color: #005fcc;
   font-size: .8rem;
@@ -149,11 +158,13 @@
   word-break: break-all;
 }
 
+/* //1.- Display empty states using italicized grey text. */
 .pds-template-card-empty {
   font-size: .8rem;
   color: #666;
   font-style: italic;
 }
+/* //1.- Reset the preview table wrapper margin so it aligns with modal edges. */
 .pds-template-table{
   padding: 0px;
   margin:0px;
