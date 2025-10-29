@@ -332,6 +332,21 @@ function clearInputs(root) {
       baseRow.mobile_img = '';
     }
 
+    //2.- Preserve the numeric identifier so edits keep pointing to the same entity.
+    if (typeof existingRow.id === 'number' || (typeof existingRow.id === 'string' && existingRow.id !== '')) {
+      baseRow.id = existingRow.id;
+    }
+
+    //3.- Retain the UUID so subsequent AJAX updates include the row identifier expected by Drupal.
+    if (typeof existingRow.uuid === 'string' && existingRow.uuid !== '') {
+      baseRow.uuid = existingRow.uuid;
+    }
+
+    //4.- Carry through the weight so reordered rows persist their relative position after edits.
+    if (typeof existingRow.weight === 'number') {
+      baseRow.weight = existingRow.weight;
+    }
+
     return baseRow;
   }
 
