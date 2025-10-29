@@ -32,8 +32,8 @@
     <div class="principal_hero__slider" data-pds-slider-banner-track>
       {% for row in slide_items %}
         {# //2.- Resolve responsive media sources for desktop and mobile contexts. #}
-        {% set desktop_image = row.desktop_img ?? row.image_url ?? '' %}
-        {% set mobile_image = row.mobile_img ?? desktop_image %}
+        {% set desktop_image = row.desktop_img ?: (row.image_url ?: (row.mobile_img ?: '')) %}
+        {% set mobile_image = row.mobile_img ?: (row.image_url ?: desktop_image) %}
         {% set slide_alt = row.image_alt is defined and row.image_alt ? row.image_alt : row.header %}
         <article class="principal_hero__slide" data-pds-slider-banner-slide>
           <picture class="principal_hero__bg">

@@ -249,9 +249,48 @@
       });
   }
 
-  function getImageFid(root) {
-    //1.- Locate the managed file wrapper which Drupal renames dynamically.
-    var wrapper = root.querySelector('#pds-slider-banner-image,[id^="pds-slider-banner-image"],[data-drupal-selector$="image"]');
+  function findManagedFileWrapper(root, selector) {
+    //1.- Attempt to locate the widget via the custom data-drupal-selector applied in PHP.
+    var queries = [
+      '[data-drupal-selector="' + selector + '"]',
+      '#' + selector,
+      '[id^="' + selector + '"]',
+      '[data-drupal-selector$="' + selector + '"]'
+    ];
+
+    for (var i = 0; i < queries.length; i++) {
+      var candidate = root.querySelector(queries[i]);
+      if (!candidate) {
+        continue;
+      }
+
+      if (candidate.classList && candidate.classList.contains('form-managed-file')) {
+        return candidate;
+      }
+
+      var wrapper = candidate.closest('.js-form-managed-file.form-managed-file');
+      if (wrapper) {
+        return wrapper;
+      }
+
+      if (candidate.closest) {
+        var fallbackWrapper = candidate.closest('.form-managed-file');
+        if (fallbackWrapper) {
+          return fallbackWrapper;
+        }
+      }
+
+      return candidate;
+    }
+
+    //2.- Defer to the first managed file widget when the explicit selector was not found.
+    var anyWrapper = root.querySelector('.js-form-managed-file.form-managed-file.is-single');
+    return anyWrapper || null;
+  }
+
+  function getManagedFileFid(root, selector) {
+    //1.- Resolve the wrapper tied to the requested selector.
+    var wrapper = findManagedFileWrapper(root, selector);
     if (!wrapper) {
       return null;
     }
@@ -268,6 +307,44 @@
 
     //4.- Signal that no fid was found so the caller can fall back to URLs.
     return null;
+  }
+
+  function getImageFid(root) {
+    //1.- Preserve backwards compatibility by mapping to the desktop image widget selector.
+    return getManagedFileFid(root, 'pds-slider-banner-image');
+  }
+
+  function getMobileImageFid(root) {
+    //1.- Provide a dedicated accessor so the mobile upload can be promoted independently.
+    return getManagedFileFid(root, 'pds-slider-banner-image-mobile');
+  }
+
+  function listManagedFileWrappers(root) {
+    //1.- Prefer explicit selectors for the desktop and mobile widgets so ordering stays predictable.
+    var selectors = [
+      '[data-drupal-selector="pds-slider-banner-image"]',
+      '[data-drupal-selector="pds-slider-banner-image-mobile"]'
+    ];
+
+    var wrappers = [];
+    selectors.forEach(function (selector) {
+      selAll(root, selector).forEach(function (candidate) {
+        var resolved = candidate;
+        if (!(candidate.classList && candidate.classList.contains('form-managed-file'))) {
+          resolved = candidate.closest('.js-form-managed-file.form-managed-file');
+        }
+        if (resolved && wrappers.indexOf(resolved) === -1) {
+          wrappers.push(resolved);
+        }
+      });
+    });
+
+    if (wrappers.length === 0) {
+      //2.- Fall back to every single-value managed_file so legacy markup continues to work.
+      wrappers = selAll(root, '.js-form-managed-file.form-managed-file.is-single');
+    }
+
+    return wrappers;
   }
 
   //
@@ -363,7 +440,8 @@ function clearInputs(root) {
     var subheader   = subEl ? subEl.value : '';
     var description = descEl ? descEl.value : '';
     var link        = linkEl ? linkEl.value : '';
-    var fid         = getImageFid(root);
+    var desktopFid  = getImageFid(root);
+    var mobileFid   = getMobileImageFid(root);
 
     //3.- Preserve geolocation coordinates supplied by the caller even if the modal hides them.
     var latValue = (typeof existingRow.latitud !== 'undefined') ? existingRow.latitud : null;
@@ -375,19 +453,36 @@ function clearInputs(root) {
       subheader: subheader,
       description: description,
       link: link,
-      image_fid: fid || existingRow.image_fid || null,
+      image_fid: desktopFid || existingRow.image_fid || existingRow.desktop_image_fid || existingRow.mobile_image_fid || null,
+      desktop_image_fid: desktopFid || existingRow.desktop_image_fid || existingRow.image_fid || null,
+      mobile_image_fid: mobileFid || existingRow.mobile_image_fid || null,
       image_url: existingRow.image_url || existingRow.desktop_img || existingRow.mobile_img || '',
-      desktop_img: existingRow.desktop_img || existingRow.image_url || '',
-      mobile_img: existingRow.mobile_img || existingRow.image_url || '',
+      desktop_img: existingRow.desktop_img || existingRow.image_url || existingRow.mobile_img || '',
+      mobile_img: existingRow.mobile_img || existingRow.image_url || existingRow.desktop_img || '',
       latitud: latValue,
       longitud: lngValue
     };
 
-    if (fid) {
-      //1.- Reset URLs when a fresh upload has been selected so the resolver can repopulate them.
+    if (desktopFid) {
+      //1.- Reset URLs when a fresh desktop upload has been selected so the resolver can repopulate them.
+      baseRow.image_fid = desktopFid;
+      baseRow.desktop_image_fid = desktopFid;
       baseRow.image_url = '';
       baseRow.desktop_img = '';
+      baseRow.mobile_img = mobileFid ? baseRow.mobile_img : '';
+    } else if (!baseRow.desktop_image_fid) {
+      //2.- Normalize empty identifiers to null so JSON payloads stay compact.
+      baseRow.desktop_image_fid = null;
+    }
+
+    if (mobileFid) {
+      //3.- Reset the dedicated mobile slot when a mobile upload is provided.
+      baseRow.mobile_image_fid = mobileFid;
       baseRow.mobile_img = '';
+      baseRow.image_url = '';
+    } else if (!baseRow.mobile_image_fid) {
+      //4.- Mirror null when no previous mobile fid exists so backend fallbacks remain consistent.
+      baseRow.mobile_image_fid = null;
     }
 
     //2.- Preserve the numeric identifier so edits keep pointing to the same entity.
@@ -429,8 +524,8 @@ function clearInputs(root) {
         return;
       }
 
-      //4.- Skip the request when there is no fid and the URLs are already stable.
-      if (!row.image_fid) {
+      //4.- Skip the request when there is no new fid from either desktop or mobile widgets.
+      if (!row.image_fid && !row.mobile_image_fid) {
         resolve(row);
         return;
       }
@@ -459,6 +554,9 @@ function clearInputs(root) {
 
           if (Object.prototype.hasOwnProperty.call(json, 'image_fid')) {
             row.image_fid = json.image_fid;
+          }
+          if (Object.prototype.hasOwnProperty.call(json, 'mobile_image_fid')) {
+            row.mobile_image_fid = json.mobile_image_fid;
           }
           if (json.image_url) {
             row.image_url = json.image_url;
@@ -905,6 +1003,12 @@ function clearInputs(root) {
           if (typeof safeRow.image_fid === 'number' || typeof safeRow.image_fid === 'string') {
             normalizedRow.image_fid = safeRow.image_fid;
           }
+          if (typeof safeRow.desktop_image_fid === 'number' || typeof safeRow.desktop_image_fid === 'string') {
+            normalizedRow.desktop_image_fid = safeRow.desktop_image_fid;
+          }
+          if (typeof safeRow.mobile_image_fid === 'number' || typeof safeRow.mobile_image_fid === 'string') {
+            normalizedRow.mobile_image_fid = safeRow.mobile_image_fid;
+          }
 
           return normalizedRow;
         });
@@ -1118,79 +1222,60 @@ function clearInputs(root) {
 
 
 function initFileWidgetTemplate(root) {
-  //1.- Locate the managed_file wrapper for panel A so we can snapshot its pristine markup.
-  var wrapper = root.querySelector(
-    '.js-form-managed-file.form-managed-file.is-single'
-  );
-  if (!wrapper) {
-    return;
-  }
-
-  //2.- Cache the clean upload state only once so later restores always return to a valid baseline.
-  if (!wrapper._pdsPristineHTML) {
-
-    // Store the full innerHTML and the classList snapshot.
-    wrapper._pdsPristineHTML = wrapper.innerHTML;
-    wrapper._pdsPristineClasses = wrapper.className;
-  }
+  //1.- Snapshot every managed_file widget so both desktop and mobile inputs can be restored later.
+  listManagedFileWrappers(root).forEach(function (wrapper) {
+    if (!wrapper._pdsPristineHTML) {
+      //2.- Store the full innerHTML and the classList snapshot for this specific widget.
+      wrapper._pdsPristineHTML = wrapper.innerHTML;
+      wrapper._pdsPristineClasses = wrapper.className;
+    }
+  });
 }
 
 function resetFileWidgetToPristine(root) {
-  //1.- Locate the managed_file wrapper that needs to be cleared.
-  var wrapper = root.querySelector(
-    '.js-form-managed-file.form-managed-file.is-single'
-  );
-  if (!wrapper) {
-    return;
-  }
-
-  //2.- Restore the previously captured pristine markup when available.
-  if (wrapper._pdsPristineHTML && wrapper._pdsPristineClasses) {
-    wrapper.innerHTML = wrapper._pdsPristineHTML;
-
-    //3.- Reinstate the wrapper classes and force the "no-value" state to keep UI consistent.
-    wrapper.className = wrapper._pdsPristineClasses;
-
-    //4.- Clear any stray fid leftovers from previous uploads.
-    // Safety: make sure no-value not has-value.
-    wrapper.classList.add('no-value');
-    wrapper.classList.remove('has-value');
-
-    // Wipe any hidden fid again just in case.
-    var fidHidden = wrapper.querySelector(
-      'input[type="hidden"][name$="[image][fids]"]'
-    );
-    if (fidHidden) {
-      fidHidden.value = '';
+  //1.- Iterate over every tracked widget so both upload fields return to an empty state.
+  listManagedFileWrappers(root).forEach(function (wrapper) {
+    if (!wrapper) {
+      return;
     }
-  } else {
-    //2.- Fallback: when no snapshot exists, perform a best-effort manual reset.
-    // just clear fid and strip has-value/no-upload so Drupal shows file input
-    var fidHidden2 = wrapper.querySelector(
-      'input[type="hidden"][name$="[image][fids]"]'
-    );
-    if (fidHidden2) {
-      fidHidden2.value = '';
-    }
-    wrapper.classList.add('no-value');
-    wrapper.classList.remove('has-value');
-    wrapper.classList.remove('no-upload');
-  }
 
-  //5.- Re-run Drupal behaviors so AJAX bindings return to the rebuilt widget.
-  if (typeof Drupal !== 'undefined' && typeof Drupal.attachBehaviors === 'function') {
-    if (typeof drupalSettings !== 'undefined') {
-      Drupal.attachBehaviors(wrapper, drupalSettings);
+    if (wrapper._pdsPristineHTML && wrapper._pdsPristineClasses) {
+      //2.- Restore the cached markup and classes captured during initialization.
+      wrapper.innerHTML = wrapper._pdsPristineHTML;
+      wrapper.className = wrapper._pdsPristineClasses;
+
+      //3.- Force the widget back into the "no-value" state while clearing stale identifiers.
+      wrapper.classList.add('no-value');
+      wrapper.classList.remove('has-value');
+
+      selAll(wrapper, 'input[type="hidden"][name$="[fids]"]').forEach(function (hidden) {
+        hidden.value = '';
+      });
     } else {
-      Drupal.attachBehaviors(wrapper);
+      //4.- Fallback: when no snapshot exists, clear fid inputs and classes manually.
+      selAll(wrapper, 'input[type="hidden"][name$="[fids]"]').forEach(function (hidden) {
+        hidden.value = '';
+      });
+      wrapper.classList.add('no-value');
+      wrapper.classList.remove('has-value');
+      wrapper.classList.remove('no-upload');
     }
-  }
+
+    //5.- Re-run Drupal behaviors so AJAX bindings return to the rebuilt widget.
+    if (typeof Drupal !== 'undefined' && typeof Drupal.attachBehaviors === 'function') {
+      if (typeof drupalSettings !== 'undefined') {
+        Drupal.attachBehaviors(wrapper, drupalSettings);
+      } else {
+        Drupal.attachBehaviors(wrapper);
+      }
+    }
+  });
 }
 
 
 function resetManagedFileManually(wrapper) {
   // 1. wipe hidden fid so next row does not inherit
-  var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[image][fids]"]');
+  var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[fids]"]');
   if (fidHidden) {
     fidHidden.value = '';
   }
@@ -1222,82 +1307,77 @@ function resetManagedFileManually(wrapper) {
 
 // Try AJAX "Remove". If found, click it. Otherwise fall back to manual reset.
 function rebuildManagedFileEmpty(root) {
-  //1.- Locate the managed_file wrapper that needs to be rebuilt from scratch.
-  var wrapper = root.querySelector(
-    '#pds-slider-banner-image,' +
-    '[id^="pds-slider-banner-image"],' +
-    '[data-drupal-selector$="panel-a-image"],' +
-    '.form-managed-file.is-single'
-  );
-  if (!wrapper) {
-    return;
-  }
-
-  //2.- Gather the original dynamic attributes so Drupal recognizes the widget on submit.
-
-  // Hidden fid input. We keep its name attr because Drupal expects that exact name on submit.
-  var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[image][fids]"]');
-
-  var fidName = '';
-  if (fidHidden) {
-    fidName = fidHidden.getAttribute('name');
-  } else {
-    // If it's gone, guess by looking for [image][fids] pattern anywhere.
-    var anyHidden = wrapper.querySelector('input[type="hidden"][name*="[image][fids]"]');
-    if (anyHidden) {
-      fidName = anyHidden.getAttribute('name');
+  //1.- Rebuild every managed_file wrapper so both upload slots reset cleanly.
+  listManagedFileWrappers(root).forEach(function (wrapper) {
+    if (!wrapper) {
+      return;
     }
-  }
 
-  //3.- Recover or reconstruct the file input markup needed for the AJAX upload control.
-  // File input. We grab its name/id/data-drupal-selector so Drupal upload still works for next file.
-  // Note: After upload Drupal often *removes* the file input. If it's gone we can't read these.
-  // In that case we try to recover from previous clone we inserted. If still not found we bail.
-  var fileInput = wrapper.querySelector('input[type="file"]');
+    //2.- Gather the original dynamic attributes so Drupal recognizes the widget on submit.
 
-  // If fileInput is missing because Drupal replaced it with preview-only mode,
-  // look for the last known markup sibling in DOM of wrapper via dataset cache.
-  // We store a backup snapshot on first run.
-  if (!fileInput && wrapper._pdsFilePrototype) {
-    fileInput = wrapper._pdsFilePrototype.cloneNode(true);
-  }
+    // Hidden fid input. We keep its name attr because Drupal expects that exact name on submit.
+    var fidHidden = wrapper.querySelector('input[type="hidden"][name$="[fids]"]');
 
-  // If still nothing we give up because we cannot guess Drupal's field name.
-  if (!fileInput) {
-    return;
-  }
+    var fidName = '';
+    if (fidHidden) {
+      fidName = fidHidden.getAttribute('name');
+    } else {
+    // If it's gone, guess by looking for [fids] pattern anywhere.
+      var anyHidden = wrapper.querySelector('input[type="hidden"][name*="[fids]"]');
+      if (anyHidden) {
+        fidName = anyHidden.getAttribute('name');
+      }
+    }
 
-  // Cache prototype for future runs (first time we see a real input).
-  if (!wrapper._pdsFilePrototype) {
-    wrapper._pdsFilePrototype = fileInput.cloneNode(true);
-  }
+    //3.- Recover or reconstruct the file input markup needed for the AJAX upload control.
+    // File input. We grab its name/id/data-drupal-selector so Drupal upload still works for next file.
+    // Note: After upload Drupal often *removes* the file input. If it's gone we can't read these.
+    // In that case we try to recover from previous clone we inserted. If still not found we bail.
+    var fileInput = wrapper.querySelector('input[type="file"]');
 
-  var fileNameAttr = fileInput.getAttribute('name') || '';
-  var fileIdAttr = fileInput.getAttribute('id') || '';
-  var fileDSAttr = fileInput.getAttribute('data-drupal-selector') || '';
-  var fileClasses = fileInput.getAttribute('class') || '';
-  var fileDataOnce = fileInput.getAttribute('data-once') || '';
+    // If fileInput is missing because Drupal replaced it with preview-only mode,
+    // look for the last known markup sibling in DOM of wrapper via dataset cache.
+    // We store a backup snapshot on first run.
+    if (!fileInput && wrapper._pdsFilePrototype) {
+      fileInput = wrapper._pdsFilePrototype.cloneNode(true);
+    }
 
-  // We also try to recover the Upload button attributes so AJAX upload still works.
-  var uploadBtn = wrapper.querySelector('input[type="submit"][value*="Upload"], input[type="submit"][value*="upload"]');
-  var uploadName = '';
-  var uploadId = '';
-  var uploadDS = '';
-  var uploadClasses = '';
-  var uploadDataOnce = '';
-  if (uploadBtn) {
-    uploadName = uploadBtn.getAttribute('name') || '';
-    uploadId = uploadBtn.getAttribute('id') || '';
-    uploadDS = uploadBtn.getAttribute('data-drupal-selector') || '';
-    uploadClasses = uploadBtn.getAttribute('class') || '';
-    uploadDataOnce = uploadBtn.getAttribute('data-once') || '';
-  }
+    // If still nothing we give up because we cannot guess Drupal's field name.
+    if (!fileInput) {
+      return;
+    }
 
-  //4.- Rebuild the wrapper's inner HTML to mimic Drupal's empty managed_file state.
+    // Cache prototype for future runs (first time we see a real input).
+    if (!wrapper._pdsFilePrototype) {
+      wrapper._pdsFilePrototype = fileInput.cloneNode(true);
+    }
 
-  var html = '';
-  html += '<div class="form-managed-file__main">';
-  html +=   '<input type="file"'
+    var fileNameAttr = fileInput.getAttribute('name') || '';
+    var fileIdAttr = fileInput.getAttribute('id') || '';
+    var fileDSAttr = fileInput.getAttribute('data-drupal-selector') || '';
+    var fileClasses = fileInput.getAttribute('class') || '';
+    var fileDataOnce = fileInput.getAttribute('data-once') || '';
+
+    // We also try to recover the Upload button attributes so AJAX upload still works.
+    var uploadBtn = wrapper.querySelector('input[type="submit"][value*="Upload"], input[type="submit"][value*="upload"]');
+    var uploadName = '';
+    var uploadId = '';
+    var uploadDS = '';
+    var uploadClasses = '';
+    var uploadDataOnce = '';
+    if (uploadBtn) {
+      uploadName = uploadBtn.getAttribute('name') || '';
+      uploadId = uploadBtn.getAttribute('id') || '';
+      uploadDS = uploadBtn.getAttribute('data-drupal-selector') || '';
+      uploadClasses = uploadBtn.getAttribute('class') || '';
+      uploadDataOnce = uploadBtn.getAttribute('data-once') || '';
+    }
+
+    //4.- Rebuild the wrapper's inner HTML to mimic Drupal's empty managed_file state.
+
+    var html = '';
+    html += '<div class="form-managed-file__main">';
+    html +=   '<input type="file"'
          +   (fileIdAttr ? ' id="' + fileIdAttr + '"' : '')
          +   (fileDSAttr ? ' data-drupal-selector="' + fileDSAttr + '"' : '')
          +   (fileNameAttr ? ' name="' + fileNameAttr + '"' : '')
@@ -1334,6 +1414,7 @@ function rebuildManagedFileEmpty(root) {
       Drupal.attachBehaviors(wrapper);
     }
   }
+  });
 }
 
   //

@@ -626,14 +626,33 @@ final class PdsSliderBannerBlock extends BlockBase {
 
   $form['pds_slider_banner_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['image'] = [
     '#type' => 'managed_file',
-    '#title' => $this->t('Image'),
+    '#title' => $this->t('Desktop image'),
     '#upload_location' => 'public://pds_slider_banner/',
     '#default_value' => [],
     '#upload_validators' => [
       'file_validate_extensions' => ['png jpg jpeg webp'],
     ],
     '#attributes' => [
+      //1.- Surface a stable selector so the administrative script can target this widget reliably.
+      'data-drupal-selector' => 'pds-slider-banner-image',
+      //2.- Retain the legacy id attribute for backwards compatibility with older behaviors.
       'id' => 'pds-slider-banner-image',
+    ],
+  ];
+
+  $form['pds_slider_banner_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['mobile_image'] = [
+    '#type' => 'managed_file',
+    '#title' => $this->t('Mobile image'),
+    '#upload_location' => 'public://pds_slider_banner/',
+    '#default_value' => [],
+    '#upload_validators' => [
+      'file_validate_extensions' => ['png jpg jpeg webp'],
+    ],
+    '#attributes' => [
+      //1.- Provide a dedicated selector so JS can collect and reset the mobile widget independently.
+      'data-drupal-selector' => 'pds-slider-banner-image-mobile',
+      //2.- Keep an explicit id to help legacy querySelector fallbacks still discover the field.
+      'id' => 'pds-slider-banner-image-mobile',
     ],
   ];
 
@@ -758,6 +777,7 @@ final class PdsSliderBannerBlock extends BlockBase {
       $description = trim($item['description'] ?? '');
       $link        = trim($item['link']        ?? '');
       $fid         = $item['image_fid']        ?? NULL;
+      $mobile_fid  = $item['mobile_image_fid'] ?? NULL;
       $desktop_img = trim((string) ($item['desktop_img'] ?? ''));
       $mobile_img  = trim((string) ($item['mobile_img']  ?? ''));
       $image_url   = trim((string) ($item['image_url']   ?? ''));
@@ -787,6 +807,24 @@ final class PdsSliderBannerBlock extends BlockBase {
           }
           if ($image_url === '') {
             $image_url = $resolved_url;
+          }
+        }
+      }
+
+      if ($mobile_img === '' && $mobile_fid) {
+        //4.- Promote the dedicated mobile upload so responsive slots can render distinct assets.
+        $mobile_file = File::load($mobile_fid);
+        if ($mobile_file) {
+          $mobile_file->setPermanent();
+          $mobile_file->save();
+          $mobile_url = \Drupal::service('file_url_generator')
+            ->generateString($mobile_file->getFileUri());
+          if ($mobile_url !== '') {
+            $mobile_img = $mobile_url;
+            if ($image_url === '') {
+              //1.- Ensure legacy consumers that rely on image_url still receive a usable source.
+              $image_url = $mobile_url;
+            }
           }
         }
       }
@@ -869,6 +907,7 @@ final class PdsSliderBannerBlock extends BlockBase {
       'image_fid' => $result['image_fid'] ?? NULL,
       'desktop_img' => $result['desktop_img'] ?? '',
       'mobile_img' => $result['mobile_img'] ?? '',
+      'mobile_image_fid' => $result['mobile_image_fid'] ?? NULL,
     ]);
   }
 

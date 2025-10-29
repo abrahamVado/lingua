@@ -32,6 +32,9 @@ final class RowImagePromoter {
     $imageFidRaw = $row['image_fid'] ?? NULL;
     $imageFid = is_numeric($imageFidRaw) ? (int) $imageFidRaw : 0;
 
+    $mobileImageFidRaw = $row['mobile_image_fid'] ?? NULL;
+    $mobileImageFid = is_numeric($mobileImageFidRaw) ? (int) $mobileImageFidRaw : 0;
+
     $desktopImg = trim((string) ($row['desktop_img'] ?? ''));
     $mobileImg = trim((string) ($row['mobile_img'] ?? ''));
     $imageUrl = trim((string) ($row['image_url'] ?? ''));
@@ -45,7 +48,7 @@ final class RowImagePromoter {
       $mobileImg = $imageUrl;
     }
 
-    if ($imageFid === 0) {
+    if ($imageFid === 0 && $mobileImageFid === 0) {
       //4.- When no fid is provided, simply return the sanitized URLs we already have.
       $fallback = $desktopImg !== ''
         ? $desktopImg
@@ -70,10 +73,65 @@ final class RowImagePromoter {
       ];
     }
 
+    $desktopPromotion = NULL;
+    if ($imageFid > 0) {
+      //5.- Promote the desktop upload first so both slots can fall back to it when needed.
+      $desktopPromotion = $this->promoteFileById($imageFid);
+      if (($desktopPromotion['status'] ?? '') !== 'ok') {
+        return $desktopPromotion;
+      }
+
+      $desktopImg = $desktopPromotion['url'] ?? $desktopImg;
+      $imageFid = (int) ($desktopPromotion['fid'] ?? $imageFid);
+    }
+
+    $mobilePromotion = NULL;
+    if ($mobileImageFid > 0) {
+      if ($desktopPromotion && $mobileImageFid === ($desktopPromotion['fid'] ?? 0)) {
+        //6.- Reuse the desktop upload when both widgets point to the same fid to avoid duplicate work.
+        $mobileImg = $desktopImg;
+        $mobileImageFid = $imageFid;
+      }
+      else {
+        //7.- Promote the dedicated mobile upload so the slider can render device-specific assets.
+        $mobilePromotion = $this->promoteFileById($mobileImageFid);
+        if (($mobilePromotion['status'] ?? '') !== 'ok') {
+          return $mobilePromotion;
+        }
+
+        $mobileImg = $mobilePromotion['url'] ?? $mobileImg;
+        $mobileImageFid = (int) ($mobilePromotion['fid'] ?? $mobileImageFid);
+      }
+    }
+
+    if ($desktopImg === '' && $mobileImg !== '') {
+      //8.- Guarantee a desktop fallback even when only a mobile upload is present.
+      $desktopImg = $mobileImg;
+    }
+    if ($mobileImg === '' && $desktopImg !== '') {
+      //9.- Mirror the desktop asset to mobile when the dedicated upload is missing.
+      $mobileImg = $desktopImg;
+    }
+    if ($imageUrl === '') {
+      //10.- Preserve canonical URL compatibility by choosing the first non-empty promoted asset.
+      $imageUrl = $desktopImg !== '' ? $desktopImg : $mobileImg;
+    }
+
+    return [
+      'status' => 'ok',
+      'image_fid' => $imageFid > 0 ? $imageFid : ($mobileImageFid > 0 ? $mobileImageFid : NULL),
+      'mobile_image_fid' => $mobileImageFid > 0 ? $mobileImageFid : NULL,
+      'desktop_img' => $desktopImg,
+      'mobile_img' => $mobileImg,
+      'image_url' => $imageUrl,
+    ];
+  }
+
+  private function promoteFileById(int $fid): array {
     /** @var \Drupal\file\FileInterface|null $file */
-    $file = $this->fileStorage->load($imageFid);
+    $file = $this->fileStorage->load($fid);
     if (!$file instanceof FileInterface) {
-      //5.- Signal that the fid is stale so the caller can prompt the editor to re-upload.
+      //1.- Return a descriptive error when the stored fid no longer resolves to an entity.
       return [
         'status' => 'error',
         'message' => 'File not found.',
@@ -82,15 +140,15 @@ final class RowImagePromoter {
     }
 
     try {
-      //6.- Promote the upload to permanent immediately so future loads resolve without extra saves.
+      //2.- Promote the upload to permanent so Drupal keeps the asset across cache clears.
       $file->setPermanent();
       $file->save();
 
-      //7.- Produce the canonical public URL that should populate both desktop and mobile slots.
+      //3.- Translate the file URI into a publicly accessible URL for the render layer.
       $resolvedUrl = $this->fileUrlGenerator->generateString($file->getFileUri());
     }
     catch (Throwable $throwable) {
-      //8.- Fail gracefully to avoid corrupting row state when the file system rejects the save.
+      //4.- Guard against file system issues to avoid corrupting the caller's state.
       return [
         'status' => 'error',
         'message' => 'Unable to persist file.',
@@ -100,10 +158,8 @@ final class RowImagePromoter {
 
     return [
       'status' => 'ok',
-      'image_fid' => (int) $file->id(),
-      'desktop_img' => $resolvedUrl,
-      'mobile_img' => $resolvedUrl,
-      'image_url' => $resolvedUrl,
+      'fid' => (int) $file->id(),
+      'url' => $resolvedUrl,
     ];
   }
 
