@@ -244,28 +244,49 @@ final class TimelineRowController extends ControllerBase {
     }
 
     //2.- Extract the numeric id from either the top-level payload or the nested row definition.
-    $id = NULL;
+    $candidates = [];
     if (isset($payload['row_id']) && is_numeric($payload['row_id'])) {
-      $id = (int) $payload['row_id'];
+      $candidates[] = (int) $payload['row_id'];
     }
     elseif (isset($row['id']) && is_numeric($row['id'])) {
-      $id = (int) $row['id'];
+      $candidates[] = (int) $row['id'];
     }
-    if (!$id) {
+
+    //2.1.- Inspect the fallback route argument when callers replace the UUID placeholder with a numeric id.
+    if (is_string($fallback) && $fallback !== '') {
+      if (ctype_digit($fallback)) {
+        $candidates[] = (int) $fallback;
+      }
+      elseif (strpos($fallback, 'id:') === 0) {
+        $numeric = substr($fallback, 3);
+        if (ctype_digit($numeric)) {
+          $candidates[] = (int) $numeric;
+        }
+      }
+    }
+
+    $candidates = array_values(array_filter(array_unique($candidates)));
+    if ($candidates === []) {
       return NULL;
     }
 
     //3.- Look up the UUID associated with the provided id while ignoring soft-deleted records.
     $connection = \Drupal::database();
-    $uuid = $connection->select('pds_template_item', 'i')
-      ->fields('i', ['uuid'])
-      ->condition('i.id', $id)
-      ->condition('i.deleted_at', NULL, 'IS NULL')
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
+    foreach ($candidates as $candidate) {
+      $uuid = $connection->select('pds_template_item', 'i')
+        ->fields('i', ['uuid'])
+        ->condition('i.id', $candidate)
+        ->condition('i.deleted_at', NULL, 'IS NULL')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
 
-    return is_string($uuid) && Uuid::isValid($uuid) ? $uuid : NULL;
+      if (is_string($uuid) && Uuid::isValid($uuid)) {
+        return $uuid;
+      }
+    }
+
+    return NULL;
   }
 
   /**
