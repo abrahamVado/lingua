@@ -19,13 +19,18 @@ pds_recipe_timeline_bootstrap_shared_helpers();
  * Implements hook_theme().
  */
 function pds_recipe_timeline_theme($existing, $type, $theme, $path): array {
-  //1.- Registramos la plantilla Twig que renderiza el timeline con la librería.
+  //1.- Registramos la plantilla Twig que renderiza el timeline y acepta los datasets del template base.
   return [
     'pds_timeline_block' => [
       'template' => 'pds-timeline',
       'path' => $path . '/templates',
       'variables' => [
         'attributes' => [],
+        'items' => [],
+        'group_id' => NULL,
+        'instance_uuid' => '',
+        'master_metadata' => [],
+        'extended_datasets' => [],
       ],
     ],
   ];

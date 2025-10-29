@@ -1,129 +1,58 @@
-{# //1.- Renderizamos el contenedor principal reutilizando los atributos enviados desde el bloque. #}
-<section{{ attributes.addClass('principal-timeline') }}>
-  {# //2.- Estructuramos la cuadrícula interna para mantener el layout original del timeline. #}
-  <div class="principal-timeline__container">
-    <h2 class="principal-timeline__title">Principais executivos</h2>
-    <div class="principal-timeline__viewport">
-      <div class="principal-timeline__track">
-        {# //3.- Imprimimos la franja de años usada como referencia visual del historial. #}
-        <div class="principal-timeline__years" aria-hidden="true">
-          <span class="principal-timeline__year">91</span><span class="principal-timeline__year">92</span><span class="principal-timeline__year">93</span><span class="principal-timeline__year">94</span><span class="principal-timeline__year">95</span>
-          <span class="principal-timeline__year">96</span><span class="principal-timeline__year">97</span><span class="principal-timeline__year">98</span><span class="principal-timeline__year">99</span><span class="principal-timeline__year">00</span>
-          <span class="principal-timeline__year">01</span><span class="principal-timeline__year">02</span><span class="principal-timeline__year">03</span><span class="principal-timeline__year">04</span><span class="principal-timeline__year">05</span>
-          <span class="principal-timeline__year">06</span><span class="principal-timeline__year">07</span><span class="principal-timeline__year">08</span><span class="principal-timeline__year">09</span><span class="principal-timeline__year">10</span>
-          <span class="principal-timeline__year">11</span><span class="principal-timeline__year">12</span><span class="principal-timeline__year">13</span><span class="principal-timeline__year">14</span><span class="principal-timeline__year">15</span>
-          <span class="principal-timeline__year">16</span><span class="principal-timeline__year">17</span><span class="principal-timeline__year">18</span><span class="principal-timeline__year">19</span><span class="principal-timeline__year">20</span>
-          <span class="principal-timeline__year">21</span><span class="principal-timeline__year">22</span><span class="principal-timeline__year">23</span><span class="principal-timeline__year">24</span><span class="principal-timeline__year">25</span>
-        </div>
-        {# //4.- Generamos cada fila con la información de las personas y su trayectoria profesional. #}
-        <div class="principal-timeline__row">
-          <div class="principal-timeline__person">
-            <span class="principal-timeline__person-name">Helder Soares</span>
-            <span class="principal-timeline__person-role">Membro do Conselho de Administração e Comitês de Investimentos</span>
+{#
+  //1.- Renderizamos el contenedor principal del timeline y exponemos metadatos para integraciones JS.
+#}
+<section{{ attributes }}>
+  {# //2.- Verificamos si existen elementos guardados en la receta para dibujar la línea de tiempo. #}
+  {% if items is iterable and items|length > 0 %}
+    <div class="principal-timeline__container">
+      <h2 class="principal-timeline__title">Principais executivos</h2>
+      <div class="principal-timeline__viewport">
+        <div class="principal-timeline__track">
+          {# //3.- Mantenemos la banda de años como guía visual independiente de los registros. #}
+          <div class="principal-timeline__years" aria-hidden="true">
+            <span class="principal-timeline__year">91</span><span class="principal-timeline__year">92</span><span class="principal-timeline__year">93</span><span class="principal-timeline__year">94</span><span class="principal-timeline__year">95</span>
+            <span class="principal-timeline__year">96</span><span class="principal-timeline__year">97</span><span class="principal-timeline__year">98</span><span class="principal-timeline__year">99</span><span class="principal-timeline__year">00</span>
+            <span class="principal-timeline__year">01</span><span class="principal-timeline__year">02</span><span class="principal-timeline__year">03</span><span class="principal-timeline__year">04</span><span class="principal-timeline__year">05</span>
+            <span class="principal-timeline__year">06</span><span class="principal-timeline__year">07</span><span class="principal-timeline__year">08</span><span class="principal-timeline__year">09</span><span class="principal-timeline__year">10</span>
+            <span class="principal-timeline__year">11</span><span class="principal-timeline__year">12</span><span class="principal-timeline__year">13</span><span class="principal-timeline__year">14</span><span class="principal-timeline__year">15</span>
+            <span class="principal-timeline__year">16</span><span class="principal-timeline__year">17</span><span class="principal-timeline__year">18</span><span class="principal-timeline__year">19</span><span class="principal-timeline__year">20</span>
+            <span class="principal-timeline__year">21</span><span class="principal-timeline__year">22</span><span class="principal-timeline__year">23</span><span class="principal-timeline__year">24</span><span class="principal-timeline__year">25</span>
           </div>
-          <div class="principal-timeline__jobs">
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--first" style="width:5.8823529411765%"><span class="principal-timeline__job-info"></span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:23.529411764706%"><span class="principal-timeline__job-info">Matrix</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:70.588235294118%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
+          {# //4.- Iteramos los elementos guardados para dibujar cada persona y sus datos asociados. #}
+          {% for row in items %}
+            <div class="principal-timeline__row" data-pds-template-row-index="{{ loop.index0 }}">
+              <div class="principal-timeline__person">
+                <span class="principal-timeline__person-name">{{ row.header }}</span>
+                {% if row.subheader %}
+                  <span class="principal-timeline__person-role">{{ row.subheader }}</span>
+                {% endif %}
+              </div>
+              <div class="principal-timeline__jobs">
+                <div class="principal-timeline__job-segment principal-timeline__job-segment--principal">
+                  {% if row.description %}
+                    <span class="principal-timeline__job-info">{{ row.description }}</span>
+                  {% endif %}
+                  {% if row.desktop_img %}
+                    <span class="principal-timeline__job-info-logo">
+                      <img src="{{ row.desktop_img }}" alt="{{ row.header }}" />
+                    </span>
+                  {% endif %}
+                  {% if row.link %}
+                    <span class="principal-timeline__job-info-link">
+                      <a href="{{ row.link }}" rel="noopener noreferrer">{{ row.link }}</a>
+                    </span>
+                  {% endif %}
+                </div>
+              </div>
             </div>
-          </div>
+          {% endfor %}
         </div>
-        <div class="principal-timeline__row">
-          <div class="principal-timeline__person">
-            <span class="principal-timeline__person-name">Eduardo Morais</span>
-            <span class="principal-timeline__person-role">Diretor de Investimentos</span>
-          </div>
-          <div class="principal-timeline__jobs">
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--first" style="width:20.588235294118%"><span class="principal-timeline__job-info"></span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:11.764705882353%"><span class="principal-timeline__job-info">Matrix</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:67.647058823529%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
-            </div>
-          </div>
-        </div>
-        <div class="principal-timeline__row">
-          <div class="principal-timeline__person">
-            <span class="principal-timeline__person-name">Luiz Christ</span>
-            <span class="principal-timeline__person-role">Gestor de Renda Fixa</span>
-          </div>
-          <div class="principal-timeline__jobs">
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--first" style="width:74.411764705882%"><span class="principal-timeline__job-info"></span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:7.0588235294118%"><span class="principal-timeline__job-info">Banco PAN</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:2.3529411764706%"><span class="principal-timeline__job-info">Banco Pine</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:1.4705882352941%"><span class="principal-timeline__job-info">Banco Santander</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:14.705882352941%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
-            </div>
-          </div>
-        </div>
-        <div class="principal-timeline__row">
-          <div class="principal-timeline__person">
-            <span class="principal-timeline__person-name">Gustavo Linari</span>
-            <span class="principal-timeline__person-role">Gestor de Estratégias Quantitativas</span>
-          </div>
-          <div class="principal-timeline__jobs">
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--first" style="width:52.941176470588%"><span class="principal-timeline__job-info"></span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:26.470588235294%"><span class="principal-timeline__job-info">Rio Bravo</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:20.588235294118%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
-            </div>
-          </div>
-        </div>
-        <div class="principal-timeline__row">
-          <div class="principal-timeline__person">
-            <span class="principal-timeline__person-name">Marcela Rocha</span>
-            <span class="principal-timeline__person-role">Economista-chefe Latam</span>
-          </div>
-          <div class="principal-timeline__jobs">
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--first" style="width:50%"><span class="principal-timeline__job-info"></span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:11.764705882353%"><span class="principal-timeline__job-info">Banco Fator</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:38.235294117647%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
-            </div>
-          </div>
-        </div>
-        <div class="principal-timeline__row">
-          <div class="principal-timeline__person">
-            <span class="principal-timeline__person-name">Daniel Almeida</span>
-            <span class="principal-timeline__person-role">Head de Pesquisa de Equities</span>
-          </div>
-          <div class="principal-timeline__jobs">
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--first" style="width:35.294117647059%"><span class="principal-timeline__job-info"></span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment" style="width:2.9411764705882%"><span class="principal-timeline__job-info">Santander</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:38.235294117647%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
-            </div>
-            <div class="principal-timeline__job-segment" style="width:14.705882352941%"><span class="principal-timeline__job-info">Pathenon Group</span><div class="principal-timeline__job-segment-line"></div></div>
-            <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" style="width:8.8235294117647%">
-              <span class="principal-timeline__job-info">Principal Asset Management
-                <img src="https://principalam.com.br/wp-content/uploads/ASSINATURA-PAM-3.png" alt="Principal Asset Management">
-              </span>
-              <div class="principal-timeline__job-segment-line"></div>
-            </div>
-          </div>
-        </div>
+        {# //5.- Tooltip preparado para futuras integraciones JS del timeline dinámico. #}
+        <div class="principal-timeline__tooltip" id="principalTimelineTooltip" role="tooltip" hidden></div>
       </div>
-      {# //5.- Tooltip separado para permitir interacciones en escritorio y móviles. #}
-      <div class="principal-timeline__tooltip" id="principalTimelineTooltip" role="tooltip" hidden></div>
     </div>
-  </div>
+  {% else %}
+    {# //6.- Mensaje amigable cuando aún no hay ejecutivos configurados en Tab A. #}
+    <div class="principal-timeline__empty">{{ 'Nenhum executivo cadastrado no momento.'|t }}</div>
+  {% endif %}
 </section>
