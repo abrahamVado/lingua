@@ -8,3 +8,4 @@ The following checks were performed while addressing the "Save timeline" action 
 - Validated the shared routing definition (`pds_recipe_template/pds_recipe_template.routing.yml`) still advertises the PATCH route required by the modal.
 - Checked the database installer (`pds_mxsuite.install`) for the `pds_template_item_timeline` schema to confirm timeline entries have a storage table.
 - Patched the admin modal handler (`pds_recipe_timeline/assets/js/pds-timeline.admin.js`) to support both placeholder and direct update URLs when persisting entries.
+- Added a safeguard in the modal persistence helper (`pds_recipe_timeline/assets/js/pds-timeline.admin.js`) to rehydrate the active recipe form when Layout Builder swaps DOM trees before saving.
