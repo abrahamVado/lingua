@@ -815,6 +815,111 @@ function clearInputs(root) {
     }
   }
 
+  function normalizeTimelineEntries(source) {
+    //1.- Accept only iterable collections to avoid processing unexpected payloads from AJAX responses.
+    if (!Array.isArray(source) || source.length === 0) {
+      return [];
+    }
+
+    var normalized = [];
+    source.forEach(function (entry, position) {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+
+      var label = '';
+      if (typeof entry.label === 'string') {
+        label = entry.label.trim();
+      } else if (typeof entry.label !== 'undefined') {
+        label = String(entry.label || '').trim();
+      }
+      if (label === '') {
+        return;
+      }
+
+      var year = 0;
+      if (typeof entry.year === 'number') {
+        year = entry.year;
+      } else if (typeof entry.year !== 'undefined') {
+        var parsedYear = parseInt(entry.year, 10);
+        year = isNaN(parsedYear) ? 0 : parsedYear;
+      }
+
+      var weight = position;
+      if (typeof entry.weight === 'number') {
+        weight = entry.weight;
+      } else if (typeof entry.weight !== 'undefined') {
+        var parsedWeight = parseInt(entry.weight, 10);
+        weight = isNaN(parsedWeight) ? position : parsedWeight;
+      }
+
+      normalized.push({
+        year: year,
+        label: label,
+        weight: weight
+      });
+    });
+
+    //2.- Sort and reindex weights so downstream consumers receive a deterministic chronology.
+    normalized.sort(function (a, b) {
+      return (a.weight || 0) - (b.weight || 0);
+    });
+    normalized.forEach(function (item, index) {
+      item.weight = index;
+    });
+
+    return normalized;
+  }
+
+  function updateTimelineDatasetSnapshot(root, rows) {
+    //1.- Require drupalSettings to exist because the timeline modal reads from the shared dataset.
+    if (typeof drupalSettings === 'undefined' || !drupalSettings || !drupalSettings.pdsRecipeTemplate) {
+      return;
+    }
+
+    var instanceUuid = root.getAttribute('data-pds-template-block-uuid');
+    if (!instanceUuid) {
+      return;
+    }
+
+    if (!drupalSettings.pdsRecipeTemplate.masters) {
+      drupalSettings.pdsRecipeTemplate.masters = {};
+    }
+    if (!drupalSettings.pdsRecipeTemplate.masters[instanceUuid]) {
+      drupalSettings.pdsRecipeTemplate.masters[instanceUuid] = { metadata: {}, datasets: {} };
+    }
+
+    var master = drupalSettings.pdsRecipeTemplate.masters[instanceUuid];
+    if (!master.datasets) {
+      master.datasets = {};
+    }
+    master.datasets.timeline = {};
+
+    rows.forEach(function (row) {
+      if (!row || typeof row !== 'object') {
+        return;
+      }
+
+      var key = '';
+      if (typeof row.uuid === 'string' && row.uuid) {
+        key = row.uuid;
+      } else if (typeof row.id === 'number') {
+        key = 'id:' + row.id;
+      } else if (typeof row.id === 'string' && row.id.trim() !== '') {
+        key = 'id:' + row.id.trim();
+      }
+      if (!key) {
+        return;
+      }
+
+      master.datasets.timeline[key] = {
+        id: typeof row.id === 'number' ? row.id : (typeof row.id === 'string' && row.id.trim() !== '' ? row.id : null),
+        uuid: typeof row.uuid === 'string' ? row.uuid : '',
+        timeline: Array.isArray(row.timeline) ? row.timeline : []
+      };
+    });
+  }
+
   function refreshPreviewFromServer(root) {
     //1.- Skip the network call when fetch is unavailable or no endpoint was provided.
     if (typeof window.fetch !== 'function') {
@@ -906,10 +1011,14 @@ function clearInputs(root) {
             normalizedRow.image_fid = safeRow.image_fid;
           }
 
+          var normalizedTimeline = normalizeTimelineEntries(safeRow.timeline);
+          normalizedRow.timeline = normalizedTimeline;
+
           return normalizedRow;
         });
 
         writeState(root, normalized);
+        updateTimelineDatasetSnapshot(root, normalized);
         renderPreviewTable(root);
       })
       .catch(function () {
