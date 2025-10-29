@@ -1,6 +1,9 @@
 (function (Drupal, once, drupalSettings) {
   'use strict';
 
+  //3.5.- Define el marcador de UUID usado por los endpoints para que los reemplazos funcionen incluso sin plantillas.
+  var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+
   //1.- Local helper que resuelve el contenedor de vista previa generado por el template base.
   function resolvePreviewContent(root) {
     var wrapper = root.querySelector('[data-pds-template-preview-state="content"]');
@@ -428,7 +431,14 @@
     }
 
     var entries = collectEntries(modal);
-    var updateUrl = updateUrlTemplate.replace('00000000-0000-0000-0000-000000000000', row.uuid);
+    //13.4.- Reemplazamos el marcador de UUID o anexamos el identificador cuando el atributo ya expone la ruta final.
+    var updateUrl = updateUrlTemplate;
+    if (updateUrl.indexOf(UPDATE_PLACEHOLDER) !== -1) {
+      updateUrl = updateUrl.replace(UPDATE_PLACEHOLDER, row.uuid);
+    }
+    else {
+      updateUrl = updateUrl.replace(/\/$/, '') + '/' + row.uuid;
+    }
 
     var payloadRow = {
       header: row.header || '',
