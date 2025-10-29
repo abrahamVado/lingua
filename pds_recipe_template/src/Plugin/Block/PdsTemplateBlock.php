@@ -187,6 +187,9 @@ final class PdsTemplateBlock extends BlockBase {
     //1.- Query the active items for the group while ignoring soft-deleted records.
     $query = $connection->select('pds_template_item', 'i')
       ->fields('i', [
+        'id',
+        'uuid',
+        'weight',
         'header',
         'subheader',
         'description',
@@ -211,7 +214,24 @@ final class PdsTemplateBlock extends BlockBase {
         $primary_image = (string) $record->mobile_img;
       }
 
+      //4.- Normalize identifier metadata so the modal preview can reuse the same
+      //    payload structure as the JSON listing endpoint and keep edit actions
+      //    wired to the persisted rows.
+      $resolved_id = isset($record->id) ? (int) $record->id : 0;
+      $resolved_uuid = isset($record->uuid) ? (string) $record->uuid : '';
+      if ($resolved_uuid !== '' && !Uuid::isValid($resolved_uuid)) {
+        //5.- Ignore malformed UUIDs so legacy noise does not block rendering.
+        $resolved_uuid = '';
+      }
+
+      $resolved_weight = isset($record->weight) && is_numeric($record->weight)
+        ? (int) $record->weight
+        : NULL;
+
       $rows[] = [
+        'id'          => $resolved_id,
+        'uuid'        => $resolved_uuid,
+        'weight'      => $resolved_weight,
         'header'      => $record->header,
         'subheader'   => $record->subheader,
         'description' => $record->description,
@@ -219,6 +239,7 @@ final class PdsTemplateBlock extends BlockBase {
         'desktop_img' => $record->desktop_img,
         'mobile_img'  => $record->mobile_img,
         'image_url'   => $primary_image,
+        'thumbnail'   => $primary_image,
         'latitud'     => $record->latitud,
         'longitud'    => $record->longitud,
       ];
