@@ -37,6 +37,7 @@
 - Teach the admin behavior to auto-request the preview listing whenever the modal opens with an empty JSON payload so tab B hydrates legacy blocks without manual refreshes.
 - Thread the stored `group_id` through the listing URL as an explicit fallback and let the controller repair the legacy record when the active UUID misses, keeping historical rows visible during edits.
 - Prioritize the legacy `fallback_group_id` when hydrating the preview listing so Tab B reuses historical rows before touching freshly minted placeholder groups.
+- Detect malformed `instance_uuid` values while bootstrapping the block so the configuration clears the invalid token and reuses the numeric `group_id` fallback to refresh Tab B automatically on the next render.
 
 //8.- Additional Notes
 - Capture screenshots or network logs during reproduction to share findings with the team.
