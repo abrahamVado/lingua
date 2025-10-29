@@ -351,13 +351,15 @@ final class RowController extends ControllerBase {
         ];
       }
 
+      //9.- Provide the resolved identifier so the admin UI can repair legacy dialogs that lost their cached group id.
       return new JsonResponse([
         'status' => 'ok',
+        'group_id' => (int) $group_id,
         'rows' => $rows,
       ]);
     }
     catch (Throwable $throwable) {
-      //9.- Surface a friendly error when the database lookup fails unexpectedly.
+      //10.- Surface a friendly error when the database lookup fails unexpectedly.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to load rows.',

@@ -38,3 +38,7 @@
 //8.- Additional Notes
 - Capture screenshots or network logs during reproduction to share findings with the team.
 - Prioritize fixing any data loss risks if tab B modifications overwrite existing items.
+
+//9.- Next Fix Experiments
+- Confirm that the row listing endpoint returns the resolved `group_id` even when it relied on legacy fallbacks so the modal can rehydrate its hidden state automatically.
+- Update the admin behavior to store the repaired `group_id` from the listing response back into the DOM attributes and hidden input, ensuring subsequent AJAX calls reuse the recovered identifier without staying stuck on `0`.
