@@ -335,6 +335,16 @@ final class PdsTemplateBlock extends BlockBase {
   public function blockForm($form, FormStateInterface $form_state) {
     $working_items = $this->getWorkingItems($form_state);
     $group_id = $this->getGroupIdFromFormState($form_state);
+    $stored_group_id = 0;
+    $raw_stored_group_id = $this->configuration['group_id'] ?? 0;
+    if (is_numeric($raw_stored_group_id) && (int) $raw_stored_group_id > 0) {
+      //1.- Remember the historical identifier so legacy datasets without UUID links can still hydrate Tab B.
+      $stored_group_id = (int) $raw_stored_group_id;
+    }
+    if (!$group_id && $stored_group_id > 0) {
+      //2.- Reuse the persisted id as the active pointer when the current form state does not expose one yet.
+      $group_id = $stored_group_id;
+    }
     $block_uuid = $this->getBlockInstanceUuid();
     $recipe_type = $this->configuration['recipe_type'] ?? 'pds_recipe_template';
 
@@ -398,6 +408,10 @@ final class PdsTemplateBlock extends BlockBase {
     if ($group_id > 0) {
       //1.- Pass the resolved group id so the listing endpoint can hydrate legacy blocks that never stored a UUID.
       $list_query['group_id'] = (string) $group_id;
+    }
+    if ($stored_group_id > 0 && $stored_group_id !== $group_id) {
+      //2.- Include the historical identifier as a fallback so the controller can recover rows tied to the previous group.
+      $list_query['fallback_group_id'] = (string) $stored_group_id;
     }
 
     $list_rows_url = Url::fromRoute(

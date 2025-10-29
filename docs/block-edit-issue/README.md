@@ -33,6 +33,7 @@
 - Extend the row listing controller to honor an explicit `group_id` fallback and rewrite the related group record with the active UUID so legacy datasets render again without manual intervention.
 - Verify that the controller listing call now reuses the repaired UUID by opening tab B immediately after launching the modal.
 - Teach the admin behavior to auto-request the preview listing whenever the modal opens with an empty JSON payload so tab B hydrates legacy blocks without manual refreshes.
+- Thread the stored `group_id` through the listing URL as an explicit fallback and let the controller repair the legacy record when the active UUID misses, keeping historical rows visible during edits.
 
 //8.- Additional Notes
 - Capture screenshots or network logs during reproduction to share findings with the team.

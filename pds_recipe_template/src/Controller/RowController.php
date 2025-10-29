@@ -254,34 +254,49 @@ final class RowController extends ControllerBase {
 
       if (!$group_id) {
         //5.- Attempt to reuse a legacy group identifier supplied by the caller when the UUID lookup fails.
+        $legacy_candidates = [];
         $raw_group = $request->query->get('group_id');
         if (is_scalar($raw_group) && $raw_group !== '') {
-          $candidate_id = (int) $raw_group;
-          if ($candidate_id > 0) {
-            $legacy_row = $connection->select('pds_template_group', 'g')
-              ->fields('g', ['id', 'uuid'])
-              ->condition('g.id', $candidate_id)
-              ->condition('g.deleted_at', NULL, 'IS NULL')
-              ->range(0, 1)
-              ->execute()
-              ->fetchAssoc();
+          $legacy_candidates[] = (int) $raw_group;
+        }
 
-            if ($legacy_row) {
-              $group_id = (int) $legacy_row['id'];
-              $stored_uuid = is_string($legacy_row['uuid'] ?? NULL)
-                ? (string) $legacy_row['uuid']
-                : '';
+        $raw_fallback = $request->query->get('fallback_group_id');
+        if (is_scalar($raw_fallback) && $raw_fallback !== '') {
+          $legacy_candidates[] = (int) $raw_fallback;
+        }
 
-              if ($uuid !== '' && (!Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
-                //6.- Repair the legacy record by storing the fresh UUID so future AJAX calls no longer need the fallback id.
-                $connection->update('pds_template_group')
-                  ->fields(['uuid' => $uuid])
-                  ->condition('id', $group_id)
-                  ->condition('deleted_at', NULL, 'IS NULL')
-                  ->execute();
-              }
-            }
+        foreach ($legacy_candidates as $candidate_id) {
+          if ($candidate_id <= 0) {
+            continue;
           }
+
+          $legacy_row = $connection->select('pds_template_group', 'g')
+            ->fields('g', ['id', 'uuid'])
+            ->condition('g.id', $candidate_id)
+            ->condition('g.deleted_at', NULL, 'IS NULL')
+            ->range(0, 1)
+            ->execute()
+            ->fetchAssoc();
+
+          if (!$legacy_row) {
+            continue;
+          }
+
+          $group_id = (int) $legacy_row['id'];
+          $stored_uuid = is_string($legacy_row['uuid'] ?? NULL)
+            ? (string) $legacy_row['uuid']
+            : '';
+
+          if ($uuid !== '' && (!Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
+            //6.- Repair the legacy record by storing the fresh UUID so future AJAX calls no longer need the fallback id.
+            $connection->update('pds_template_group')
+              ->fields(['uuid' => $uuid])
+              ->condition('id', $group_id)
+              ->condition('deleted_at', NULL, 'IS NULL')
+              ->execute();
+          }
+
+          break;
         }
       }
 
