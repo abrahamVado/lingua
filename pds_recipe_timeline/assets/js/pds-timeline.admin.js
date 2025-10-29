@@ -4,6 +4,17 @@
   //3.5.- Define el marcador de UUID usado por los endpoints para que los reemplazos funcionen incluso sin plantillas.
   var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
+  //3.5.1.- Iterador seguro que soporta NodeList y HTMLCollection incluso en navegadores sin forEach nativo.
+  function forEachElement(collection, callback) {
+    if (!collection) {
+      return;
+    }
+    var length = collection.length || 0;
+    for (var index = 0; index < length; index++) {
+      callback(collection[index], index);
+    }
+  }
+
   //3.8.- Validador ligero de UUID para descartar cadenas inválidas antes de usar el identificador.
   function isValidUuid(value) {
     if (typeof value !== 'string') {
@@ -451,7 +462,7 @@
   //11.- Recolecta los hitos escritos en el modal y devuelve un array ordenado.
   function collectEntries(modal) {
     var entries = [];
-    modal.querySelectorAll('.pds-timeline-admin-row').forEach(function (row, position) {
+    forEachElement(modal.querySelectorAll('.pds-timeline-admin-row'), function (row, position) {
       var inputs = row.querySelectorAll('input');
       if (inputs.length < 2) {
         return;
@@ -462,6 +473,10 @@
       var year = parseInt(rawYear, 10);
       if (!label) {
         return;
+      }
+      if (label.length > 512) {
+        //11.1.- Reducimos la descripción al límite del esquema para prevenir rechazos del backend.
+        label = label.slice(0, 512);
       }
       if (isNaN(year)) {
         year = 0;
@@ -661,8 +676,10 @@
 
       return dispatchPersistence(candidate).catch(function (error) {
         lastError = error;
-        var hasMoreCandidates = position + 1 < identifierCandidates.length;
-        var shouldRetryWithId = candidate.type === 'uuid' && hasMoreCandidates;
+        var fallbackMessage = error && error.message ? error.message.toLowerCase() : '';
+        var shouldRetryWithId = candidate.type === 'uuid'
+          && position + 1 < identifierCandidates.length
+          && (error && (error.status === 404 || error.status === 400 || error.status === 422 || fallbackMessage.indexOf('uuid') !== -1));
         if (shouldRetryWithId) {
           //13.4.2.- Clear the cached UUID so the subsequent retry builds the request around the numeric identifier instead.
           rowUuid = '';
@@ -678,40 +695,84 @@
       var targetUrl = buildUpdateUrl(updateUrlTemplate, candidate.value);
       var payload = buildPersistencePayload(candidate);
 
-      return fetch(targetUrl, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify(payload)
-      }).then(function (response) {
-        return response.text().then(function (body) {
-          var json = null;
-          if (body) {
-            try {
-              json = JSON.parse(body);
-            } catch (parseError) {
-              //13.4.1.- Ignoramos el fallo de parseo para construir mensajes descriptivos abajo.
-            }
+      return sendPersistenceRequest(targetUrl, payload).then(function (result) {
+        var status = result.status;
+        var ok = result.ok;
+        var body = result.body;
+        var json = null;
+        if (body) {
+          try {
+            json = JSON.parse(body);
+          } catch (parseError) {
+            //13.4.1.- Ignoramos el fallo de parseo para construir mensajes descriptivos abajo.
           }
-          if (!response.ok) {
-            var message = json && json.message ? json.message : 'Unable to save timeline.';
-            var error = new Error(message);
-            error.status = response.status;
-            error.responseJson = json;
-            throw error;
-          }
-          if (!json || json.status !== 'ok') {
-            var fallbackMessage = json && json.message ? json.message : 'Unable to save timeline.';
-            var rejection = new Error(fallbackMessage);
-            rejection.status = response.status;
-            rejection.responseJson = json;
-            throw rejection;
-          }
-          return handleSuccessfulResponse(json);
+        }
+        if (!ok) {
+          var message = json && json.message ? json.message : 'Unable to save timeline.';
+          var error = new Error(message);
+          error.status = status;
+          error.responseJson = json;
+          throw error;
+        }
+        if (!json || json.status !== 'ok') {
+          var fallbackMessage = json && json.message ? json.message : 'Unable to save timeline.';
+          var rejection = new Error(fallbackMessage);
+          rejection.status = status;
+          rejection.responseJson = json;
+          throw rejection;
+        }
+        return handleSuccessfulResponse(json);
+      });
+    }
+
+    function sendPersistenceRequest(url, payload) {
+      //13.4.2.- Estandarizamos la solicitud PATCH en JSON y aplicamos un respaldo con XMLHttpRequest cuando fetch no existe.
+      var requestBody = JSON.stringify(payload);
+      if (typeof window.fetch === 'function') {
+        return window.fetch(url, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          credentials: 'same-origin',
+          body: requestBody
+        }).then(function (response) {
+          return response.text().then(function (body) {
+            return {
+              status: response.status,
+              ok: response.ok,
+              body: body
+            };
+          });
         });
+      }
+
+      return new Promise(function (resolve, reject) {
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open('PATCH', url, true);
+          xhr.withCredentials = true;
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) {
+              return;
+            }
+            var responseOk = xhr.status >= 200 && xhr.status < 300;
+            resolve({
+              status: xhr.status,
+              ok: responseOk,
+              body: xhr.responseText || ''
+            });
+          };
+          xhr.onerror = function () {
+            reject(new Error('Network request failed.'));
+          };
+          xhr.send(requestBody);
+        } catch (networkError) {
+          reject(networkError);
+        }
       });
     }
 
@@ -861,7 +922,7 @@
       return;
     }
     var rows = readState(root);
-    container.querySelectorAll('tr[data-row-index]').forEach(function (rowEl) {
+    forEachElement(container.querySelectorAll('tr[data-row-index]'), function (rowEl) {
       var idx = parseInt(rowEl.getAttribute('data-row-index'), 10);
       if (isNaN(idx)) {
         return;
@@ -923,7 +984,7 @@
 
   Drupal.behaviors.pdsTimelineAdmin = {
     attach: function (context) {
-      once('pdsTimelineAdminRoot', '.js-pds-template-admin', context).forEach(function (root) {
+      forEachElement(once('pdsTimelineAdminRoot', '.js-pds-template-admin', context), function (root) {
         annotatePreview(root);
         observePreview(root);
         bindManageClick(root);
