@@ -278,7 +278,7 @@ final class PdsTemplateBlock extends BlockBase {
 
   /**
    * Save cleaned items into DB for this block.
-   * Overwrite existing active items for this group.
+   * Preserve existing identifiers while syncing the active items for this group.
    * Also update configuration['items'] snapshot.
    */
   private function saveItemsForBlock(array $clean_items, ?int $group_id = NULL): void {
@@ -289,38 +289,108 @@ final class PdsTemplateBlock extends BlockBase {
     }
     $now = \Drupal::time()->getRequestTime();
 
-    //2.- Soft-delete all previous active items for this group.
-    $connection->update('pds_template_item')
-      ->fields(['deleted_at' => $now])
+    //2.- Index the existing rows so we can reuse identifiers preserved on AJAX saves.
+    $existing_by_uuid = [];
+    $existing_by_id = [];
+    $records = $connection->select('pds_template_item', 'i')
+      ->fields('i', ['id', 'uuid'])
       ->condition('group_id', $group_id)
       ->condition('deleted_at', NULL, 'IS NULL')
       ->execute();
-
-    //3.- Insert new items in the given order so database state mirrors the snapshot sequence.
-    foreach ($clean_items as $delta => $row) {
-      $row_uuid = \Drupal::service('uuid')->generate();
-
-      $connection->insert('pds_template_item')
-        ->fields([
-          'uuid'        => $row_uuid,
-          'group_id'    => $group_id,
-          'weight'      => $delta,
-          'header'      => $row['header'] ?? '',
-          'subheader'   => $row['subheader'] ?? '',
-          'description' => $row['description'] ?? '',
-          'url'         => $row['link'] ?? '',
-          'desktop_img' => $row['desktop_img'] ?? '',
-          'mobile_img'  => $row['mobile_img'] ?? '',
-          'latitud'     => $row['latitud'] ?? NULL,
-          'longitud'    => $row['longitud'] ?? NULL,
-          'created_at'  => $now,
-          'deleted_at'  => NULL,
-        ])
-        ->execute();
+    foreach ($records as $record) {
+      $existing_by_id[(int) $record->id] = (string) $record->uuid;
+      if (is_string($record->uuid) && $record->uuid !== '') {
+        $existing_by_uuid[(string) $record->uuid] = (int) $record->id;
+      }
     }
 
-    //4.- Keep a configuration snapshot for fallback renders when the database is unavailable.
-    $this->configuration['items'] = $clean_items;
+    $kept_ids = [];
+    $snapshot = [];
+
+    //3.- Update existing rows or create new ones, keeping database identifiers whenever possible.
+    foreach ($clean_items as $delta => $row) {
+      $uuid = isset($row['uuid']) && is_string($row['uuid']) && Uuid::isValid($row['uuid'])
+        ? $row['uuid']
+        : '';
+      $candidate_id = isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : NULL;
+
+      $resolved_id = NULL;
+      if ($uuid !== '' && isset($existing_by_uuid[$uuid])) {
+        //1.- Match by UUID to maintain the relationship with auxiliary tables like the timeline dataset.
+        $resolved_id = $existing_by_uuid[$uuid];
+      }
+      elseif ($candidate_id && isset($existing_by_id[$candidate_id])) {
+        //2.- Accept numeric IDs from the hidden snapshot when the UUID was absent.
+        $resolved_id = $candidate_id;
+        $uuid = $existing_by_id[$candidate_id] ?? $uuid;
+      }
+
+      if ($resolved_id) {
+        //3.- Refresh the stored values while keeping the primary key untouched.
+        $connection->update('pds_template_item')
+          ->fields([
+            'weight'      => $delta,
+            'header'      => $row['header'] ?? '',
+            'subheader'   => $row['subheader'] ?? '',
+            'description' => $row['description'] ?? '',
+            'url'         => $row['link'] ?? '',
+            'desktop_img' => $row['desktop_img'] ?? '',
+            'mobile_img'  => $row['mobile_img'] ?? '',
+            'latitud'     => $row['latitud'] ?? NULL,
+            'longitud'    => $row['longitud'] ?? NULL,
+          ])
+          ->condition('id', $resolved_id)
+          ->execute();
+      }
+      else {
+        //4.- Insert fresh rows when no reusable identifier is present in the submitted snapshot.
+        $uuid = $uuid !== '' ? $uuid : \Drupal::service('uuid')->generate();
+        $resolved_id = (int) $connection->insert('pds_template_item')
+          ->fields([
+            'uuid'        => $uuid,
+            'group_id'    => $group_id,
+            'weight'      => $delta,
+            'header'      => $row['header'] ?? '',
+            'subheader'   => $row['subheader'] ?? '',
+            'description' => $row['description'] ?? '',
+            'url'         => $row['link'] ?? '',
+            'desktop_img' => $row['desktop_img'] ?? '',
+            'mobile_img'  => $row['mobile_img'] ?? '',
+            'latitud'     => $row['latitud'] ?? NULL,
+            'longitud'    => $row['longitud'] ?? NULL,
+            'created_at'  => $now,
+            'deleted_at'  => NULL,
+          ])
+          ->execute();
+      }
+
+      $kept_ids[] = $resolved_id;
+      $snapshot[] = [
+        'header'      => $row['header'] ?? '',
+        'subheader'   => $row['subheader'] ?? '',
+        'description' => $row['description'] ?? '',
+        'link'        => $row['link'] ?? '',
+        'desktop_img' => $row['desktop_img'] ?? '',
+        'mobile_img'  => $row['mobile_img'] ?? '',
+        'latitud'     => $row['latitud'] ?? NULL,
+        'longitud'    => $row['longitud'] ?? NULL,
+        'id'          => $resolved_id,
+        'uuid'        => $uuid,
+      ];
+    }
+
+    //4.- Mark rows missing from the submission as deleted without touching preserved identifiers.
+    $deletion = $connection->update('pds_template_item')
+      ->fields(['deleted_at' => $now])
+      ->condition('group_id', $group_id)
+      ->condition('deleted_at', NULL, 'IS NULL');
+    if ($kept_ids !== []) {
+      $deletion->condition('id', $kept_ids, 'NOT IN');
+    }
+    $deletion->execute();
+
+    //5.- Keep a configuration snapshot for fallback renders when the database is unavailable.
+    $this->configuration['items'] = $snapshot;
     if ($group_id) {
       //5.- Mirror the id in configuration so future renders expose it without DB lookups.
       $this->configuration['group_id'] = (int) $group_id;
@@ -761,6 +831,12 @@ final class PdsTemplateBlock extends BlockBase {
       $desktop_img = trim((string) ($item['desktop_img'] ?? ''));
       $mobile_img  = trim((string) ($item['mobile_img']  ?? ''));
       $image_url   = trim((string) ($item['image_url']   ?? ''));
+      $stored_id   = isset($item['id']) && is_numeric($item['id']) ? (int) $item['id'] : NULL;
+      $stored_uuid = isset($item['uuid']) && is_string($item['uuid']) ? trim($item['uuid']) : '';
+      if ($stored_uuid !== '' && !Uuid::isValid($stored_uuid)) {
+        //1.- Reset malformed UUIDs so futuras operaciones no vinculen filas ajenas por accidente.
+        $stored_uuid = '';
+      }
 
       if ($desktop_img === '' && $image_url !== '') {
         //1.- Preserve legacy rows where JS only stored image_url by copying it into desktop_img.
@@ -800,6 +876,8 @@ final class PdsTemplateBlock extends BlockBase {
         'mobile_img'  => $mobile_img,
         'latitud'     => $item['latitud']  ?? NULL,
         'longitud'    => $item['longitud'] ?? NULL,
+        'id'          => $stored_id,
+        'uuid'        => $stored_uuid,
       ];
     }
 
