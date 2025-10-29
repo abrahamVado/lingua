@@ -36,6 +36,23 @@
     }
   }
 
+  //3.1.- Calcula la llave estable del renglón usando UUID o ID numérico para correlacionar acciones posteriores.
+  function buildRowKey(row) {
+    if (!row || typeof row !== 'object') {
+      return '';
+    }
+    if (row.uuid && typeof row.uuid === 'string') {
+      return row.uuid;
+    }
+    if (typeof row.id === 'number') {
+      return 'id:' + row.id;
+    }
+    if (typeof row.id === 'string' && row.id.trim() !== '') {
+      return 'id:' + row.id.trim();
+    }
+    return '';
+  }
+
   //5.- Preparamos el modal reutilizable que hospedará el editor de hitos cronológicos.
   function ensureModal(root) {
     var modal = document.querySelector('.pds-timeline-admin-modal');
@@ -133,23 +150,53 @@
     message.removeAttribute('hidden');
   }
 
-  //9.- Abre el modal con los datos del índice solicitado.
-  function openModal(root, index) {
+  //3.2.- Localiza el renglón activo apoyándose primero en el índice y luego en su llave estable.
+  function resolveRowSnapshot(root, index, key) {
     var rows = readState(root);
-    if (index < 0 || index >= rows.length) {
+    if (index >= 0 && index < rows.length) {
+      return { rows: rows, row: rows[index], index: index };
+    }
+
+    var normalizedKey = typeof key === 'string' ? key.trim() : '';
+    if (normalizedKey) {
+      for (var i = 0; i < rows.length; i++) {
+        var candidateKey = buildRowKey(rows[i]);
+        if (candidateKey && candidateKey === normalizedKey) {
+          return { rows: rows, row: rows[i], index: i };
+        }
+      }
+    }
+
+    return { rows: rows, row: null, index: -1 };
+  }
+
+  //9.- Abre el modal con los datos del índice solicitado.
+  function openModal(root, index, key) {
+    var snapshot = resolveRowSnapshot(root, index, key);
+    if (!snapshot.row) {
+      var fallbackModal = ensureModal(root);
+      clearModalMessage(fallbackModal);
+      var missingList = fallbackModal.querySelector('[data-pds-timeline-list]');
+      if (missingList) {
+        missingList.innerHTML = '';
+      }
+      showModalMessage(fallbackModal, Drupal.t('Timeline data is unavailable for this item. Please save the row and try again.'));
+      fallbackModal.removeAttribute('hidden');
+      fallbackModal.focus();
       return;
     }
 
     var modal = ensureModal(root);
+    clearModalMessage(modal);
     modal.dataset.rootId = root.getAttribute('data-pds-template-block-uuid') || '';
-    modal.dataset.rowIndex = String(index);
+    modal.dataset.rowIndex = String(snapshot.index);
     modal.dataset.recipeType = root.getAttribute('data-pds-template-recipe-type') || 'pds_recipe_timeline';
     modal.dataset.updateUrl = root.getAttribute('data-pds-template-update-row-url') || '';
 
     var list = modal.querySelector('[data-pds-timeline-list]');
     if (list) {
       list.innerHTML = '';
-      var source = rows[index] && Array.isArray(rows[index].timeline) ? rows[index].timeline : [];
+      var source = Array.isArray(snapshot.row.timeline) ? snapshot.row.timeline : [];
       if (source.length === 0) {
         appendRowEditor(list, { year: '', label: '' });
       } else {
@@ -354,6 +401,7 @@
     if (!container) {
       return;
     }
+    var rows = readState(root);
     container.querySelectorAll('tr[data-row-index]').forEach(function (rowEl) {
       var idx = parseInt(rowEl.getAttribute('data-row-index'), 10);
       if (isNaN(idx)) {
@@ -371,6 +419,11 @@
       manage.className = 'pds-timeline-admin-manage';
       manage.textContent = Drupal.t('Timeline');
       manage.setAttribute('data-pds-timeline-index', String(idx));
+      var key = buildRowKey(rows[idx]);
+      if (key) {
+        manage.setAttribute('data-pds-timeline-key', key);
+        rowEl.setAttribute('data-pds-timeline-key', key);
+      }
       actionsCell.appendChild(manage);
     });
   }
@@ -400,10 +453,11 @@
       }
       event.preventDefault();
       var idx = parseInt(button.getAttribute('data-pds-timeline-index'), 10);
+      var key = button.getAttribute('data-pds-timeline-key') || '';
       if (isNaN(idx)) {
-        return;
+        idx = -1;
       }
-      openModal(root, idx);
+      openModal(root, idx, key);
     });
     root._pdsTimelineManageBound = true;
   }
