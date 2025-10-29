@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_timeline\Controller;
 
+use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\pds_recipe_template\Controller\RowController as BaseRowController;
 use JsonException;
@@ -119,6 +120,19 @@ final class TimelineRowController extends ControllerBase {
     $payload = $this->decodePayload($request);
     $timeline = $this->extractTimelineEntries($payload);
 
+    //1.1.- Normalize the UUID even when legacy rows only expose numeric identifiers.
+    $effective_uuid = $this->resolveRowUuid($payload, $row_uuid);
+    if ($effective_uuid === NULL) {
+      return new JsonResponse([
+        'status' => 'error',
+        'message' => 'Row identifier is missing.',
+      ], 400);
+    }
+    if ($effective_uuid !== $row_uuid) {
+      $row_uuid = $effective_uuid;
+      $request->attributes->set('row_uuid', $row_uuid);
+    }
+
     $response = $this->baseController()->update($request, $uuid, $row_uuid);
     if ($response->getStatusCode() !== 200) {
       return $response;
@@ -213,6 +227,45 @@ final class TimelineRowController extends ControllerBase {
     $request->attributes->set(self::TIMELINE_REQUEST_MARKER, $decoded);
 
     return $decoded;
+  }
+
+  /**
+   * Resolve the canonical row UUID even when callers provide numeric identifiers.
+   */
+  private function resolveRowUuid(array $payload, string $fallback): ?string {
+    //1.- Honor valid UUIDs coming from the request payload or routing fallback immediately.
+    if (is_string($fallback) && Uuid::isValid($fallback)) {
+      return $fallback;
+    }
+
+    $row = $payload['row'] ?? [];
+    if (isset($row['uuid']) && is_string($row['uuid']) && Uuid::isValid($row['uuid'])) {
+      return $row['uuid'];
+    }
+
+    //2.- Extract the numeric id from either the top-level payload or the nested row definition.
+    $id = NULL;
+    if (isset($payload['row_id']) && is_numeric($payload['row_id'])) {
+      $id = (int) $payload['row_id'];
+    }
+    elseif (isset($row['id']) && is_numeric($row['id'])) {
+      $id = (int) $row['id'];
+    }
+    if (!$id) {
+      return NULL;
+    }
+
+    //3.- Look up the UUID associated with the provided id while ignoring soft-deleted records.
+    $connection = \Drupal::database();
+    $uuid = $connection->select('pds_template_item', 'i')
+      ->fields('i', ['uuid'])
+      ->condition('i.id', $id)
+      ->condition('i.deleted_at', NULL, 'IS NULL')
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    return is_string($uuid) && Uuid::isValid($uuid) ? $uuid : NULL;
   }
 
   /**

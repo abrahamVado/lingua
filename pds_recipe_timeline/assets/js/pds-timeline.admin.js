@@ -508,15 +508,82 @@
     }
 
     var row = rows[index] || {};
-    if (!row.uuid) {
-      return Promise.reject(new Error('Row UUID is required to persist timeline.'));
+    var rowUuid = typeof row.uuid === 'string' ? row.uuid.trim() : '';
+    var rowIdNumber = NaN;
+    var rowIdString = '';
+    if (typeof row.id === 'number' && !isNaN(row.id)) {
+      rowIdNumber = row.id;
+      rowIdString = String(row.id);
+    }
+    else if (typeof row.id === 'string' && row.id.trim() !== '') {
+      rowIdString = row.id.trim();
+      var parsedId = parseInt(rowIdString, 10);
+      if (!isNaN(parsedId)) {
+        rowIdNumber = parsedId;
+      }
+    }
+
+    //13.3.1.- Resolve the canonical identifier by falling back to the numeric id when UUIDs are absent.
+    if (!rowUuid) {
+      var dataset = readTimelineDataset(root);
+      if (dataset) {
+        var datasetKey = buildRowKey(row);
+        if (datasetKey && dataset[datasetKey] && typeof dataset[datasetKey].uuid === 'string') {
+          var datasetUuid = dataset[datasetKey].uuid.trim();
+          if (datasetUuid) {
+            rowUuid = datasetUuid;
+          }
+        }
+        if (!rowUuid && (rowIdString || !isNaN(rowIdNumber))) {
+          var numericCandidate = !isNaN(rowIdNumber) ? rowIdNumber : null;
+          var stringCandidate = rowIdString || (numericCandidate !== null ? String(numericCandidate) : '');
+          Object.keys(dataset).some(function (candidateKey) {
+            var candidate = dataset[candidateKey];
+            if (!candidate || typeof candidate !== 'object') {
+              return false;
+            }
+            var candidateUuid = typeof candidate.uuid === 'string' ? candidate.uuid.trim() : '';
+            if (!candidateUuid) {
+              return false;
+            }
+            var candidateIdNumber = typeof candidate.id === 'number'
+              ? candidate.id
+              : (typeof candidate.id === 'string' ? parseInt(candidate.id, 10) : NaN);
+            var candidateIdString = typeof candidate.id === 'string'
+              ? candidate.id.trim()
+              : (typeof candidate.id === 'number' ? String(candidate.id) : '');
+            if (stringCandidate && candidateIdString && candidateIdString === stringCandidate) {
+              rowUuid = candidateUuid;
+              return true;
+            }
+            if (numericCandidate !== null && !isNaN(candidateIdNumber) && candidateIdNumber === numericCandidate) {
+              rowUuid = candidateUuid;
+              return true;
+            }
+            return false;
+          });
+        }
+      }
+    }
+
+    if (rowUuid) {
+      row.uuid = rowUuid;
+      rows[index].uuid = rowUuid;
+    }
+
+    if (!rowUuid && !rowIdString && isNaN(rowIdNumber)) {
+      return Promise.reject(new Error('Row identifier is required to persist timeline.'));
     }
 
     var entries = collectEntries(modal);
     //13.4.- Reemplazamos el marcador de UUID o anexamos el identificador cuando el atributo ya expone la ruta final.
     var updateUrl = updateUrlTemplate;
+    var identifier = rowUuid || (rowIdString || String(rowIdNumber));
+    if (!identifier) {
+      return Promise.reject(new Error('Timeline endpoint is missing the row identifier.'));
+    }
     if (updateUrl.indexOf(UPDATE_PLACEHOLDER) !== -1) {
-      updateUrl = updateUrl.replace(UPDATE_PLACEHOLDER, row.uuid);
+      updateUrl = updateUrl.replace(UPDATE_PLACEHOLDER, identifier);
     }
     else {
       //13.4.1.- Inserta el identificador antes de los parámetros cuando el endpoint no usa placeholder.
@@ -524,10 +591,10 @@
       if (queryIndex !== -1) {
         var baseUrl = updateUrl.slice(0, queryIndex).replace(/\/$/, '');
         var query = updateUrl.slice(queryIndex);
-        updateUrl = baseUrl + '/' + row.uuid + query;
+        updateUrl = baseUrl + '/' + identifier + query;
       }
       else {
-        updateUrl = updateUrl.replace(/\/$/, '') + '/' + row.uuid;
+        updateUrl = updateUrl.replace(/\/$/, '') + '/' + identifier;
       }
     }
 
@@ -547,12 +614,25 @@
     if (typeof row.image_fid !== 'undefined') {
       payloadRow.image_fid = row.image_fid;
     }
+    if (typeof row.id !== 'undefined') {
+      payloadRow.id = row.id;
+    }
+    if (rowUuid) {
+      payloadRow.uuid = rowUuid;
+    }
 
     var payload = {
       row: payloadRow,
       recipe_type: recipeType,
       weight: typeof row.weight === 'number' ? row.weight : index
     };
+
+    if (!isNaN(rowIdNumber)) {
+      payload.row_id = rowIdNumber;
+    }
+    else if (rowIdString) {
+      payload.row_id = rowIdString;
+    }
 
     return fetch(updateUrl, {
       method: 'PATCH',
