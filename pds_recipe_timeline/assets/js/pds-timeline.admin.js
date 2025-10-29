@@ -519,7 +519,16 @@
       updateUrl = updateUrl.replace(UPDATE_PLACEHOLDER, row.uuid);
     }
     else {
-      updateUrl = updateUrl.replace(/\/$/, '') + '/' + row.uuid;
+      //13.4.1.- Inserta el identificador antes de los parámetros cuando el endpoint no usa placeholder.
+      var queryIndex = updateUrl.indexOf('?');
+      if (queryIndex !== -1) {
+        var baseUrl = updateUrl.slice(0, queryIndex).replace(/\/$/, '');
+        var query = updateUrl.slice(queryIndex);
+        updateUrl = baseUrl + '/' + row.uuid + query;
+      }
+      else {
+        updateUrl = updateUrl.replace(/\/$/, '') + '/' + row.uuid;
+      }
     }
 
     var payloadRow = {
