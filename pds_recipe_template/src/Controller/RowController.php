@@ -253,7 +253,40 @@ final class RowController extends ControllerBase {
         ->fetchField();
 
       if (!$group_id) {
-        //5.- Return an empty dataset when the block has not stored rows yet.
+        //5.- Attempt to reuse a legacy group identifier supplied by the caller when the UUID lookup fails.
+        $raw_group = $request->query->get('group_id');
+        if (is_scalar($raw_group) && $raw_group !== '') {
+          $candidate_id = (int) $raw_group;
+          if ($candidate_id > 0) {
+            $legacy_row = $connection->select('pds_template_group', 'g')
+              ->fields('g', ['id', 'uuid'])
+              ->condition('g.id', $candidate_id)
+              ->condition('g.deleted_at', NULL, 'IS NULL')
+              ->range(0, 1)
+              ->execute()
+              ->fetchAssoc();
+
+            if ($legacy_row) {
+              $group_id = (int) $legacy_row['id'];
+              $stored_uuid = is_string($legacy_row['uuid'] ?? NULL)
+                ? (string) $legacy_row['uuid']
+                : '';
+
+              if ($uuid !== '' && (!Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
+                //6.- Repair the legacy record by storing the fresh UUID so future AJAX calls no longer need the fallback id.
+                $connection->update('pds_template_group')
+                  ->fields(['uuid' => $uuid])
+                  ->condition('id', $group_id)
+                  ->condition('deleted_at', NULL, 'IS NULL')
+                  ->execute();
+              }
+            }
+          }
+        }
+      }
+
+      if (!$group_id) {
+        //7.- Return an empty dataset when no active record matched either lookup strategy.
         return new JsonResponse([
           'status' => 'ok',
           'rows' => [],
@@ -282,7 +315,7 @@ final class RowController extends ControllerBase {
 
       $rows = [];
       foreach ($result as $record) {
-        //6.- Normalize every column into the structure expected by the admin UI.
+        //8.- Normalize every column into the structure expected by the admin UI.
         $desktop = (string) $record->desktop_img;
         $mobile = (string) $record->mobile_img;
 
@@ -309,7 +342,7 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //7.- Surface a friendly error when the database lookup fails unexpectedly.
+      //9.- Surface a friendly error when the database lookup fails unexpectedly.
       return new JsonResponse([
         'status' => 'error',
         'message' => 'Unable to load rows.',

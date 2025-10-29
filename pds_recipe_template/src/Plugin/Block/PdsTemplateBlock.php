@@ -394,12 +394,18 @@ final class PdsTemplateBlock extends BlockBase {
       ],
     )->toString();
 
+    $list_query = ['type' => $recipe_type];
+    if ($group_id > 0) {
+      //1.- Pass the resolved group id so the listing endpoint can hydrate legacy blocks that never stored a UUID.
+      $list_query['group_id'] = (string) $group_id;
+    }
+
     $list_rows_url = Url::fromRoute(
       'pds_recipe_template.list_rows',
       ['uuid' => $block_uuid],
       [
         'absolute' => TRUE,
-        'query' => ['type' => $recipe_type],
+        'query' => $list_query,
       ],
     )->toString();
 
