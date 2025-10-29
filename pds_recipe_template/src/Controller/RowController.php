@@ -6,6 +6,7 @@ namespace Drupal\pds_recipe_template\Controller;
 
 use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\Database\Connection;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Throwable;
@@ -244,36 +245,42 @@ final class RowController extends ControllerBase {
 
       $connection = \Drupal::database();
 
+      $fallback_candidates = [];
+
+      $raw_fallback = $request->query->get('fallback_group_id');
+      if (is_scalar($raw_fallback) && $raw_fallback !== '') {
+        $candidate = (int) $raw_fallback;
+        if ($candidate > 0) {
+          //1.- Prioritize the historical identifier so legacy datasets reconnect before considering newer ids.
+          $fallback_candidates[] = $candidate;
+        }
+      }
+
+      $raw_group = $request->query->get('group_id');
+      if (is_scalar($raw_group) && $raw_group !== '') {
+        $candidate = (int) $raw_group;
+        if ($candidate > 0 && !in_array($candidate, $fallback_candidates, TRUE)) {
+          //2.- Append the active modal id without duplicating the already prioritized fallback reference.
+          $fallback_candidates[] = $candidate;
+        }
+      }
+
       //4.- Load the numeric group id so we can scope the item query correctly.
-      $group_id = $connection->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
+      $group_row = $connection->select('pds_template_group', 'g')
+        ->fields('g', ['id', 'uuid'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
         ->execute()
-        ->fetchField();
+        ->fetchAssoc();
+
+      $group_id = 0;
+      if ($group_row && !empty($group_row['id'])) {
+        $group_id = (int) $group_row['id'];
+      }
 
       if (!$group_id) {
         //5.- Attempt to reuse a legacy group identifier supplied by the caller when the UUID lookup fails.
-        $legacy_candidates = [];
-
-        $raw_fallback = $request->query->get('fallback_group_id');
-        if (is_scalar($raw_fallback) && $raw_fallback !== '') {
-          $candidate = (int) $raw_fallback;
-          if ($candidate > 0) {
-            $legacy_candidates[] = $candidate;
-          }
-        }
-
-        $raw_group = $request->query->get('group_id');
-        if (is_scalar($raw_group) && $raw_group !== '') {
-          $candidate = (int) $raw_group;
-          if ($candidate > 0 && !in_array($candidate, $legacy_candidates, TRUE)) {
-            //6.- Append the modal's active identifier while keeping fallbacks first so historical rows win.
-            $legacy_candidates[] = $candidate;
-          }
-        }
-
-        foreach ($legacy_candidates as $candidate_id) {
+        foreach ($fallback_candidates as $candidate_id) {
           $legacy_row = $connection->select('pds_template_group', 'g')
             ->fields('g', ['id', 'uuid'])
             ->condition('g.id', $candidate_id)
@@ -312,47 +319,41 @@ final class RowController extends ControllerBase {
         ]);
       }
 
-      $query = $connection->select('pds_template_item', 'i')
-        ->fields('i', [
-          'id',
-          'uuid',
-          'weight',
-          'header',
-          'subheader',
-          'description',
-          'url',
-          'desktop_img',
-          'mobile_img',
-          'latitud',
-          'longitud',
-        ])
-        ->condition('i.group_id', (int) $group_id)
-        ->condition('i.deleted_at', NULL, 'IS NULL')
-        ->orderBy('i.weight', 'ASC');
+      $rows = $this->loadRowsForGroup($connection, (int) $group_id);
 
-      $result = $query->execute();
+      if ($rows === [] && $fallback_candidates !== []) {
+        foreach ($fallback_candidates as $candidate_id) {
+          if ($candidate_id === (int) $group_id) {
+            continue;
+          }
 
-      $rows = [];
-      foreach ($result as $record) {
-        //8.- Normalize every column into the structure expected by the admin UI.
-        $desktop = (string) $record->desktop_img;
-        $mobile = (string) $record->mobile_img;
+          $candidate_rows = $this->loadRowsForGroup($connection, $candidate_id);
+          if ($candidate_rows === []) {
+            continue;
+          }
 
-        $rows[] = [
-          'id' => (int) $record->id,
-          'uuid' => (string) $record->uuid,
-          'header' => (string) $record->header,
-          'subheader' => (string) $record->subheader,
-          'description' => (string) $record->description,
-          'link' => (string) $record->url,
-          'desktop_img' => $desktop,
-          'mobile_img' => $mobile,
-          'image_url' => $desktop,
-          'latitud' => $record->latitud !== NULL ? (float) $record->latitud : NULL,
-          'longitud' => $record->longitud !== NULL ? (float) $record->longitud : NULL,
-          'weight' => (int) $record->weight,
-          'thumbnail' => $desktop !== '' ? $desktop : $mobile,
-        ];
+          $legacy_uuid = $connection->select('pds_template_group', 'g')
+            ->fields('g', ['uuid'])
+            ->condition('g.id', $candidate_id)
+            ->condition('g.deleted_at', NULL, 'IS NULL')
+            ->range(0, 1)
+            ->execute()
+            ->fetchField();
+
+          if ($uuid !== '' && (!is_string($legacy_uuid) || !Uuid::isValid((string) $legacy_uuid) || $legacy_uuid !== $uuid)) {
+            //8.- Repair the historical record by storing the active UUID so future AJAX calls skip the fallback path.
+            $connection->update('pds_template_group')
+              ->fields(['uuid' => $uuid])
+              ->condition('id', $candidate_id)
+              ->condition('deleted_at', NULL, 'IS NULL')
+              ->execute();
+          }
+
+          //9.- Reuse the populated legacy dataset so the preview renders the rows editors expect.
+          $group_id = $candidate_id;
+          $rows = $candidate_rows;
+          break;
+        }
       }
 
       //9.- Provide the resolved identifier so the admin UI can repair legacy dialogs that lost their cached group id.
@@ -369,6 +370,54 @@ final class RowController extends ControllerBase {
         'message' => 'Unable to load rows.',
       ], 500);
     }
+  }
+
+  private function loadRowsForGroup(Connection $connection, int $group_id): array {
+    //1.- Query active template items ordered by their saved weight so previews mirror the editor ordering.
+    $query = $connection->select('pds_template_item', 'i')
+      ->fields('i', [
+        'id',
+        'uuid',
+        'weight',
+        'header',
+        'subheader',
+        'description',
+        'url',
+        'desktop_img',
+        'mobile_img',
+        'latitud',
+        'longitud',
+      ])
+      ->condition('i.group_id', $group_id)
+      ->condition('i.deleted_at', NULL, 'IS NULL')
+      ->orderBy('i.weight', 'ASC');
+
+    $result = $query->execute();
+
+    $rows = [];
+    foreach ($result as $record) {
+      $desktop = (string) $record->desktop_img;
+      $mobile = (string) $record->mobile_img;
+
+      //2.- Normalize the database record into the structure expected by the admin preview table.
+      $rows[] = [
+        'id' => (int) $record->id,
+        'uuid' => (string) $record->uuid,
+        'header' => (string) $record->header,
+        'subheader' => (string) $record->subheader,
+        'description' => (string) $record->description,
+        'link' => (string) $record->url,
+        'desktop_img' => $desktop,
+        'mobile_img' => $mobile,
+        'image_url' => $desktop,
+        'latitud' => $record->latitud !== NULL ? (float) $record->latitud : NULL,
+        'longitud' => $record->longitud !== NULL ? (float) $record->longitud : NULL,
+        'weight' => (int) $record->weight,
+        'thumbnail' => $desktop !== '' ? $desktop : $mobile,
+      ];
+    }
+
+    return $rows;
   }
 
   public function update(Request $request, string $uuid, string $row_uuid): JsonResponse {
