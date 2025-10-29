@@ -1,0 +1,11 @@
+{
+  "name": "prodigiousmx/pds_recipe_slider_banner",
+  "description": "Slider Banner recipe module that reuses the shared template services.",
+  "type": "drupal-custom-module",
+  "license": "proprietary",
+  "autoload": {
+    "psr-4": {
+      "Drupal\\pds_recipe_slider_banner\\": "src/"
+    }
+  }
+}

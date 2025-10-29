@@ -1,0 +1,53 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Ensure shared helper functions from the template module remain available.
+ */
+function pds_recipe_slider_banner_bootstrap_shared_helpers(): void {
+  //1.- Delegate to the template module so the procedural helpers stay centralized.
+  if (function_exists('pds_recipe_template_register_runtime_autoloader')) {
+    pds_recipe_template_register_runtime_autoloader();
+  }
+}
+
+pds_recipe_slider_banner_bootstrap_shared_helpers();
+
+/**
+ * Implements hook_theme().
+ */
+function pds_recipe_slider_banner_theme($existing, $type, $theme, $path): array {
+  //1.- Reuse the shared Twig structure while pointing at the slider banner template file.
+  return [
+    'pds_slider_banner_block' => [
+      'template' => 'pds-slider-banner',
+      'path' => $path . '/templates',
+      'variables' => [
+        'items' => [],
+        'group_id' => NULL,
+        'instance_uuid' => '',
+      ],
+    ],
+  ];
+}
+
+/**
+ * Provide a convenience wrapper for resolving the shared schema repairer.
+ */
+function pds_recipe_slider_banner_resolve_schema_repairer(): ?object {
+  //1.- Defer to the template module helper so both recipes remain in sync.
+  return function_exists('pds_recipe_template_resolve_schema_repairer')
+    ? pds_recipe_template_resolve_schema_repairer()
+    : NULL;
+}
+
+/**
+ * Provide a convenience wrapper for resolving the shared image promoter.
+ */
+function pds_recipe_slider_banner_resolve_row_image_promoter(): ?object {
+  //1.- Defer to the template module helper so both recipes upload assets consistently.
+  return function_exists('pds_recipe_template_resolve_row_image_promoter')
+    ? pds_recipe_template_resolve_row_image_promoter()
+    : NULL;
+}

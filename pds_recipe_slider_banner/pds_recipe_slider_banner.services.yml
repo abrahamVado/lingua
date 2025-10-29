@@ -1,0 +1,13 @@
+services:
+  pds_recipe_slider_banner.template_group_manager:
+    alias: pds_recipe_template.template_group_manager
+  pds_recipe_slider_banner.group_ensurer:
+    alias: pds_recipe_template.template_group_manager
+    deprecated:
+      package: pds_recipe_slider_banner
+      version: '1.0'
+      message: 'Legacy alias retained for readability. The "%alias_id%" service is deprecated; use "pds_recipe_slider_banner.template_group_manager" instead.'
+  pds_recipe_slider_banner.row_image_promoter:
+    alias: pds_recipe_template.row_image_promoter
+  pds_recipe_slider_banner.legacy_schema_repairer:
+    alias: pds_recipe_template.legacy_schema_repairer
