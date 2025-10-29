@@ -77,6 +77,76 @@
       .replace(/'/g, '&#039;');
   }
 
+  function parseTimelineTextarea(rawValue) {
+    //1.- Normalize the payload to a string so subsequent operations remain predictable.
+    if (typeof rawValue !== 'string') {
+      return [];
+    }
+
+    var lines = rawValue.split(/\r?\n/);
+    var entries = [];
+    var weight = 0;
+
+    for (var i = 0; i < lines.length; i++) {
+      var trimmed = lines[i].trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      var parts = trimmed.split('|');
+      var yearPart = parts.shift();
+      var labelPart = parts.join('|').trim();
+      var year = parseInt(yearPart, 10);
+
+      if (isNaN(year) || labelPart === '') {
+        continue;
+      }
+
+      //2.- Store the year and label pair while preserving the editor supplied order.
+      entries.push({
+        year: year,
+        label: labelPart,
+        weight: weight,
+      });
+      weight++;
+    }
+
+    return entries;
+  }
+
+  function stringifyTimeline(entries) {
+    //1.- Skip processing when the provided collection is empty or not iterable.
+    if (!Array.isArray(entries) || !entries.length) {
+      return '';
+    }
+
+    var lines = [];
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i] || {};
+      if (typeof entry.year === 'undefined' || entry.year === null) {
+        continue;
+      }
+      if (entry.label === undefined || entry.label === null) {
+        continue;
+      }
+
+      var year = parseInt(entry.year, 10);
+      if (isNaN(year)) {
+        continue;
+      }
+
+      var label = String(entry.label).trim();
+      if (!label) {
+        continue;
+      }
+
+      //2.- Combine the values using the YEAR|Label format expected by the PHP sanitizer.
+      lines.push(String(year) + '|' + label);
+    }
+
+    return lines.join('\n');
+  }
+
   var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
   function ensureErrorContainer(root) {
@@ -324,6 +394,10 @@ function clearInputs(root) {
   if (f) {
     f.value = '';
   }
+  f = sel(root, 'pds-template-timeline', 'pds-template-timeline');
+  if (f) {
+    f.value = '';
+  }
 }
 
 
@@ -347,6 +421,10 @@ function clearInputs(root) {
     if (f) {
       f.value = row.link || '';
     }
+    f = sel(root, 'pds-template-timeline', 'pds-template-timeline');
+    if (f) {
+      f.value = stringifyTimeline(row.timeline || []);
+    }
   }
 
   function buildRowFromInputs(root, existingRow) {
@@ -357,6 +435,7 @@ function clearInputs(root) {
     var subEl    = sel(root, 'pds-template-subheader', 'pds-template-subheader');
     var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
     var linkEl   = sel(root, 'pds-template-link', 'pds-template-link');
+    var timelineEl = sel(root, 'pds-template-timeline', 'pds-template-timeline');
 
     //2.- Read each field while falling back to empty strings for optional values.
     var header      = headerEl ? headerEl.value : '';
@@ -388,6 +467,15 @@ function clearInputs(root) {
       baseRow.image_url = '';
       baseRow.desktop_img = '';
       baseRow.mobile_img = '';
+    }
+
+    if (timelineEl) {
+      //5.- Decode the textarea value into structured timeline entries for persistence.
+      baseRow.timeline = parseTimelineTextarea(timelineEl.value || '');
+    }
+    else if (Array.isArray(existingRow.timeline)) {
+      //6.- Preserve previously loaded timelines when the textarea is not present (non timeline recipes).
+      baseRow.timeline = existingRow.timeline.slice();
     }
 
     //2.- Preserve the numeric identifier so edits keep pointing to the same entity.

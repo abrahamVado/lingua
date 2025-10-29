@@ -120,6 +120,14 @@ final class PdsTemplateBlock extends BlockBase {
   }
 
   /**
+   * Determine whether the current configuration targets the timeline recipe.
+   */
+  private function isTimelineRecipe(): bool {
+    //1.- Compare the stored recipe type with the dedicated identifier used by the timeline derivative.
+    return ($this->configuration['recipe_type'] ?? 'pds_recipe_template') === 'pds_recipe_timeline';
+  }
+
+  /**
    * Load active items for this block from DB.
    * Fallback to $this->configuration['items'] if DB fails or none yet.
    */
@@ -236,6 +244,7 @@ final class PdsTemplateBlock extends BlockBase {
     $result = $query->execute();
 
     $rows = [];
+    $item_ids = [];
     foreach ($result as $record) {
       //2.- Prefer the stored desktop asset when generating the preview image URL.
       $primary_image = (string) $record->desktop_img;
@@ -246,6 +255,9 @@ final class PdsTemplateBlock extends BlockBase {
 
       //4.- Normalize identifier metadata so the modal preview can reuse the same payload structure as the JSON listing endpoint and keep edit actions wired to the persisted rows.
       $resolved_id = isset($record->id) ? (int) $record->id : 0;
+      if ($resolved_id > 0) {
+        $item_ids[] = $resolved_id;
+      }
       $resolved_uuid = isset($record->uuid) ? (string) $record->uuid : '';
       if ($resolved_uuid !== '' && !Uuid::isValid($resolved_uuid)) {
         //5.- Ignore malformed UUIDs so legacy noise does not block rendering.
@@ -273,6 +285,21 @@ final class PdsTemplateBlock extends BlockBase {
       ];
     }
 
+    if ($rows !== [] && $this->isTimelineRecipe()) {
+      //4.- Enrich each item with its chronological milestones when the recipe supports timelines.
+      $timelines = \pds_recipe_template_load_timelines_for_items($connection, $item_ids);
+      foreach ($rows as &$row) {
+        $row_id = $row['id'] ?? 0;
+        if ($row_id && isset($timelines[$row_id])) {
+          $row['timeline'] = $timelines[$row_id];
+        }
+        else {
+          $row['timeline'] = [];
+        }
+      }
+      unset($row);
+    }
+
     return $rows;
   }
 
@@ -296,11 +323,16 @@ final class PdsTemplateBlock extends BlockBase {
       ->condition('deleted_at', NULL, 'IS NULL')
       ->execute();
 
-    //3.- Insert new items in the given order so database state mirrors the snapshot sequence.
+    if ($this->isTimelineRecipe()) {
+      //3.- Clear previous timeline milestones so fresh inserts replace them atomically.
+      \pds_recipe_template_soft_delete_group_timelines($connection, (int) $group_id, $now);
+    }
+
+    //4.- Insert new items in the given order so database state mirrors the snapshot sequence.
     foreach ($clean_items as $delta => $row) {
       $row_uuid = \Drupal::service('uuid')->generate();
 
-      $connection->insert('pds_template_item')
+      $insert_id = $connection->insert('pds_template_item')
         ->fields([
           'uuid'        => $row_uuid,
           'group_id'    => $group_id,
@@ -317,12 +349,20 @@ final class PdsTemplateBlock extends BlockBase {
           'deleted_at'  => NULL,
         ])
         ->execute();
+
+      if ($this->isTimelineRecipe()) {
+        //5.- Persist the per-item timeline entries immediately after inserting the base row.
+        $timeline_entries = isset($row['timeline'])
+          ? \pds_recipe_template_normalize_timeline_entries($row['timeline'])
+          : [];
+        \pds_recipe_template_replace_item_timeline($connection, (int) $insert_id, $timeline_entries, $now);
+      }
     }
 
-    //4.- Keep a configuration snapshot for fallback renders when the database is unavailable.
+    //6.- Keep a configuration snapshot for fallback renders when the database is unavailable.
     $this->configuration['items'] = $clean_items;
     if ($group_id) {
-      //5.- Mirror the id in configuration so future renders expose it without DB lookups.
+      //7.- Mirror the id in configuration so future renders expose it without DB lookups.
       $this->configuration['group_id'] = (int) $group_id;
     }
   }
@@ -647,6 +687,19 @@ final class PdsTemplateBlock extends BlockBase {
     ],
   ];
 
+  if ($recipe_type === 'pds_recipe_timeline') {
+    $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['timeline'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Timeline entries'),
+      '#description' => $this->t('Provide one entry per line using the format "YEAR|Label".'),
+      '#rows' => 4,
+      '#attributes' => [
+        'data-drupal-selector' => 'pds-template-timeline',
+        'id' => 'pds-template-timeline',
+      ],
+    ];
+  }
+
   //11.- Render the add row trigger that allows editors to append new cards via JS.
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['add_item'] = [
     '#type' => 'markup',
@@ -791,6 +844,11 @@ final class PdsTemplateBlock extends BlockBase {
         }
       }
 
+      $timeline_entries = [];
+      if (isset($item['timeline'])) {
+        $timeline_entries = \pds_recipe_template_normalize_timeline_entries($item['timeline']);
+      }
+
       $clean[] = [
         'header'      => $header,
         'subheader'   => $subheader,
@@ -800,6 +858,7 @@ final class PdsTemplateBlock extends BlockBase {
         'mobile_img'  => $mobile_img,
         'latitud'     => $item['latitud']  ?? NULL,
         'longitud'    => $item['longitud'] ?? NULL,
+        'timeline'    => $timeline_entries,
       ];
     }
 

@@ -65,6 +65,12 @@ final class RowController extends ControllerBase {
     $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
     $image_url = isset($row['image_url']) && is_string($row['image_url']) ? $row['image_url'] : '';
 
+    $timeline_entries = [];
+    if ($type === 'pds_recipe_timeline' && isset($row['timeline'])) {
+      //1.- Normalize timeline milestones so updates reuse the shared storage helper.
+      $timeline_entries = \pds_recipe_template_normalize_timeline_entries($row['timeline']);
+    }
+
     $latitud = NULL;
     if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
       $latitud = $row['latitud'] === NULL ? NULL : (float) $row['latitud'];
@@ -192,14 +198,22 @@ final class RowController extends ControllerBase {
         $response_row['weight'] = $weight;
       }
 
-      //11.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
-      return new JsonResponse([
+      $response_payload = [
         'status' => 'ok',
         'id' => (int) $insert_id,
         'uuid' => $row_uuid,
         'weight' => $weight,
         'row' => $response_row,
-      ]);
+      ];
+
+      if ($type === 'pds_recipe_timeline') {
+        //11.- Store the provided milestones so each executive exposes its career timeline.
+        \pds_recipe_template_replace_item_timeline($connection, (int) $insert_id, $timeline_entries, $now);
+        $response_payload['row']['timeline'] = $timeline_entries;
+      }
+
+      //12.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
+      return new JsonResponse($response_payload);
     }
     catch (Throwable $throwable) {
       //12.- Record the underlying reason so administrators can diagnose failed insert attempts from dblog.
@@ -244,6 +258,12 @@ final class RowController extends ControllerBase {
       }
 
       $connection = \Drupal::database();
+
+      $type = $request->query->get('type');
+      if (!is_string($type) || $type === '') {
+        //1.- Default to the base recipe so callers that omit the query parameter keep working.
+        $type = 'pds_recipe_template';
+      }
 
       $fallback_candidates = [];
 
@@ -319,7 +339,7 @@ final class RowController extends ControllerBase {
         ]);
       }
 
-      $rows = $this->loadRowsForGroup($connection, (int) $group_id);
+      $rows = $this->loadRowsForGroup($connection, (int) $group_id, $type);
 
       if ($rows === [] && $fallback_candidates !== []) {
         foreach ($fallback_candidates as $candidate_id) {
@@ -327,7 +347,7 @@ final class RowController extends ControllerBase {
             continue;
           }
 
-          $candidate_rows = $this->loadRowsForGroup($connection, $candidate_id);
+          $candidate_rows = $this->loadRowsForGroup($connection, $candidate_id, $type);
           if ($candidate_rows === []) {
             continue;
           }
@@ -372,7 +392,7 @@ final class RowController extends ControllerBase {
     }
   }
 
-  private function loadRowsForGroup(Connection $connection, int $group_id): array {
+  private function loadRowsForGroup(Connection $connection, int $group_id, string $recipe_type = 'pds_recipe_template'): array {
     //1.- Query active template items ordered by their saved weight so previews mirror the editor ordering.
     $query = $connection->select('pds_template_item', 'i')
       ->fields('i', [
@@ -395,13 +415,19 @@ final class RowController extends ControllerBase {
     $result = $query->execute();
 
     $rows = [];
+    $item_ids = [];
     foreach ($result as $record) {
       $desktop = (string) $record->desktop_img;
       $mobile = (string) $record->mobile_img;
 
       //2.- Normalize the database record into the structure expected by the admin preview table.
+      $resolved_id = (int) $record->id;
+      if ($resolved_id > 0) {
+        $item_ids[] = $resolved_id;
+      }
+
       $rows[] = [
-        'id' => (int) $record->id,
+        'id' => $resolved_id,
         'uuid' => (string) $record->uuid,
         'header' => (string) $record->header,
         'subheader' => (string) $record->subheader,
@@ -415,6 +441,21 @@ final class RowController extends ControllerBase {
         'weight' => (int) $record->weight,
         'thumbnail' => $desktop !== '' ? $desktop : $mobile,
       ];
+    }
+
+    if ($recipe_type === 'pds_recipe_timeline' && $rows !== []) {
+      //3.- Pull timeline milestones for each row so the preview mirrors the saved chronology.
+      $timelines = \pds_recipe_template_load_timelines_for_items($connection, $item_ids);
+      foreach ($rows as &$row) {
+        $row_id = $row['id'] ?? 0;
+        if ($row_id && isset($timelines[$row_id])) {
+          $row['timeline'] = $timelines[$row_id];
+        }
+        else {
+          $row['timeline'] = [];
+        }
+      }
+      unset($row);
     }
 
     return $rows;
@@ -579,6 +620,12 @@ final class RowController extends ControllerBase {
         ->condition('uuid', $row_uuid)
         ->execute();
 
+      if ($type === 'pds_recipe_timeline') {
+        //7.- Refresh the timeline entries so edits replace the previous milestones.
+        $now = \Drupal::time()->getRequestTime();
+        \pds_recipe_template_replace_item_timeline($connection, (int) $existing['id'], $timeline_entries, $now);
+      }
+
       //7.- Echo the stored values back so the caller can refresh its cached state accurately.
       $response_row = [
         'header' => $fields['header'],
@@ -603,6 +650,11 @@ final class RowController extends ControllerBase {
       }
       elseif (isset($existing['weight'])) {
         $response_row['weight'] = (int) $existing['weight'];
+      }
+
+      if ($type === 'pds_recipe_timeline') {
+        //8.- Include the sanitized milestones so the UI reflects the saved sequence immediately.
+        $response_row['timeline'] = $timeline_entries;
       }
 
       return new JsonResponse([
