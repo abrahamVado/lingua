@@ -162,15 +162,32 @@ final class TimelineRowController extends ControllerBase {
   private function requestTargetsTimeline(Request $request): bool {
     //1.- Check the explicit query parameter because AJAX endpoints always append the recipe type.
     $type = $request->query->get('type');
-    if (is_string($type) && $type !== '') {
-      return $type === 'pds_recipe_timeline';
+    if ($this->isTimelineRecipeType($type)) {
+      return TRUE;
     }
 
     //2.- Inspect the JSON payload when the caller omitted the query string (e.g., direct service usage).
     $payload = $this->decodePayload($request);
-    $candidate = $payload['recipe_type'] ?? ($payload['row']['recipe_type'] ?? NULL);
-    if (is_string($candidate) && $candidate !== '') {
-      return $candidate === 'pds_recipe_timeline';
+    $candidates = [];
+    foreach (['recipe_type', 'recipeType', 'recipe-type'] as $key) {
+      if (array_key_exists($key, $payload)) {
+        $candidates[] = $payload[$key];
+      }
+    }
+
+    $row = $payload['row'] ?? NULL;
+    if (is_array($row)) {
+      foreach (['recipe_type', 'recipeType', 'recipe-type'] as $key) {
+        if (array_key_exists($key, $row)) {
+          $candidates[] = $row[$key];
+        }
+      }
+    }
+
+    foreach ($candidates as $candidate) {
+      if ($this->isTimelineRecipeType($candidate)) {
+        return TRUE;
+      }
     }
 
     //3.- Detect timeline intents when integrators forget to send the explicit recipe type but include timeline data.
@@ -183,6 +200,29 @@ final class TimelineRowController extends ControllerBase {
     }
 
     return FALSE;
+  }
+
+  /**
+   * Determine whether the provided recipe type references the timeline variant.
+   */
+  private function isTimelineRecipeType($value): bool {
+    //1.- Accept strings while tolerating surrounding whitespace and case variants.
+    if (!is_string($value)) {
+      return FALSE;
+    }
+    $normalized = trim(strtolower($value));
+    if ($normalized === '') {
+      return FALSE;
+    }
+
+    //2.- Match the canonical machine name and legacy aliases used by historical payloads.
+    $aliases = [
+      'pds_recipe_timeline',
+      'pds-recipe-timeline',
+      'timeline',
+    ];
+
+    return in_array($normalized, $aliases, TRUE);
   }
 
   /**

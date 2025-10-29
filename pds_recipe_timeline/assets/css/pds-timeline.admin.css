@@ -100,3 +100,14 @@
 .pds-timeline-admin-modal[hidden] {
   display: none !important;
 }
+
+/* //12.- Indicamos visualmente el modo de guardado deshabilitando interacciones mientras se persiste. */
+.pds-timeline-admin-modal.is-saving {
+  cursor: progress;
+}
+
+/* //13.- Atenuamos el botón de guardado durante el envío para comunicar el estado ocupado. */
+.pds-timeline-admin-modal.is-saving [data-pds-timeline-save][disabled] {
+  opacity: 0.65;
+  cursor: progress;
+}
