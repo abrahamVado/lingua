@@ -56,6 +56,81 @@
     return '';
   }
 
+  //3.6.- Escapa selectores de atributos para soportar UUIDs con caracteres especiales en todos los navegadores.
+  function escapeAttributeSelector(value) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+      return CSS.escape(value);
+    }
+    var sanitized = value.replace(/\\/g, '\\\\');
+    sanitized = sanitized.replace(/"/g, '\\"');
+    return sanitized;
+  }
+
+  //3.7.- Rehidrata la referencia al formulario incluso cuando el DOM se reemplaza vía AJAX.
+  function resolveAdminRoot(modal) {
+    if (!modal) {
+      return null;
+    }
+
+    //1.- Prioriza la referencia almacenada durante la apertura del modal cuando aún está en el DOM.
+    var stored = modal._pdsTimelineRoot || null;
+    if (stored && stored.isConnected) {
+      return stored;
+    }
+
+    //2.- Busca el contenedor directamente con el UUID del bloque cuando está disponible.
+    var rootId = modal.dataset.rootId || '';
+    if (rootId) {
+      var escapedId = escapeAttributeSelector(rootId);
+      if (escapedId) {
+        var direct = document.querySelector('.js-pds-template-admin[data-pds-template-block-uuid="' + escapedId + '"]');
+        if (direct) {
+          return direct;
+        }
+      }
+    }
+
+    //3.- Filtra candidatos por el tipo de receta para elegir el formulario activo correcto.
+    var recipeType = modal.dataset.recipeType || '';
+    var candidates = Array.prototype.slice.call(document.querySelectorAll('.js-pds-template-admin'));
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    var matchesRecipe = candidates.filter(function (candidate) {
+      var candidateType = candidate.getAttribute('data-pds-template-recipe-type') || '';
+      return recipeType && candidateType === recipeType;
+    });
+    if (matchesRecipe.length === 1) {
+      return matchesRecipe[0];
+    }
+
+    //4.- Fallback al primer formulario con UUID cuando múltiples coincidencias comparten la misma receta.
+    if (matchesRecipe.length > 1) {
+      for (var i = 0; i < matchesRecipe.length; i++) {
+        if (matchesRecipe[i].getAttribute('data-pds-template-block-uuid')) {
+          return matchesRecipe[i];
+        }
+      }
+    }
+
+    //5.- Como último recurso toma el único formulario disponible para no bloquear la acción.
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    for (var j = 0; j < candidates.length; j++) {
+      if (candidates[j].getAttribute('data-pds-template-block-uuid')) {
+        return candidates[j];
+      }
+    }
+
+    return candidates[0];
+  }
+
   //5.- Preparamos el modal reutilizable que hospedará el editor de hitos cronológicos.
   function ensureModal(root) {
     var modal = document.querySelector('.pds-timeline-admin-modal');
@@ -397,12 +472,19 @@
 
     //13.1.- Resolve the active admin root element even after dynamic rerenders replaced the original node.
     var root = storedRoot && storedRoot.isConnected ? storedRoot : null;
-    if (!root && rootId) {
-      root = document.querySelector('.js-pds-template-admin[data-pds-template-block-uuid="' + rootId + '"]');
+    if (!root) {
+      root = resolveAdminRoot(modal);
     }
     if (!root) {
       return Promise.reject(new Error(Drupal.t('Unable to locate the recipe form. Refresh the page and try again.')));
     }
+
+    //13.1.1.- Refresca el UUID y conserva la referencia para guardados subsecuentes dentro de la misma sesión.
+    var refreshedId = root.getAttribute('data-pds-template-block-uuid') || '';
+    if (refreshedId) {
+      modal.dataset.rootId = refreshedId;
+    }
+    modal._pdsTimelineRoot = root;
 
     //13.2.- Fallback to attributes on the freshly resolved root when the modal cache lacks the latest values.
     if (!updateUrlTemplate) {
