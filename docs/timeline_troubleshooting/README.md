@@ -9,3 +9,4 @@ The following checks were performed while addressing the "Save timeline" action 
 - Checked the database installer (`pds_mxsuite.install`) for the `pds_template_item_timeline` schema to confirm timeline entries have a storage table.
 - Patched the admin modal handler (`pds_recipe_timeline/assets/js/pds-timeline.admin.js`) to support both placeholder and direct update URLs when persisting entries.
 - Added a safeguard in the modal persistence helper (`pds_recipe_timeline/assets/js/pds-timeline.admin.js`) to rehydrate the active recipe form when Layout Builder swaps DOM trees before saving.
+- Implemented an automatic schema bootstrap (`pds_recipe_timeline/src/Controller/TimelineRowController::ensureTimelineTableExists()`) so the `pds_template_item_timeline` table is created on demand when the original installer has not provisioned it.
