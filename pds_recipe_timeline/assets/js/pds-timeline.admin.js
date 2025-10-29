@@ -16,6 +16,41 @@
     return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(trimmed);
   }
 
+  //3.9.- Normaliza valores de identificador para producir variantes numéricas y textuales reutilizables.
+  function normalizeRowId(value) {
+    //1.- Acepta enteros positivos directamente para mantener compatibilidad con el backend.
+    if (typeof value === 'number' && !isNaN(value) && value > 0) {
+      return { number: value, string: String(value) };
+    }
+
+    //2.- Desglosa cadenas eliminando espacios y el prefijo histórico `id:` cuando exista.
+    if (typeof value === 'string') {
+      var trimmed = value.trim();
+      if (trimmed === '') {
+        return { number: NaN, string: '' };
+      }
+      if (trimmed.length > 3 && trimmed.slice(0, 3).toLowerCase() === 'id:') {
+        trimmed = trimmed.slice(3).trim();
+      }
+      if (trimmed === '') {
+        return { number: NaN, string: '' };
+      }
+      if (/^\d+$/.test(trimmed)) {
+        var parsed = parseInt(trimmed, 10);
+        return { number: parsed, string: String(parsed) };
+      }
+
+      return { number: NaN, string: trimmed };
+    }
+
+    //3.- Convierte otros escalares en cadena para reutilizar la lógica previa y descartar valores falsy.
+    if (value && typeof value.valueOf === 'function') {
+      return normalizeRowId(String(value.valueOf()));
+    }
+
+    return { number: NaN, string: '' };
+  }
+
   //1.- Local helper que resuelve el contenedor de vista previa generado por el template base.
   function resolvePreviewContent(root) {
     var wrapper = root.querySelector('[data-pds-template-preview-state="content"]');
@@ -57,14 +92,20 @@
       return '';
     }
     if (row.uuid && typeof row.uuid === 'string') {
-      return row.uuid;
+      var trimmedUuid = row.uuid.trim();
+      if (trimmedUuid !== '') {
+        return trimmedUuid;
+      }
     }
-    if (typeof row.id === 'number') {
-      return 'id:' + row.id;
+
+    var normalized = normalizeRowId(row.id);
+    if (!isNaN(normalized.number)) {
+      return 'id:' + normalized.number;
     }
-    if (typeof row.id === 'string' && row.id.trim() !== '') {
-      return 'id:' + row.id.trim();
+    if (normalized.string) {
+      return 'id:' + normalized.string;
     }
+
     return '';
   }
 
@@ -458,18 +499,28 @@
     }
 
     var key = '';
-    if (row.uuid) {
-      key = row.uuid;
-    } else if (typeof row.id === 'number') {
-      key = 'id:' + row.id;
+    var uuid = row.uuid && typeof row.uuid === 'string' ? row.uuid.trim() : '';
+    var normalizedId = normalizeRowId(row.id);
+    if (uuid && isValidUuid(uuid)) {
+      key = uuid;
+    }
+    if (!key) {
+      if (!isNaN(normalizedId.number)) {
+        key = 'id:' + normalizedId.number;
+      }
+      else if (normalizedId.string) {
+        key = 'id:' + normalizedId.string;
+      }
     }
     if (!key) {
       return;
     }
 
     master.datasets.timeline[key] = {
-      id: typeof row.id === 'number' ? row.id : null,
-      uuid: row.uuid || '',
+      id: !isNaN(normalizedId.number)
+        ? normalizedId.number
+        : (normalizedId.string ? normalizedId.string : null),
+      uuid: uuid && isValidUuid(uuid) ? uuid : '',
       timeline: Array.isArray(row.timeline) ? row.timeline : []
     };
   }
@@ -526,26 +577,10 @@
       row.uuid = '';
       rows[index].uuid = '';
     }
-    var rowIdNumber = NaN;
-    var rowIdString = '';
-    var rowIdRawString = '';
-    if (typeof row.id === 'number' && !isNaN(row.id)) {
-      rowIdNumber = row.id;
-      rowIdString = String(row.id);
-    }
-    else if (typeof row.id === 'string' && row.id.trim() !== '') {
-      rowIdRawString = row.id.trim();
-      rowIdString = rowIdRawString;
-      //13.3.1a.- Remove the legacy `id:` prefix so numeric identifiers remain usable without UUIDs.
-      if (rowIdString.length > 3 && rowIdString.slice(0, 3).toLowerCase() === 'id:') {
-        rowIdString = rowIdString.slice(3).trim();
-      }
-      var parsedId = parseInt(rowIdString, 10);
-      if (!isNaN(parsedId)) {
-        rowIdNumber = parsedId;
-        rowIdString = String(parsedId);
-      }
-    }
+    var rowIdRawString = typeof row.id === 'string' ? row.id.trim() : '';
+    var normalizedRowId = normalizeRowId(row.id);
+    var rowIdNumber = normalizedRowId.number;
+    var rowIdString = normalizedRowId.string;
 
     //13.3.1.- Resolve the canonical identifier by falling back to the numeric id when UUIDs are absent.
     if (!rowUuid) {
@@ -570,21 +605,9 @@
             if (!candidateUuid || !isValidUuid(candidateUuid)) {
               return false;
             }
-            var candidateIdNumber = NaN;
-            var candidateComparableId = '';
-            if (typeof candidate.id === 'number' && !isNaN(candidate.id)) {
-              candidateIdNumber = candidate.id;
-              candidateComparableId = String(candidate.id);
-            }
-            else if (typeof candidate.id === 'string') {
-              candidateComparableId = candidate.id.trim();
-              if (candidateComparableId.length > 3 && candidateComparableId.slice(0, 3).toLowerCase() === 'id:') {
-                candidateComparableId = candidateComparableId.slice(3).trim();
-              }
-              if (candidateComparableId && /^\d+$/.test(candidateComparableId)) {
-                candidateIdNumber = parseInt(candidateComparableId, 10);
-              }
-            }
+            var normalizedCandidate = normalizeRowId(candidate.id);
+            var candidateIdNumber = normalizedCandidate.number;
+            var candidateComparableId = normalizedCandidate.string;
             if (stringCandidate && candidateComparableId && candidateComparableId === stringCandidate) {
               rowUuid = candidateUuid;
               return true;
@@ -604,7 +627,7 @@
       rows[index].uuid = rowUuid;
     }
 
-    if (!rowUuid && !rowIdString && isNaN(rowIdNumber)) {
+    if (!rowUuid && !rowIdString && (isNaN(rowIdNumber) || rowIdNumber <= 0)) {
       return Promise.reject(new Error('Row identifier is required to persist timeline.'));
     }
 
@@ -613,10 +636,10 @@
     var updateUrl = updateUrlTemplate;
     var identifier = rowUuid && isValidUuid(rowUuid) ? rowUuid : '';
     if (!identifier) {
-      if (!isNaN(rowIdNumber)) {
+      if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
         identifier = String(rowIdNumber);
       }
-      else if (rowIdString && /^\d+$/.test(rowIdString)) {
+      else if (rowIdString && rowIdString !== '') {
         identifier = rowIdString;
       }
     }
@@ -655,7 +678,7 @@
     if (typeof row.image_fid !== 'undefined') {
       payloadRow.image_fid = row.image_fid;
     }
-    if (!isNaN(rowIdNumber)) {
+    if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
       payloadRow.id = rowIdNumber;
     }
     else if (rowIdString) {
@@ -674,10 +697,10 @@
       weight: typeof row.weight === 'number' ? row.weight : index
     };
 
-    if (!isNaN(rowIdNumber)) {
+    if (!isNaN(rowIdNumber) && rowIdNumber > 0) {
       payload.row_id = rowIdNumber;
     }
-    else if (rowIdString && /^\d+$/.test(rowIdString)) {
+    else if (rowIdString && rowIdString !== '') {
       payload.row_id = rowIdString;
     }
     else if (rowIdRawString) {
