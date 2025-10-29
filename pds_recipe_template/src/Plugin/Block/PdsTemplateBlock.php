@@ -11,6 +11,7 @@ use Drupal\Core\Database\Connection;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
+use Drupal\pds_recipe_template\TimelineSegmentsStorageTrait;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -24,6 +25,7 @@ use Symfony\Component\HttpFoundation\Request;
 final class PdsTemplateBlock extends BlockBase {
   use PdsTemplateBlockStateTrait;
   use PdsTemplateRenderContextTrait;
+  use TimelineSegmentsStorageTrait;
 
   /**
    * {@inheritdoc}
@@ -236,6 +238,7 @@ final class PdsTemplateBlock extends BlockBase {
     $result = $query->execute();
 
     $rows = [];
+    $item_ids = [];
     foreach ($result as $record) {
       //2.- Prefer the stored desktop asset when generating the preview image URL.
       $primary_image = (string) $record->desktop_img;
@@ -256,6 +259,10 @@ final class PdsTemplateBlock extends BlockBase {
         ? (int) $record->weight
         : NULL;
 
+      if ($resolved_id > 0) {
+        $item_ids[] = $resolved_id;
+      }
+
       $rows[] = [
         'id'          => $resolved_id,
         'uuid'        => $resolved_uuid,
@@ -270,7 +277,23 @@ final class PdsTemplateBlock extends BlockBase {
         'thumbnail'   => $primary_image,
         'latitud'     => $record->latitud,
         'longitud'    => $record->longitud,
+        //8.- Initialize the timeline collection so downstream consumers always read an array.
+        'timeline_segments' => [],
       ];
+    }
+
+    if ($item_ids !== []) {
+      //9.- Merge persisted timeline milestones into their parent rows for rich previews.
+      $segments_map = $this->loadTimelineSegments($connection, $item_ids);
+      if ($segments_map !== []) {
+        foreach ($rows as &$row) {
+          $row_id = isset($row['id']) ? (int) $row['id'] : 0;
+          if ($row_id > 0 && isset($segments_map[$row_id])) {
+            $row['timeline_segments'] = $segments_map[$row_id];
+          }
+        }
+        unset($row);
+      }
     }
 
     return $rows;
@@ -289,18 +312,35 @@ final class PdsTemplateBlock extends BlockBase {
     }
     $now = \Drupal::time()->getRequestTime();
 
-    //2.- Soft-delete all previous active items for this group.
+    //2.- Soft-delete timeline milestones tied to the current active items before replacing them.
+    try {
+      $active_items_query = $connection->select('pds_template_item', 'i')
+        ->fields('i', ['id'])
+        ->condition('i.group_id', $group_id)
+        ->condition('i.deleted_at', NULL, 'IS NULL');
+      $active_item_ids = $active_items_query->execute()->fetchCol();
+      if (is_array($active_item_ids) && $active_item_ids !== []) {
+        $this->softDeleteTimelineSegments($connection, $active_item_ids, $now);
+      }
+    }
+    catch (\Throwable $throwable) {
+      //3.- Ignore lookup failures so row replacements still occur.
+    }
+
+    //3.- Soft-delete all previous active items for this group.
     $connection->update('pds_template_item')
       ->fields(['deleted_at' => $now])
       ->condition('group_id', $group_id)
       ->condition('deleted_at', NULL, 'IS NULL')
       ->execute();
 
-    //3.- Insert new items in the given order so database state mirrors the snapshot sequence.
+    $snapshot_rows = [];
+
+    //4.- Insert new items in the given order so database state mirrors the snapshot sequence.
     foreach ($clean_items as $delta => $row) {
       $row_uuid = \Drupal::service('uuid')->generate();
 
-      $connection->insert('pds_template_item')
+      $insert_id = $connection->insert('pds_template_item')
         ->fields([
           'uuid'        => $row_uuid,
           'group_id'    => $group_id,
@@ -317,12 +357,24 @@ final class PdsTemplateBlock extends BlockBase {
           'deleted_at'  => NULL,
         ])
         ->execute();
+
+      //5.- Mirror the sanitized timeline segments back into the snapshot for render fallbacks.
+      $stored_segments = $this->replaceTimelineSegments(
+        $connection,
+        (int) $insert_id,
+        $row['timeline_segments'] ?? [],
+        $now
+      );
+
+      $snapshot_row = $row;
+      $snapshot_row['timeline_segments'] = $stored_segments;
+      $snapshot_rows[] = $snapshot_row;
     }
 
-    //4.- Keep a configuration snapshot for fallback renders when the database is unavailable.
-    $this->configuration['items'] = $clean_items;
+    //6.- Keep a configuration snapshot for fallback renders when the database is unavailable.
+    $this->configuration['items'] = $snapshot_rows;
     if ($group_id) {
-      //5.- Mirror the id in configuration so future renders expose it without DB lookups.
+      //7.- Mirror the id in configuration so future renders expose it without DB lookups.
       $this->configuration['group_id'] = (int) $group_id;
     }
   }
@@ -647,6 +699,18 @@ final class PdsTemplateBlock extends BlockBase {
     ],
   ];
 
+  $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['timeline_segments'] = [
+    '#type' => 'textarea',
+    '#title' => $this->t('Timeline milestones'),
+    '#description' => $this->t('Add one entry per line using the format "YEAR|Role".'),
+    '#rows' => 3,
+    '#attributes' => [
+      'data-drupal-selector' => 'pds-template-timeline',
+      'id' => 'pds-template-timeline',
+      'placeholder' => $this->t('1991|Executive Vice President'),
+    ],
+  ];
+
   //11.- Render the add row trigger that allows editors to append new cards via JS.
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['add_item'] = [
     '#type' => 'markup',
@@ -791,6 +855,8 @@ final class PdsTemplateBlock extends BlockBase {
         }
       }
 
+      $segments = $this->normalizeTimelineSegments($item['timeline_segments'] ?? []);
+
       $clean[] = [
         'header'      => $header,
         'subheader'   => $subheader,
@@ -800,6 +866,7 @@ final class PdsTemplateBlock extends BlockBase {
         'mobile_img'  => $mobile_img,
         'latitud'     => $item['latitud']  ?? NULL,
         'longitud'    => $item['longitud'] ?? NULL,
+        'timeline_segments' => $segments,
       ];
     }
 

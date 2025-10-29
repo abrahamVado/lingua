@@ -135,6 +135,54 @@ function pds_recipe_template_schema() {
     ],
   ];
 
+  //3.- Track timeline milestones attached to individual template items.
+  $schema['pds_template_item_timeline'] = [
+    'description' => 'Timeline segments linked to template items.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+      ],
+      'item_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'weight' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'year_label' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'description' => [
+        'type' => 'varchar',
+        'length' => 512,
+        'not null' => TRUE,
+        'default' => '',
+      ],
+      'created_at' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ],
+      'deleted_at' => [
+        'type' => 'int',
+        'not null' => FALSE,
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'item_id' => ['item_id'],
+      'weight' => ['weight'],
+      'deleted_at' => ['deleted_at'],
+    ],
+  ];
+
   return $schema;
 }
 
@@ -233,6 +281,23 @@ function pds_recipe_template_update_9001(): void {
 
   //10.- Drop the legacy table once migration is complete to avoid stale state.
   $schema->dropTable($legacy_table);
+}
+
+/**
+ * Create the timeline segment table for recipes that require milestone tracking.
+ */
+function pds_recipe_template_update_9004(): void {
+  //1.- Keep schema definitions in sync with fresh installs for deterministic deployments.
+  $schema_definition = pds_recipe_template_schema();
+  $connection = \Drupal::database();
+  $schema = $connection->schema();
+
+  if ($schema->tableExists('pds_template_item_timeline')) {
+    return;
+  }
+
+  //2.- Provision the auxiliary table so timeline-aware recipes can persist milestones.
+  $schema->createTable('pds_template_item_timeline', $schema_definition['pds_template_item_timeline']);
 }
 
 /**

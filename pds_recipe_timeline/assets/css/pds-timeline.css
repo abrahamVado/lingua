@@ -194,6 +194,26 @@ body {
   clip: auto;
   white-space: normal;
 }
+.principal-timeline__job-info-year {
+  /* //2.- Destacamos el año de cada hito con mayor peso visual. */
+  display: block;
+  font-weight: 700;
+  font-size: 12px;
+}
+.principal-timeline__job-info-text {
+  /* //3.- Presentamos la descripción corta del cargo debajo del año correspondiente. */
+  display: block;
+  font-weight: 600;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.principal-timeline__job-info-description {
+  /* //4.- Mantemos la descripción general del perfil en su propia línea para mayor legibilidad. */
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
 .principal-timeline__tooltip {
   position: fixed;
   z-index: 30;

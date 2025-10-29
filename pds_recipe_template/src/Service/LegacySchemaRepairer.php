@@ -43,33 +43,40 @@ final class LegacySchemaRepairer {
       $item_definition = $this->buildItemDefinition();
       if (!$schema->tableExists('pds_template_item')) {
         $schema->createTable('pds_template_item', $item_definition);
-        return TRUE;
       }
+      else {
+        //2.- Inspect the existing schema for missing or legacy columns.
+        $expected_fields = array_keys($item_definition['fields']);
+        $missing_fields = [];
+        foreach ($expected_fields as $field) {
+          if (!$schema->fieldExists('pds_template_item', $field)) {
+            $missing_fields[] = $field;
+          }
+        }
 
-      //2.- Inspect the existing schema for missing or legacy columns.
-      $expected_fields = array_keys($item_definition['fields']);
-      $missing_fields = [];
-      foreach ($expected_fields as $field) {
-        if (!$schema->fieldExists('pds_template_item', $field)) {
-          $missing_fields[] = $field;
+        $legacy_fields_present = FALSE;
+        $legacy_fields = ['block_uuid', 'link', 'image_url', 'latitude', 'longitude'];
+        foreach ($legacy_fields as $legacy_field) {
+          if ($schema->fieldExists('pds_template_item', $legacy_field)) {
+            $legacy_fields_present = TRUE;
+            break;
+          }
+        }
+
+        if ($missing_fields || $legacy_fields_present) {
+          //3.- Rebuild the table on the fly so runtime operations use the modern layout.
+          if (!$this->rebuildItemTable($item_definition)) {
+            return FALSE;
+          }
         }
       }
 
-      $legacy_fields_present = FALSE;
-      $legacy_fields = ['block_uuid', 'link', 'image_url', 'latitude', 'longitude'];
-      foreach ($legacy_fields as $legacy_field) {
-        if ($schema->fieldExists('pds_template_item', $legacy_field)) {
-          $legacy_fields_present = TRUE;
-          break;
-        }
+      $timeline_definition = $this->buildTimelineDefinition();
+      if (!$this->ensureTimelineTableUpToDate($timeline_definition)) {
+        return FALSE;
       }
 
-      if (!$missing_fields && !$legacy_fields_present) {
-        return TRUE;
-      }
-
-      //3.- Rebuild the table on the fly so runtime operations use the modern layout.
-      return $this->rebuildItemTable($item_definition);
+      return TRUE;
     }
     catch (Throwable $throwable) {
       //4.- Capture unexpected failures so callers can fall back to manual updates.
@@ -251,6 +258,186 @@ final class LegacySchemaRepairer {
     }
 
     return TRUE;
+  }
+
+  /**
+   * Guarantee the timeline table matches the expected structure.
+   */
+  private function ensureTimelineTableUpToDate(array $definition): bool {
+    $schema = $this->connection->schema();
+
+    if (!$schema->tableExists('pds_template_item_timeline')) {
+      //1.- Create the table outright for fresh deployments that never stored segments.
+      $schema->createTable('pds_template_item_timeline', $definition);
+      return TRUE;
+    }
+
+    //2.- Confirm every required field exists so runtime inserts never fail.
+    $expected_fields = array_keys($definition['fields']);
+    foreach ($expected_fields as $field) {
+      if (!$schema->fieldExists('pds_template_item_timeline', $field)) {
+        return $this->rebuildTimelineTable($definition);
+      }
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Rebuild the timeline table while preserving existing data.
+   */
+  private function rebuildTimelineTable(array $definition): bool {
+    $schema = $this->connection->schema();
+    $base_legacy_table = 'pds_template_item_timeline_legacy_runtime';
+    $legacy_table = $base_legacy_table;
+    $suffix = 0;
+
+    //1.- Pick a unique temporary name so repeated repairs avoid collisions.
+    while ($schema->tableExists($legacy_table)) {
+      $suffix++;
+      $legacy_table = $base_legacy_table . '_' . $suffix;
+    }
+
+    try {
+      $schema->renameTable('pds_template_item_timeline', $legacy_table);
+    }
+    catch (SchemaObjectDoesNotExistException $exception) {
+      $this->logger->error('Unable to migrate template timeline segments: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
+    }
+    catch (Throwable $throwable) {
+      $this->logger->error('Unexpected failure while preparing legacy timeline table: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      return FALSE;
+    }
+
+    try {
+      $schema->createTable('pds_template_item_timeline', $definition);
+    }
+    catch (SchemaObjectExistsException $exception) {
+      $schema->dropTable('pds_template_item_timeline');
+      $schema->renameTable($legacy_table, 'pds_template_item_timeline');
+      $this->logger->error('Unable to recreate template timeline table: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
+    }
+    catch (Throwable $throwable) {
+      $schema->dropTable('pds_template_item_timeline');
+      $schema->renameTable($legacy_table, 'pds_template_item_timeline');
+      $this->logger->error('Unexpected error rebuilding template timeline storage: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      return FALSE;
+    }
+
+    $select = $this->connection->select($legacy_table, 'legacy')
+      ->fields('legacy');
+
+    try {
+      $result = $select->execute();
+    }
+    catch (Throwable $throwable) {
+      $this->logger->error('Unable to read legacy timeline segments: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      $schema->dropTable('pds_template_item_timeline');
+      $schema->renameTable($legacy_table, 'pds_template_item_timeline');
+      return FALSE;
+    }
+
+    $now = $this->time->getRequestTime();
+
+    foreach ($result as $record) {
+      $item_id = isset($record->item_id) ? (int) $record->item_id : 0;
+      if ($item_id <= 0) {
+        continue;
+      }
+
+      $weight = isset($record->weight) ? (int) $record->weight : 0;
+      $year = trim((string) ($record->year_label ?? ''));
+      $label = trim((string) ($record->description ?? ''));
+
+      if ($year === '' && $label === '') {
+        continue;
+      }
+
+      try {
+        $this->connection->insert('pds_template_item_timeline')
+          ->fields([
+            'item_id' => $item_id,
+            'weight' => $weight,
+            'year_label' => $year,
+            'description' => $label,
+            'created_at' => isset($record->created_at) ? (int) $record->created_at : $now,
+            'deleted_at' => NULL,
+          ])
+          ->execute();
+      }
+      catch (Throwable $throwable) {
+        //2.- Skip rows that fail to migrate while keeping the remainder intact.
+        continue;
+      }
+    }
+
+    $schema->dropTable($legacy_table);
+
+    return TRUE;
+  }
+
+  /**
+   * Build the canonical schema definition for the timeline table.
+   */
+  private function buildTimelineDefinition(): array {
+    return [
+      'description' => 'Timeline segments linked to template items.',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+        ],
+        'item_id' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'weight' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'year_label' => [
+          'type' => 'varchar',
+          'length' => 32,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'description' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'created_at' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'deleted_at' => [
+          'type' => 'int',
+          'not null' => FALSE,
+        ],
+      ],
+      'primary key' => ['id'],
+      'indexes' => [
+        'item_id' => ['item_id'],
+        'weight' => ['weight'],
+        'deleted_at' => ['deleted_at'],
+      ],
+    ];
   }
 
   private function attemptGroupTableRestore(string $legacy_table): void {
