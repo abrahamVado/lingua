@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * @file
+ * Install file for pds_recipe_timeline.
+ */
+
+/**
+ * Implements hook_install().
+ */
+function pds_recipe_timeline_install(): void {
+  //1.- No acciones adicionales son necesarias porque reutilizamos las tablas
+  //2.- proporcionadas por pds_recipe_template.
+}

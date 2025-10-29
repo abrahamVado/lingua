@@ -1,0 +1,7 @@
+name: 'Recipe: Timeline'
+type: 'Site'
+install:
+  - pds_recipe_timeline
+  - block
+  - layout_builder
+  - layout_discovery

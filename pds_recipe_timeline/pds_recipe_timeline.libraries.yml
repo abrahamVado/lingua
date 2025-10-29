@@ -1,0 +1,10 @@
+pds_recipe_timeline.public:
+  version: 1.x
+  css:
+    theme:
+      assets/css/pds-timeline.css: {}
+  js:
+    assets/js/pds-timeline.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
