@@ -9,6 +9,7 @@ use Drupal\pds_recipe_template\Controller\RowController as BaseRowController;
 use JsonException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Throwable;
 
 /**
  * Decorates the template row controller to persist timeline entries per item.
@@ -278,15 +279,12 @@ final class TimelineRowController extends ControllerBase {
    * Persist the provided timeline entries for the given template item id.
    */
   private function syncTimeline(int $item_id, array $timeline): array {
-    //1.- Short-circuit when the auxiliary table is unavailable so editors receive existing responses.
-    $connection = \Drupal::database();
-    $schema = $connection->schema();
-    if (!$schema->tableExists(self::TIMELINE_TABLE)) {
-      \Drupal::logger('pds_recipe_timeline')->warning('Timeline table is missing while saving entries for item @id.', [
-        '@id' => $item_id,
-      ]);
+    //1.- Guarantee the storage table exists before attempting to mutate timeline entries for the item.
+    if (!$this->ensureTimelineTableExists()) {
       return $timeline;
     }
+
+    $connection = \Drupal::database();
 
     $now = \Drupal::time()->getRequestTime();
 
@@ -347,11 +345,15 @@ final class TimelineRowController extends ControllerBase {
    */
   private function loadTimelineCollections(array $item_ids): array {
     //1.- Abort quickly when the storage table is missing or no items were requested.
-    $connection = \Drupal::database();
-    $schema = $connection->schema();
-    if (!$schema->tableExists(self::TIMELINE_TABLE) || $item_ids === []) {
+    if ($item_ids === []) {
       return [];
     }
+
+    if (!$this->ensureTimelineTableExists()) {
+      return [];
+    }
+
+    $connection = \Drupal::database();
 
     $query = $connection->select(self::TIMELINE_TABLE, 't')
       ->fields('t', ['item_id', 'year', 'label', 'weight'])
@@ -388,6 +390,79 @@ final class TimelineRowController extends ControllerBase {
     }
     catch (JsonException $exception) {
       return [];
+    }
+  }
+
+  /**
+   * Create the timeline table on demand when the installer has not provisioned it.
+   */
+  private function ensureTimelineTableExists(): bool {
+    //1.- Look up the schema manager and short-circuit when the table is already available.
+    $connection = \Drupal::database();
+    $schema = $connection->schema();
+    if ($schema->tableExists(self::TIMELINE_TABLE)) {
+      return TRUE;
+    }
+
+    //2.- Describe the schema mirroring the installer definition so late creations stay consistent.
+    $definition = [
+      'description' => 'Timeline entries linked to template items for chronological rendering.',
+      'fields' => [
+        'id' => [
+          'type' => 'serial',
+          'not null' => TRUE,
+        ],
+        'item_id' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'year' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'label' => [
+          'type' => 'varchar',
+          'length' => 512,
+          'not null' => TRUE,
+          'default' => '',
+        ],
+        'weight' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'created_at' => [
+          'type' => 'int',
+          'not null' => TRUE,
+          'default' => 0,
+        ],
+        'deleted_at' => [
+          'type' => 'int',
+          'not null' => FALSE,
+        ],
+      ],
+      'primary key' => ['id'],
+      'indexes' => [
+        'item_id' => ['item_id'],
+        'year' => ['year'],
+        'weight' => ['weight'],
+        'deleted_at' => ['deleted_at'],
+      ],
+    ];
+
+    try {
+      //3.- Provision the table dynamically so timeline saves succeed even on legacy installs.
+      $schema->createTable(self::TIMELINE_TABLE, $definition);
+      return TRUE;
+    }
+    catch (Throwable $exception) {
+      //4.- Record the failure and inform callers that persistence must be skipped for now.
+      \Drupal::logger('pds_recipe_timeline')->error('Unable to create the timeline table automatically: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
     }
   }
 
