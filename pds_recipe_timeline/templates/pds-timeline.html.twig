@@ -28,68 +28,21 @@
                 {% endif %}
               </div>
               <div class="principal-timeline__jobs">
-                {% set raw_segments = row.timeline_segments is iterable ? row.timeline_segments : [] %}
-                {% set first_segment = raw_segments|length > 0 ? raw_segments|first : {} %}
-                {% set interactive_segments = raw_segments|slice(1) %}
-                {% if raw_segments|length > 0 %}
-                  {% set show_anchor_label = raw_segments|length > 1 %}
-                  <div class="principal-timeline__job-segment principal-timeline__job-segment--first" aria-hidden="true">
-                    <span class="principal-timeline__job-segment-line" aria-hidden="true"></span>
-                    <span class="principal-timeline__job-info">
-                      {% if first_segment.year %}
-                        <span class="principal-timeline__job-info-year">{{ first_segment.year }}</span>
-                      {% endif %}
-                      {% if first_segment.label and show_anchor_label %}
-                        <span class="principal-timeline__job-info-text">{{ first_segment.label }}</span>
-                      {% endif %}
-                    </span>
-                  </div>
-                  {% if interactive_segments is empty %}
-                    {% set interactive_segments = [first_segment] %}
+                <div class="principal-timeline__job-segment principal-timeline__job-segment--principal">
+                  {% if row.description %}
+                    <span class="principal-timeline__job-info">{{ row.description }}</span>
                   {% endif %}
-                  {% for segment in interactive_segments %}
-                    <div class="principal-timeline__job-segment principal-timeline__job-segment--principal" data-pds-timeline-year="{{ segment.year }}">
-                      <span class="principal-timeline__job-segment-line" aria-hidden="true"></span>
-                      <span class="principal-timeline__job-info">
-                        {% if segment.year %}
-                          <span class="principal-timeline__job-info-year">{{ segment.year }}</span>
-                        {% endif %}
-                        {% if segment.label %}
-                          <span class="principal-timeline__job-info-text">{{ segment.label }}</span>
-                        {% endif %}
-                        {% if row.description %}
-                          <span class="principal-timeline__job-info-description">{{ row.description }}</span>
-                        {% endif %}
-                        {% if row.desktop_img %}
-                          <span class="principal-timeline__job-info-logo">
-                            <img src="{{ row.desktop_img }}" alt="{{ row.header }}" />
-                          </span>
-                        {% endif %}
-                        {% if row.link %}
-                          <span class="principal-timeline__job-info-link">
-                            <a href="{{ row.link }}" rel="noopener noreferrer">{{ row.link }}</a>
-                          </span>
-                        {% endif %}
-                      </span>
-                    </div>
-                  {% endfor %}
-                {% else %}
-                  <div class="principal-timeline__job-segment principal-timeline__job-segment--principal">
-                    {% if row.description %}
-                      <span class="principal-timeline__job-info">{{ row.description }}</span>
-                    {% endif %}
-                    {% if row.desktop_img %}
-                      <span class="principal-timeline__job-info-logo">
-                        <img src="{{ row.desktop_img }}" alt="{{ row.header }}" />
-                      </span>
-                    {% endif %}
-                    {% if row.link %}
-                      <span class="principal-timeline__job-info-link">
-                        <a href="{{ row.link }}" rel="noopener noreferrer">{{ row.link }}</a>
-                      </span>
-                    {% endif %}
-                  </div>
-                {% endif %}
+                  {% if row.desktop_img %}
+                    <span class="principal-timeline__job-info-logo">
+                      <img src="{{ row.desktop_img }}" alt="{{ row.header }}" />
+                    </span>
+                  {% endif %}
+                  {% if row.link %}
+                    <span class="principal-timeline__job-info-link">
+                      <a href="{{ row.link }}" rel="noopener noreferrer">{{ row.link }}</a>
+                    </span>
+                  {% endif %}
+                </div>
               </div>
             </div>
           {% endfor %}

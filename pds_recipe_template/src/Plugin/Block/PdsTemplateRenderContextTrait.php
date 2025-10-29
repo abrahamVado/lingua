@@ -4,13 +4,10 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_template\Plugin\Block;
 
-use Drupal\pds_recipe_template\TimelineSegmentsTrait;
-
 /**
  * Shared helpers that assemble master metadata and derivative datasets.
  */
 trait PdsTemplateRenderContextTrait {
-  use TimelineSegmentsTrait;
 
   /**
    * Assemble master metadata shared between Twig and JS consumers.
@@ -46,14 +43,12 @@ trait PdsTemplateRenderContextTrait {
           'mobile' => [],
         ],
         'geo' => [],
-        'timeline' => [],
       ];
     }
 
     $desktop_images = [];
     $mobile_images = [];
     $geo_coordinates = [];
-    $timeline_segments = [];
 
     foreach ($items as $delta => $row) {
       //2.- Extract the canonical label to pair with derivative information.
@@ -112,16 +107,6 @@ trait PdsTemplateRenderContextTrait {
           'longitude' => (float) $row['longitud'],
         ];
       }
-
-      //8.- Expose structured timeline milestones so JS consumers can mirror the UI.
-      $segments = $this->normalizeTimelineSegments($row['timeline_segments'] ?? []);
-      if ($segments !== []) {
-        $timeline_segments[] = [
-          'index' => $delta,
-          'label' => $label,
-          'segments' => $segments,
-        ];
-      }
     }
 
     return [
@@ -130,7 +115,6 @@ trait PdsTemplateRenderContextTrait {
         'mobile' => $mobile_images,
       ],
       'geo' => $geo_coordinates,
-      'timeline' => $timeline_segments,
     ];
   }
 
