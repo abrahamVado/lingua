@@ -271,16 +271,34 @@ final class TimelineRowController extends ControllerBase {
     //3.- Look up the UUID associated with the provided id while ignoring soft-deleted records.
     $connection = \Drupal::database();
     foreach ($candidates as $candidate) {
-      $uuid = $connection->select('pds_template_item', 'i')
+      $record = $connection->select('pds_template_item', 'i')
         ->fields('i', ['uuid'])
         ->condition('i.id', $candidate)
         ->condition('i.deleted_at', NULL, 'IS NULL')
         ->range(0, 1)
         ->execute()
-        ->fetchField();
+        ->fetchAssoc();
 
-      if (is_string($uuid) && Uuid::isValid($uuid)) {
-        return $uuid;
+      $stored_uuid = is_string($record['uuid'] ?? NULL) ? (string) $record['uuid'] : '';
+      if ($stored_uuid !== '' && Uuid::isValid($stored_uuid)) {
+        return $stored_uuid;
+      }
+
+      if ($stored_uuid === '' || !Uuid::isValid($stored_uuid)) {
+        //3.1.- Reparemos registros históricos generando un UUID nuevo cuando el identificador falta o es inválido.
+        try {
+          $generated = \Drupal::service('uuid')->generate();
+          $connection->update('pds_template_item')
+            ->fields(['uuid' => $generated])
+            ->condition('id', $candidate)
+            ->condition('deleted_at', NULL, 'IS NULL')
+            ->execute();
+
+          return $generated;
+        }
+        catch (Throwable $exception) {
+          //3.1.1.- Ignoramos el fallo de escritura para intentar con otros candidatos disponibles.
+        }
       }
     }
 
