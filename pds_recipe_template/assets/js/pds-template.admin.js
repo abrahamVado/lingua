@@ -1304,10 +1304,20 @@ function rebuildManagedFileEmpty(root) {
         // Initial preview from hidden state
         renderPreviewTable(root);
 
-        //1.- Snapshot the pristine managed file widget so we can fully reset it after commits.
+        //1.- Auto-request preview rows when no local snapshot exists so Tab B hydrates legacy saves instantly.
+        var initialRows = readState(root);
+        var hasInitialRows = Array.isArray(initialRows) && initialRows.length > 0;
+        if (!hasInitialRows && root.getAttribute('data-pds-template-list-rows-url')) {
+          if (!root._pdsPreviewAutoHydrated) {
+            root._pdsPreviewAutoHydrated = true;
+            refreshPreviewFromServer(root);
+          }
+        }
+
+        //2.- Snapshot the pristine managed file widget so we can fully reset it after commits.
         initFileWidgetTemplate(root);
 
-        //2.- Cache any precomputed group id exposed by PHP so fetch handler can reuse it.
+        //3.- Cache any precomputed group id exposed by PHP so fetch handler can reuse it.
         var existingGroupIdAttr = root.getAttribute('data-pds-template-group-id');
         if (existingGroupIdAttr) {
           var parsedExistingId = parseInt(existingGroupIdAttr, 10);
