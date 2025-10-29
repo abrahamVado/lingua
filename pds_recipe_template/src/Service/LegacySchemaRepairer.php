@@ -36,8 +36,8 @@ final class LegacySchemaRepairer {
       //1.- Provision the master and child tables when they are entirely missing.
       $schema = $this->connection->schema();
       $group_definition = $this->buildGroupDefinition();
-      if (!$schema->tableExists('pds_template_group')) {
-        $schema->createTable('pds_template_group', $group_definition);
+      if (!$this->ensureGroupTableUpToDate($group_definition)) {
+        return FALSE;
       }
 
       $item_definition = $this->buildItemDefinition();
@@ -77,6 +77,199 @@ final class LegacySchemaRepairer {
         '@message' => $throwable->getMessage(),
       ]);
       return FALSE;
+    }
+  }
+
+  private function ensureGroupTableUpToDate(array $definition): bool {
+    $schema = $this->connection->schema();
+
+    if (!$schema->tableExists('pds_template_group')) {
+      //1.- Provision the table when it was never created so runtime repairs can continue.
+      $schema->createTable('pds_template_group', $definition);
+      return TRUE;
+    }
+
+    //2.- Compare the live schema with the expected definition to detect missing columns.
+    $expected_fields = array_keys($definition['fields']);
+    $missing_fields = [];
+    foreach ($expected_fields as $field) {
+      if (!$schema->fieldExists('pds_template_group', $field)) {
+        $missing_fields[] = $field;
+      }
+    }
+
+    //3.- Watch for legacy leftovers that indicate the table still uses the pre-UUID structure.
+    $legacy_fields_present = FALSE;
+    $legacy_fields = ['block_uuid', 'layout_id', 'deleted'];
+    foreach ($legacy_fields as $legacy_field) {
+      if ($schema->fieldExists('pds_template_group', $legacy_field)) {
+        $legacy_fields_present = TRUE;
+        break;
+      }
+    }
+
+    if ($missing_fields === [] && !$legacy_fields_present) {
+      return TRUE;
+    }
+
+    //4.- Rebuild the table to upgrade legacy installations that never received the UUID column.
+    return $this->rebuildGroupTable($definition);
+  }
+
+  private function rebuildGroupTable(array $definition): bool {
+    $schema = $this->connection->schema();
+    $base_legacy_table = 'pds_template_group_legacy_runtime';
+    $legacy_table = $base_legacy_table;
+    $suffix = 0;
+
+    //1.- Pick a unique name for the temporary table so repeated repairs never clash.
+    while ($schema->tableExists($legacy_table)) {
+      $suffix++;
+      $legacy_table = $base_legacy_table . '_' . $suffix;
+    }
+
+    try {
+      $schema->renameTable('pds_template_group', $legacy_table);
+    }
+    catch (SchemaObjectDoesNotExistException $exception) {
+      //2.- Abort gracefully when the source table disappeared mid-run and log the failure.
+      $this->logger->error('Unable to migrate template groups: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
+    }
+    catch (Throwable $throwable) {
+      $this->logger->error('Unexpected failure while preparing legacy group table: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      return FALSE;
+    }
+
+    try {
+      $schema->createTable('pds_template_group', $definition);
+    }
+    catch (SchemaObjectExistsException $exception) {
+      //3.- Restore the previous table when concurrent rebuilds already recreated it.
+      $this->attemptGroupTableRestore($legacy_table);
+      $this->logger->error('Unable to recreate template group table: @message', [
+        '@message' => $exception->getMessage(),
+      ]);
+      return FALSE;
+    }
+    catch (Throwable $throwable) {
+      $this->attemptGroupTableRestore($legacy_table);
+      $this->logger->error('Unexpected error rebuilding template group storage: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      return FALSE;
+    }
+
+    $select = $this->connection->select($legacy_table, 'legacy')
+      ->fields('legacy');
+
+    try {
+      $result = $select->execute();
+    }
+    catch (Throwable $throwable) {
+      $this->logger->error('Unable to read legacy template groups: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
+      $this->attemptGroupTableRestore($legacy_table);
+      return FALSE;
+    }
+
+    $now = $this->time->getRequestTime();
+
+    foreach ($result as $record) {
+      $id = isset($record->id) ? (int) $record->id : 0;
+      if ($id <= 0) {
+        //4.- Skip malformed records because they cannot be associated with existing rows.
+        continue;
+      }
+
+      $stored_uuid = isset($record->uuid) ? trim((string) $record->uuid) : '';
+      if (!Uuid::isValid($stored_uuid)) {
+        //5.- Prefer legacy block_uuid values before generating a replacement identifier.
+        $legacy_uuid = isset($record->block_uuid) ? trim((string) $record->block_uuid) : '';
+        if (Uuid::isValid($legacy_uuid)) {
+          $stored_uuid = $legacy_uuid;
+        }
+        else {
+          $stored_uuid = $this->uuid->generate();
+        }
+      }
+
+      $type = isset($record->type) && is_string($record->type) && $record->type !== ''
+        ? (string) $record->type
+        : 'pds_recipe_template';
+
+      $created_at = isset($record->created_at) && is_numeric($record->created_at)
+        ? (int) $record->created_at
+        : $now;
+
+      $deleted_at = NULL;
+      if (isset($record->deleted_at)) {
+        if ($record->deleted_at === NULL || $record->deleted_at === '') {
+          $deleted_at = NULL;
+        }
+        elseif (is_numeric($record->deleted_at)) {
+          $deleted_at = (int) $record->deleted_at;
+        }
+      }
+
+      try {
+        //6.- Reinsert the normalized row while preserving the original identifier for item relations.
+        $this->connection->insert('pds_template_group')
+          ->fields([
+            'id' => $id,
+            'uuid' => $stored_uuid,
+            'type' => $type,
+            'created_at' => $created_at,
+            'deleted_at' => $deleted_at,
+          ])
+          ->execute();
+      }
+      catch (Throwable $throwable) {
+        //7.- Log and skip duplicates so the rebuild can continue processing healthy rows.
+        $this->logger->warning('Skipped legacy template group @id: @message', [
+          '@id' => $id,
+          '@message' => $throwable->getMessage(),
+        ]);
+        continue;
+      }
+    }
+
+    try {
+      //8.- Drop the legacy copy now that the replacement table has been fully populated.
+      $schema->dropTable($legacy_table);
+    }
+    catch (Throwable $throwable) {
+      $this->logger->warning('Unable to remove temporary legacy group table @table: @message', [
+        '@table' => $legacy_table,
+        '@message' => $throwable->getMessage(),
+      ]);
+    }
+
+    return TRUE;
+  }
+
+  private function attemptGroupTableRestore(string $legacy_table): void {
+    $schema = $this->connection->schema();
+
+    try {
+      if ($schema->tableExists('pds_template_group')) {
+        $schema->dropTable('pds_template_group');
+      }
+
+      if ($schema->tableExists($legacy_table)) {
+        $schema->renameTable($legacy_table, 'pds_template_group');
+      }
+    }
+    catch (Throwable $throwable) {
+      //1.- Swallow restore failures because the caller has already reported the root issue.
+      $this->logger->warning('Unable to restore original template group table: @message', [
+        '@message' => $throwable->getMessage(),
+      ]);
     }
   }
 
