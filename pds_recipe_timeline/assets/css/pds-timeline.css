@@ -194,6 +194,16 @@ body {
   clip: auto;
   white-space: normal;
 }
+
+/* //4.1.- Mostramos el año como encabezado compacto antes de la descripción del hito. */
+.principal-timeline__job-year {
+  display: block;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.2;
+  margin-bottom: 6px;
+  color: #1d1d1b;
+}
 .principal-timeline__tooltip {
   position: fixed;
   z-index: 30;

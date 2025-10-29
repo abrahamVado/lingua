@@ -43,6 +43,19 @@
                     </span>
                   {% endif %}
                 </div>
+                {# //4.1.- Desplegamos la cronología persistida para el ejecutivo cuando existan entradas. #}
+                {% if row.timeline is defined and row.timeline is iterable and row.timeline|length > 0 %}
+                  {% for event in row.timeline %}
+                    <div class="principal-timeline__job-segment" data-pds-template-timeline-event="{{ loop.index0 }}">
+                      {% if event.year is defined %}
+                        <span class="principal-timeline__job-year">{{ event.year }}</span>
+                      {% endif %}
+                      {% if event.label is defined and event.label %}
+                        <span class="principal-timeline__job-info">{{ event.label }}</span>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                {% endif %}
               </div>
             </div>
           {% endfor %}
