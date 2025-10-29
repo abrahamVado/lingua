@@ -7,8 +7,12 @@
   - extended_datasets: derivative datasets built for public consumers
 #}
 
-<div
-  class="pds-slider-banner-display-wrapper"
+{# //1.- Normalize the stored rows so the slider only iterates arrays. #}
+{% set slide_items = items is iterable ? items : [] %}
+
+<section
+  class="principal_hero principal_hero--gradient-dark"
+  data-pds-slider-banner-root="1"
   {% if master_metadata.group_id is defined and master_metadata.group_id != 0 %}
     data-pds-slider-banner-master-id="{{ master_metadata.group_id }}"
   {% endif %}
@@ -21,83 +25,81 @@
   {% if master_metadata.items_count is defined %}
     data-pds-slider-banner-items-count="{{ master_metadata.items_count }}"
   {% endif %}
+  data-pds-slider-banner-autoplay="6000"
+  data-pds-slider-banner-speed="500"
 >
-  {% if items is iterable and items|length > 0 %}
-    <table class="pds-slider-banner-display-table">
-      <thead>
-        <tr>
-          <th>Header</th>
-          <th>Subheader</th>
-          <th>Description</th>
-          <th>Link</th>
-          <th>Image</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in items %}
-          <tr>
-            <td>{{ row.header|e }}</td>
-            <td>{{ row.subheader|e }}</td>
-            <td>{{ row.description|e }}</td>
-            <td>
+  {% if slide_items|length > 0 %}
+    <div class="principal_hero__slider" data-pds-slider-banner-track>
+      {% for row in slide_items %}
+        {# //2.- Resolve responsive media sources for desktop and mobile contexts. #}
+        {% set desktop_image = row.desktop_img ?? row.image_url ?? '' %}
+        {% set mobile_image = row.mobile_img ?? desktop_image %}
+        {% set slide_alt = row.image_alt is defined and row.image_alt ? row.image_alt : row.header %}
+        <article class="principal_hero__slide" data-pds-slider-banner-slide>
+          <picture class="principal_hero__bg">
+            {% if desktop_image %}
+              <source media="(min-width: 768px)" srcset="{{ desktop_image|e }}">
+            {% endif %}
+            {% if mobile_image %}
+              <img
+                class="principal_hero__bgImg"
+                src="{{ mobile_image|e }}"
+                alt="{{ slide_alt|default('')|e }}"
+              />
+            {% else %}
+              <span class="principal_hero__bgImg principal_hero__bgImg--empty" aria-hidden="true"></span>
+            {% endif %}
+          </picture>
+
+          <div class="principal_hero__inner">
+            <div class="principal_hero__content">
+              {% if row.header %}
+                {# //3.- Render the main headline allowing inline emphasis markup. #}
+                <h1 class="principal_hero__title">
+                  {{ row.header|raw }}
+                </h1>
+              {% endif %}
+              {% if row.subheader %}
+                {# //4.- Surface optional supporting text directly below the title. #}
+                <p class="principal_hero__subtitle">{{ row.subheader|raw }}</p>
+              {% endif %}
+              {% if row.description %}
+                {# //5.- Provide the descriptive copy for the slide body. #}
+                <p class="principal_hero__intro">{{ row.description|raw }}</p>
+              {% endif %}
               {% if row.link %}
-                <a href="{{ row.link|e }}" rel="noopener noreferrer">{{ row.link|e }}</a>
-              {% else %}
-                —
+                {# //6.- Print the call-to-action button when a destination URL exists. #}
+                {% set link_label = row.link_label ?? row.link_text ?? 'Ver más' %}
+                <div class="principal_hero__cta">
+                  <a
+                    class="principal_btn principal_btn--primary"
+                    href="{{ row.link|e }}"
+                  >
+                    {{ link_label|e }}
+                  </a>
+                </div>
               {% endif %}
-            </td>
-            <td>
-              {% if row.image_url %}
-                <img
-                  src="{{ row.image_url|e }}"
-                  alt="{{ row.header|e }}"
-                  class="pds-slider-banner-display-thumb" />
-              {% else %}
-                —
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% if extended_datasets.media is defined %}
-      <div class="pds-slider-banner-display-media">
-        {% if extended_datasets.media.desktop is defined and extended_datasets.media.desktop|length > 0 %}
-          <ul class="pds-slider-banner-display-media__desktop" data-pds-slider-banner-media="desktop">
-            {% for image in extended_datasets.media.desktop %}
-              <li data-pds-slider-banner-media-index="{{ image.index }}">
-                <span class="pds-slider-banner-display-media__label">{{ image.label|default('')|e }}</span>
-                <span class="pds-slider-banner-display-media__url">{{ image.url|e }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
-        {% if extended_datasets.media.mobile is defined and extended_datasets.media.mobile|length > 0 %}
-          <ul class="pds-slider-banner-display-media__mobile" data-pds-slider-banner-media="mobile">
-            {% for image in extended_datasets.media.mobile %}
-              <li data-pds-slider-banner-media-index="{{ image.index }}">
-                <span class="pds-slider-banner-display-media__label">{{ image.label|default('')|e }}</span>
-                <span class="pds-slider-banner-display-media__url">{{ image.url|e }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
-      </div>
-    {% endif %}
-    {% if extended_datasets.geo is defined and extended_datasets.geo|length > 0 %}
-      <div class="pds-slider-banner-display-geo" data-pds-slider-banner-geo="1">
-        <ul class="pds-slider-banner-display-geo__list">
-          {% for point in extended_datasets.geo %}
-            <li data-pds-slider-banner-media-index="{{ point.index }}">
-              <span class="pds-slider-banner-display-geo__label">{{ point.label|default('')|e }}</span>
-              <span class="pds-slider-banner-display-geo__lat">{{ point.latitude }}</span>
-              <span class="pds-slider-banner-display-geo__lng">{{ point.longitude }}</span>
-            </li>
-          {% endfor %}
-        </ul>
-      </div>
-    {% endif %}
+            </div>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+
+    <button
+      class="principal_hero__arrow principal_hero__arrow--prev"
+      type="button"
+      aria-label="Anterior"
+      data-pds-slider-banner-prev
+    ></button>
+    <button
+      class="principal_hero__arrow principal_hero__arrow--next"
+      type="button"
+      aria-label="Siguiente"
+      data-pds-slider-banner-next
+    ></button>
+
+    <div class="principal_hero__dots" data-pds-slider-banner-dots></div>
   {% else %}
-    <div>No rows available.</div>
+    <div class="principal_hero__empty" role="status">No rows available.</div>
   {% endif %}
-</div>
+</section>
