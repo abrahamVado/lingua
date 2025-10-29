@@ -32,6 +32,7 @@
 - Adjust the PHP block loader so legacy records that only retained `group_id` still repopulate the hidden JSON state and refresh the stored `instance_uuid`, ensuring tab B receives rows during edits.
 - Extend the row listing controller to honor an explicit `group_id` fallback and rewrite the related group record with the active UUID so legacy datasets render again without manual intervention.
 - Verify that the controller listing call now reuses the repaired UUID by opening tab B immediately after launching the modal.
+- Trigger the admin behavior to auto-fetch the preview listing on attach whenever the hidden JSON snapshot is empty so tab B hydrates existing rows without relying on manual refreshes.
 - Teach the admin behavior to auto-request the preview listing whenever the modal opens with an empty JSON payload so tab B hydrates legacy blocks without manual refreshes.
 - Thread the stored `group_id` through the listing URL as an explicit fallback and let the controller repair the legacy record when the active UUID misses, keeping historical rows visible during edits.
 
