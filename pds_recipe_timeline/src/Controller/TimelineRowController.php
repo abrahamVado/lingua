@@ -155,7 +155,20 @@ final class TimelineRowController extends ControllerBase {
     //2.- Inspect the JSON payload when the caller omitted the query string (e.g., direct service usage).
     $payload = $this->decodePayload($request);
     $candidate = $payload['recipe_type'] ?? ($payload['row']['recipe_type'] ?? NULL);
-    return is_string($candidate) && $candidate === 'pds_recipe_timeline';
+    if (is_string($candidate) && $candidate !== '') {
+      return $candidate === 'pds_recipe_timeline';
+    }
+
+    //3.- Detect timeline intents when integrators forget to send the explicit recipe type but include timeline data.
+    $row = $payload['row'] ?? NULL;
+    if (is_array($row) && array_key_exists('timeline', $row)) {
+      return TRUE;
+    }
+    if (array_key_exists('timeline', $payload)) {
+      return is_array($payload['timeline']);
+    }
+
+    return FALSE;
   }
 
   /**
