@@ -10,8 +10,10 @@ use Drupal\Core\Database\Connection;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Throwable;
+use Drupal\pds_recipe_template\TimelineSegmentsStorageTrait;
 
 final class RowController extends ControllerBase {
+  use TimelineSegmentsStorageTrait;
 
   public function createRow(Request $request, string $uuid): JsonResponse {
     //1.- Validate UUID upfront so we never attempt inserts with malformed identifiers.
@@ -74,6 +76,8 @@ final class RowController extends ControllerBase {
     if (array_key_exists('longitud', $row) && ($row['longitud'] === NULL || is_numeric($row['longitud']))) {
       $longitud = $row['longitud'] === NULL ? NULL : (float) $row['longitud'];
     }
+
+    $timeline_segments = $this->normalizeTimelineSegments($row['timeline_segments'] ?? []);
 
     $weight = NULL;
     if (isset($payload['weight']) && is_numeric($payload['weight'])) {
@@ -191,6 +195,13 @@ final class RowController extends ControllerBase {
       if ($weight !== NULL) {
         $response_row['weight'] = $weight;
       }
+
+      $response_row['timeline_segments'] = $this->replaceTimelineSegments(
+        $connection,
+        (int) $insert_id,
+        $timeline_segments,
+        $now
+      );
 
       //11.- Confirm success so the client can store the stable identifiers locally together with canonical URLs.
       return new JsonResponse([
@@ -395,13 +406,19 @@ final class RowController extends ControllerBase {
     $result = $query->execute();
 
     $rows = [];
+    $item_ids = [];
     foreach ($result as $record) {
       $desktop = (string) $record->desktop_img;
       $mobile = (string) $record->mobile_img;
 
       //2.- Normalize the database record into the structure expected by the admin preview table.
+      $resolved_id = (int) $record->id;
+      if ($resolved_id > 0) {
+        $item_ids[] = $resolved_id;
+      }
+
       $rows[] = [
-        'id' => (int) $record->id,
+        'id' => $resolved_id,
         'uuid' => (string) $record->uuid,
         'header' => (string) $record->header,
         'subheader' => (string) $record->subheader,
@@ -414,7 +431,23 @@ final class RowController extends ControllerBase {
         'longitud' => $record->longitud !== NULL ? (float) $record->longitud : NULL,
         'weight' => (int) $record->weight,
         'thumbnail' => $desktop !== '' ? $desktop : $mobile,
+        //3.- Initialize the timeline bucket so the client receives a consistent payload.
+        'timeline_segments' => [],
       ];
+    }
+
+    if ($item_ids !== []) {
+      //4.- Attach stored timeline segments so the modal preview mirrors public renders.
+      $segments_map = $this->loadTimelineSegments($connection, $item_ids);
+      if ($segments_map !== []) {
+        foreach ($rows as &$row) {
+          $row_id = isset($row['id']) ? (int) $row['id'] : 0;
+          if ($row_id > 0 && isset($segments_map[$row_id])) {
+            $row['timeline_segments'] = $segments_map[$row_id];
+          }
+        }
+        unset($row);
+      }
     }
 
     return $rows;
@@ -478,6 +511,8 @@ final class RowController extends ControllerBase {
     if (array_key_exists('longitud', $row) && ($row['longitud'] === NULL || is_numeric($row['longitud']))) {
       $longitud = $row['longitud'] === NULL ? NULL : (float) $row['longitud'];
     }
+
+    $timeline_segments = $this->normalizeTimelineSegments($row['timeline_segments'] ?? []);
 
     $weight = NULL;
     if (isset($payload['weight']) && is_numeric($payload['weight'])) {
@@ -579,6 +614,13 @@ final class RowController extends ControllerBase {
         ->condition('uuid', $row_uuid)
         ->execute();
 
+      $stored_segments = $this->replaceTimelineSegments(
+        $connection,
+        (int) $existing['id'],
+        $timeline_segments,
+        \Drupal::time()->getRequestTime()
+      );
+
       //7.- Echo the stored values back so the caller can refresh its cached state accurately.
       $response_row = [
         'header' => $fields['header'],
@@ -604,6 +646,8 @@ final class RowController extends ControllerBase {
       elseif (isset($existing['weight'])) {
         $response_row['weight'] = (int) $existing['weight'];
       }
+
+      $response_row['timeline_segments'] = $stored_segments;
 
       return new JsonResponse([
         'status' => 'ok',
