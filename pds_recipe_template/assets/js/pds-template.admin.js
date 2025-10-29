@@ -781,6 +781,11 @@ function clearInputs(root) {
           return;
         }
 
+        if (typeof json.group_id === 'number') {
+          //1.- Store the repaired group id so subsequent AJAX calls reuse the recovered identifier instead of the stale zero.
+          applyGroupIdToDom(root, json.group_id);
+        }
+
         var normalized = json.rows.map(function (row) {
           var safeRow = row && typeof row === 'object' ? row : {};
 
