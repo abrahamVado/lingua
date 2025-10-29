@@ -35,6 +35,7 @@
 - Trigger the admin behavior to auto-fetch the preview listing on attach whenever the hidden JSON snapshot is empty so tab B hydrates existing rows without relying on manual refreshes.
 - Teach the admin behavior to auto-request the preview listing whenever the modal opens with an empty JSON payload so tab B hydrates legacy blocks without manual refreshes.
 - Thread the stored `group_id` through the listing URL as an explicit fallback and let the controller repair the legacy record when the active UUID misses, keeping historical rows visible during edits.
+- Prioritize the legacy `fallback_group_id` when hydrating the preview listing so Tab B reuses historical rows before touching freshly minted placeholder groups.
 
 //8.- Additional Notes
 - Capture screenshots or network logs during reproduction to share findings with the team.
