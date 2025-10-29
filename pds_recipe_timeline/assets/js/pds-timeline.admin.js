@@ -661,11 +661,10 @@
 
       return dispatchPersistence(candidate).catch(function (error) {
         lastError = error;
-        var fallbackMessage = error && error.message ? error.message.toLowerCase() : '';
-        var shouldRetryWithId = candidate.type === 'uuid'
-          && position + 1 < identifierCandidates.length
-          && (error && (error.status === 404 || error.status === 400 || fallbackMessage.indexOf('uuid') !== -1));
+        var hasMoreCandidates = position + 1 < identifierCandidates.length;
+        var shouldRetryWithId = candidate.type === 'uuid' && hasMoreCandidates;
         if (shouldRetryWithId) {
+          //13.4.2.- Clear the cached UUID so the subsequent retry builds the request around the numeric identifier instead.
           rowUuid = '';
           row.uuid = '';
           rows[index].uuid = '';
