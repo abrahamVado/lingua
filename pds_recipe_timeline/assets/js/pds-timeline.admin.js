@@ -681,6 +681,7 @@
           && position + 1 < identifierCandidates.length
           && (error && (error.status === 404 || error.status === 400 || error.status === 422 || fallbackMessage.indexOf('uuid') !== -1));
         if (shouldRetryWithId) {
+          //13.4.2.- Clear the cached UUID so the subsequent retry builds the request around the numeric identifier instead.
           rowUuid = '';
           row.uuid = '';
           rows[index].uuid = '';
