@@ -46,6 +46,7 @@
 - Confirm that the row listing endpoint returns the resolved `group_id` even when it relied on legacy fallbacks so the modal can rehydrate its hidden state automatically.
 - Update the admin behavior to store the repaired `group_id` from the listing response back into the DOM attributes and hidden input, ensuring subsequent AJAX calls reuse the recovered identifier without staying stuck on `0`.
 - Extend the PHP modal prefill so `loadRowsForGroup()` injects both the numeric id and UUID for each row into the hidden JSON snapshot, guaranteeing Tab B renders legacy saves without waiting on the AJAX listing.
+- Rebuild the legacy `pds_template_group` table when it lacks the UUID column so the listing endpoint stops crashing and Tab B can hydrate rows even on pre-migration databases.
 
 //10.- Upcoming Implementation Attempt
 - Teach `PdsTemplateBlock::loadItemsForBlock()` to retry the legacy `group_id` when the UUID-bound lookup returns no rows, repairing the associated record with the fresh UUID and mirroring the recovered id back into configuration so Tab B receives the historical dataset on the first render.
