@@ -1,0 +1,25 @@
+services:
+  pds_recipe_timeline.timeline_group_manager:
+    class: 'Drupal\\pds_recipe_timeline\\Service\\GroupEnsurer'
+  pds_recipe_timeline.group_ensurer:
+    alias: pds_recipe_timeline.timeline_group_manager
+  pds_recipe_timeline.template_group_manager:
+    alias: pds_recipe_timeline.timeline_group_manager
+    deprecated:
+      package: pds_recipe_timeline
+      version: '1.0'
+      message: 'Legacy alias retained for readability. The "%alias_id%" service is deprecated; use "pds_recipe_timeline.timeline_group_manager" instead.'
+  pds_recipe_timeline.row_image_promoter:
+    class: 'Drupal\\pds_recipe_timeline\\Service\\RowImagePromoter'
+    factory: 'pds_recipe_timeline_create_row_image_promoter'
+    arguments:
+      - '@entity_type.manager'
+      - '@file_url_generator'
+  pds_recipe_timeline.legacy_schema_repairer:
+    class: 'Drupal\\pds_recipe_timeline\\Service\\LegacySchemaRepairer'
+    factory: 'pds_recipe_timeline_create_legacy_schema_repairer'
+    arguments:
+      - '@database'
+      - '@datetime.time'
+      - '@uuid'
+      - '@logger.factory'
