@@ -1,0 +1,93 @@
+{#
+  Variables:
+  - items: array of rows saved in block config
+  - group_id: numeric identifier of the master record
+  - instance_uuid: UUID used as the stable key for API access
+  - master_metadata: associative array with group_id, instance_uuid, recipe_type, items_count
+  - extended_datasets: derivative datasets built for public consumers
+#}
+
+{% set modal_base_id = 'pds-latamvideo-modal' %}
+{% if master_metadata.instance_uuid is defined and master_metadata.instance_uuid %}
+  {% set modal_base_id = modal_base_id ~ '-' ~ master_metadata.instance_uuid %}
+{% endif %}
+{% set modal_id = modal_base_id|clean_id %}
+{% set modal_body_id = modal_id ~ '-body' %}
+
+<section
+  class="pds-calloutSection pds-util-padding-vert-112"
+  data-pds-latamvideo-root="true"
+  {% if master_metadata.group_id is defined and master_metadata.group_id != 0 %}
+    data-pds-template-master-id="{{ master_metadata.group_id }}"
+  {% endif %}
+  {% if master_metadata.instance_uuid is defined and master_metadata.instance_uuid %}
+    data-pds-template-master-uuid="{{ master_metadata.instance_uuid|e }}"
+  {% endif %}
+  {% if master_metadata.recipe_type is defined and master_metadata.recipe_type %}
+    data-pds-template-recipe-type="{{ master_metadata.recipe_type|e }}"
+  {% endif %}
+  {% if master_metadata.items_count is defined %}
+    data-pds-template-items-count="{{ master_metadata.items_count }}"
+  {% endif %}
+>
+  <div class="pds-container">
+    {% if items is iterable and items|length > 0 %}
+      {% for row in items %}
+        {% set image_url = row.image_url|default('') %}
+        {% set video_url = row.link|default('') %}
+        <div class="pds-row pds-calloutSection-wrapper">
+          <div class="pds-col pds-col-6 pds-order-2 pds-order-lg-1">
+            <figure class="pds-calloutSection-image">
+              {% if image_url %}
+                <img
+                  src="{{ image_url|e }}"
+                  alt="{{ row.header|default('')|e }}"
+                  width="680"
+                  height="380"
+                  loading="lazy"
+                  decoding="async"
+                />
+              {% endif %}
+              {% if video_url %}
+                <button
+                  type="button"
+                  class="pds-button pds-button-secondary pds-modal-open"
+                  data-video="{{ video_url|e }}"
+                  aria-label="{{ 'Reproducir video'|t }}"
+                >
+                  <span class="pds-play"></span>
+                </button>
+              {% endif %}
+            </figure>
+          </div>
+
+          <div class="pds-col pds-col-12 pds-col-lg-5 pds-offset-lg-1 pds-order-1 pds-order-lg-2">
+            {% if row.header %}
+              <h2 class="pds-typography-h2">{{ row.header|e }}</h2>
+            {% endif %}
+            {% if row.description %}
+              <p class="pds-calloutSection-copy">{{ row.description|e }}</p>
+            {% endif %}
+            {% if row.subheader %}
+              <p class="pds-calloutSection-copy">{{ row.subheader|e }}</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>{{ 'No rows available.'|t }}</p>
+    {% endif %}
+  </div>
+
+  {% if extended_datasets is defined %}
+    <script type="application/json" data-pds-template-extended>{{ extended_datasets|json_encode|raw }}</script>
+  {% endif %}
+
+  <div class="pds-modal" id="{{ modal_id }}" data-pds-latamvideo-modal aria-hidden="true">
+    <div class="pds-modal-backdrop" data-close="true"></div>
+    <div class="pds-modal-dialog" role="dialog" aria-modal="true" aria-label="{{ 'Reproductor de video'|t }}">
+      <button class="pds-modal-close" type="button" aria-label="{{ 'Cerrar'|t }}" data-close="true">×</button>
+      <div class="pds-modal-body" id="{{ modal_body_id }}"></div>
+    </div>
+  </div>
+</section>
