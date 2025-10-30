@@ -1,0 +1,9 @@
+pds_internacional.settings:
+  type: config_object
+  label: 'Principal: Internacional (ajustes)'
+  mapping:
+    header:        { type: label, label: 'Título principal' }
+    header_accent: { type: label, label: 'Título destacado' }
+    description:   { type: text,  label: 'Descripción' }
+    description_accent: { type: text, label: 'Descripción destacada' }
+

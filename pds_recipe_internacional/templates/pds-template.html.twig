@@ -1,0 +1,257 @@
+{#
+  1.- Render wrapper provides metadata attributes for external integrations.
+  2.- When items are provided, the International grid renders each nation column.
+#}
+<div
+  class="pds-template-display-wrapper"
+  {% if master_metadata.group_id is defined and master_metadata.group_id != 0 %}
+    data-pds-template-master-id="{{ master_metadata.group_id }}"
+  {% endif %}
+  {% if master_metadata.instance_uuid is defined and master_metadata.instance_uuid %}
+    data-pds-template-master-uuid="{{ master_metadata.instance_uuid|e }}"
+  {% endif %}
+  {% if master_metadata.recipe_type is defined and master_metadata.recipe_type %}
+    data-pds-template-recipe-type="{{ master_metadata.recipe_type|e }}"
+  {% endif %}
+  {% if master_metadata.items_count is defined %}
+    data-pds-template-items-count="{{ master_metadata.items_count }}"
+  {% endif %}
+>
+  {% if items is iterable and items|length > 0 %}
+    {# 1.- Inline styles bundle the typography and layout for the international block. #}
+    <style>
+      /* ====== FS Eliot Pro (local OTF) ====== */
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProThin.otf') format('opentype');
+        font-weight: 100;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotPrThinItalic.otf') format('opentype');
+        font-weight: 100;
+        font-style: italic;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProLight.otf') format('opentype');
+        font-weight: 300;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProLightItalic.otf') format('opentype');
+        font-weight: 300;
+        font-style: italic;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProRegular.otf') format('opentype');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProItalic.otf') format('opentype');
+        font-weight: 400;
+        font-style: italic;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProBold.otf') format('opentype');
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProBoldItalic.otf') format('opentype');
+        font-weight: 700;
+        font-style: italic;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProHeavy.otf') format('opentype');
+        font-weight: 800;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'FS Eliot Pro';
+        src: url('fonts/FSEliotProHeavyItalic.otf') format('opentype');
+        font-weight: 800;
+        font-style: italic;
+        font-display: swap;
+      }
+      html,
+      body {
+        font-family: 'FS Eliot Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      }
+      .principal-link {
+        font-family: 'FS Eliot Pro', sans-serif;
+        font-weight: 400;
+        text-decoration: underline;
+        color: #0061A0;
+        font-size: 16px;
+        transition: color 0.2s ease;
+      }
+      .principal-link:hover,
+      .principal-link:focus,
+      .principal-link:active {
+        color: #003865;
+      }
+      .principal-link--inverted {
+        color: #FFFFFF;
+      }
+      .principal-link--inverted:hover,
+      .principal-link--inverted:focus,
+      .principal-link--inverted:active {
+        color: #BBE6FC;
+      }
+      .principal-link--subtle {
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+      }
+      .principal-link--subtle:hover {
+        border-bottom-color: currentColor;
+      }
+      .principal-link--strong {
+        font-weight: 600;
+      }
+      .principal-link--small {
+        font-size: 14px;
+      }
+      .principal-link--large {
+        font-size: 18px;
+      }
+      .principal-link--xlarge {
+        font-size: 20px;
+      }
+      .principal-button {
+        display: inline-block;
+        padding: 10px 32px;
+        border: 1px solid #0061A0;
+        border-radius: 16px;
+        color: #0061A0;
+        text-decoration: none;
+        font-weight: 700;
+      }
+      .principal-button:hover {
+        border: 1px solid #003865;
+        color: #003865;
+      }
+      .principal-internacional {
+        padding: 60px 0;
+        background-color: #fff;
+      }
+      .principal-internacional .container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+      .principal-internacional .principal-row-container {
+        display: flex;
+        flex-direction: row;
+        max-width: 1136px;
+        margin: 0 auto;
+        flex-wrap: wrap;
+        gap: 24px 10px;
+        justify-content: center;
+      }
+      .principal-internacional h2 {
+        width: 100%;
+        font-size: 40px;
+        line-height: 48px;
+        font-weight: 300;
+        margin-bottom: 0;
+        text-align: left;
+        color: #002855;
+      }
+      .principal-internacional h2 span {
+        font-weight: 400;
+      }
+      .principal-internacional .nation-column {
+        display: flex;
+        flex-direction: column;
+        max-width: 371px;
+        width: 100%;
+        align-items: center;
+        gap: 10px;
+      }
+      .principal-internacional .nation {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+      }
+      .principal-internacional .nation .img-area {
+        width: 34px;
+        height: 22px;
+        flex-shrink: 0;
+      }
+      .principal-internacional .nation .img-area img {
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        display: block;
+      }
+      .principal-internacional .nation h3 {
+        font-size: 32px;
+        font-weight: 400;
+        line-height: 48px;
+        margin: 0;
+        color: #002855;
+      }
+      .principal-internacional .nation-info p {
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 28px;
+        margin: 0;
+        text-align: center;
+        color: #2F2F2F;
+      }
+      @media (max-width: 720px) {
+        .principal-internacional h2 {
+          font-size: 28px;
+          line-height: 34px;
+        }
+      }
+    </style>
+    {# 2.- Section markup mirrors the provided HTML layout for international reach. #}
+    <section class="principal-internacional">
+      <div class="container">
+        <div class="principal-row-container">
+          <h2>Más de <span>145 años de trayectoria</span> y respaldo internacional</h2>
+          {% for row in items %}
+            {# 1.- Each row becomes a nation card containing flag, title, and description. #}
+            <div class="nation-column">
+              <div class="nation">
+                <div class="img-area">
+                  {% if row.image_url %}
+                    <img src="{{ row.image_url|e }}" alt="{{ row.header|default('')|e }}" />
+                  {% endif %}
+                </div>
+                <h3>{{ row.header|default('')|e }}</h3>
+              </div>
+              <div class="nation-info">
+                <p>{{ row.description|default('')|raw }}</p>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  {% else %}
+    {# 3.- Fallback message keeps editors informed when no rows are available. #}
+    <div>No rows available.</div>
+  {% endif %}
+</div>
