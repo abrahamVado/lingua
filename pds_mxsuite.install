@@ -12,21 +12,28 @@ use Drupal\Core\Recipe\RecipeRunner;
  * - Run bundled recipes.
  */
 function pds_mxsuite_install(): void {
-  // 1. Ensure required tables exist on fresh install.
+  //1.- Ensure required tables exist on fresh install.
   _pds_mxsuite_create_tables();
 
-  // 2. Apply recipes (your existing logic).
+  //2.- Apply bundled recipes so the suite ships with default content.
   $module_path = \Drupal::service('extension.list.module')->getPath('pds_mxsuite');
   $base = DRUPAL_ROOT . '/' . $module_path . '/recipes';
-  $dirs = ['fondos_mutuos','educacion_financiera'];
+  $packages = _pds_mxsuite_get_recipe_packages();
 
-  foreach ($dirs as $dir) {
+  foreach ($packages as $module => $dir) {
     $path = $base . '/' . $dir;
     if (!is_dir($path)) {
-      \Drupal::logger('pds_mxsuite')->warning('Recipe missing: @dir', ['@dir' => $dir]);
+      \Drupal::logger('pds_mxsuite')->warning(
+        'Recipe directory missing for @module at @dir.',
+        [
+          '@module' => $module,
+          '@dir' => $dir,
+        ]
+      );
       continue;
     }
     try {
+      //3.- Execute each recipe to provision the expected demo configuration.
       $recipe = Recipe::createFromDirectory($path);
       RecipeRunner::processRecipe($recipe);
       \Drupal::logger('pds_mxsuite')->info('Recipe applied: @dir', ['@dir' => $dir]);
@@ -309,15 +316,7 @@ function pds_mxsuite_update_8013(): void {
   if (class_exists('\Drupal\Core\Recipe\Recipe')) {
     $module_path = \Drupal::service('extension.list.module')->getPath('pds_mxsuite');
     $base = DRUPAL_ROOT . '/' . $module_path . '/recipes';
-    foreach ([
-      'pds_fondos_mutuos',
-      'pds_educacion_financiera',
-      'pds_recipe_formas_de_invertir',
-      'pds_recipe_mapa',
-      'pds_recipe_executives',
-      'pds_recipe_slider_banner',
-      'pds_recipe_template',
-    ] as $dir) {
+    foreach (_pds_mxsuite_get_recipe_packages() as $module => $dir) {
       $path = $base . '/' . $dir;
       if (is_dir($path)) {
         $r = \Drupal\Core\Recipe\Recipe::createFromDirectory($path);
@@ -326,16 +325,24 @@ function pds_mxsuite_update_8013(): void {
     }
   }
   else {
-    \Drupal::service('module_installer')->install([
-      'pds_recipe_fondos_mutuos',
-      'pds_recipe_educacion_financiera',
-      'pds_recipe_formas_de_invertir',
-      'pds_recipe_mapa',
-      'pds_recipe_executives',
-      'pds_recipe_slider_banner',
-      'pds_recipe_template',
-    ], TRUE);
+    \Drupal::service('module_installer')->install(array_keys(_pds_mxsuite_get_recipe_packages()), TRUE);
   }
+}
+
+/**
+ * Provide a canonical list of recipe modules and their directories.
+ */
+function _pds_mxsuite_get_recipe_packages(): array {
+  //1.- Keep module names and recipe directories aligned in a single source of truth.
+  return [
+    'pds_recipe_fondos_mutuos' => 'fondos_mutuos',
+    'pds_recipe_educacion_financiera' => 'educacion_financiera',
+    'pds_recipe_formas_de_invertir' => 'formas_de_invertir',
+    'pds_recipe_mapa' => 'mapa',
+    'pds_recipe_executives' => 'executives',
+    'pds_recipe_slider_banner' => 'slider_banner',
+    'pds_recipe_template' => 'template',
+  ];
 }
 
 /**
