@@ -1,0 +1,298 @@
+{# //1.- Inline font-face declarations to ensure FS Eliot Pro typography is available for this component #}
+<style>
+/* ====== FS Eliot Pro (local OTF) ====== */
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProThin.otf') format('opentype');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotPrThinItalic.otf') format('opentype');
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProLight.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProLightItalic.otf') format('opentype');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProRegular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProItalic.otf') format('opentype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProBold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProBoldItalic.otf') format('opentype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProHeavy.otf') format('opentype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('fonts/FSEliotProHeavyItalic.otf') format('opentype');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Fuente por defecto del sitio */
+html, body {
+  font-family: 'FS Eliot Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue',
+               sans-serif;
+}
+/* === BASE === */
+.principal-link {
+  font-family: 'FS Eliot Pro', sans-serif;
+  font-weight: 400;
+  text-decoration: underline;
+  color: #0061A0; /* default */
+  font-size: 16px; /* tamaño base */
+  transition: color 0.2s ease;
+}
+
+/* === ESTADOS === */
+.principal-link:hover,
+.principal-link:focus {
+  color: #003865;
+}
+
+.principal-link:active {
+  color: #003865;
+}
+
+/* === VARIANTE INVERTED === */
+.principal-link--inverted {
+  color: #FFFFFF;
+}
+
+.principal-link--inverted:hover,
+.principal-link--inverted:focus,
+.principal-link--inverted:active {
+  color: #BBE6FC;
+}
+
+/* === VARIANTES VISUALES === */
+/* (por si quieres diferenciarlas más adelante) */
+.principal-link--subtle {
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.principal-link--subtle:hover {
+  border-bottom-color: currentColor;
+}
+
+.principal-link--strong {
+  font-weight: 600;
+}
+
+/* === TAMAÑOS === */
+.principal-link--small {
+  font-size: 14px;
+}
+
+.principal-link--large {
+  font-size: 18px;
+}
+
+.principal-link--xlarge {
+  font-size: 20px;
+}
+
+.principal-button {
+    display: inline-block;
+    padding: 10px 32px;
+    border: 1px solid #0061A0;
+    border-radius: 16px;
+    color: #0061A0;
+    text-decoration: none;
+    font-weight: 700;
+}
+.principal-button:hover {
+    border: 1px solid #003865;
+    color: #003865;
+}
+</style>
+
+{# //2.- Layout and responsive styles for the image-text section #}
+<style>
+.principal-image-text {
+    padding: 60px 0;
+}
+.principal-image-text .container {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+.principal-image-text .principal-row-container {
+    display: flex;
+    max-width: 1136px;
+    margin: 0 auto;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 32px;
+}
+.principal-image-text .text-column {
+    flex: 1 1 45%;
+    max-width: 45%;
+}
+.principal-image-text .text-column h2 {
+    font-size: 40px;
+    margin-top: 0;
+    margin-bottom: 24px;
+    font-weight: 200;
+    line-height: 48px;
+    color: #002855;
+}
+.principal-image-text .text-column p {
+    font-size: 18px;
+    margin-bottom: 71px;
+    line-height: 28px;
+    color: #2F2F2F;
+}
+
+.principal-image-text .image-column {
+    flex: 1 1 50%;
+    max-width: 50%;
+    text-align: center;
+}
+.principal-image-text .image-column .img-area img {
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+}
+
+/* ====== Responsive ====== */
+
+/* Medium screens: tablet */
+@media (max-width: 900px) {
+  .principal-image-text {
+    padding: 40px 0;
+  }
+  .principal-image-text .principal-row-container {
+    gap: 20px;
+    flex-direction: column-reverse;
+    align-items: center;
+  }
+  .principal-image-text .text-column,
+  .principal-image-text .image-column {
+    flex: 1 1 100%;
+    max-width: 100%;
+    text-align: center;
+  }
+ 
+  .principal-image-text .text-column h2 {
+    font-size: 32px;
+    line-height: 40px;
+    margin-bottom: 18px;
+  }
+  .principal-image-text .text-column p {
+    font-size: 16px;
+    line-height: 24px;
+    margin-bottom: 28px;
+  }
+  .principal-image-text .image-column .img-area img {
+    max-width: 80%;
+  }
+  .principal-image-text .text-column .button-area a {
+    padding: 10px 28px;
+  }
+}
+
+/* Small screens: mobile */
+@media (max-width: 600px) {
+  .principal-image-text {
+    padding: 24px 0;
+  }
+   .principal-image-text .text-column{
+text-align: left;
+
+  }
+  .principal-image-text .container {
+    padding: 0 16px;
+  }
+  .principal-image-text .text-column h2 {
+    font-size: 24px;
+    line-height: 32px;
+    margin-bottom: 12px;
+  }
+  .principal-image-text .text-column p {
+    font-size: 15px;
+    line-height: 22px;
+    margin-bottom: 18px;
+  }
+  .principal-image-text .image-column .img-area img {
+    max-width: 100%;
+  }
+  .principal-image-text .text-column .button-area  {
+    text-align: left;
+  }
+}
+</style>
+
+{# //3.- Accessible semantic markup for the image-text component #}
+<section class="principal-image-text">
+    <div class="container">
+        <div class="principal-row-container">
+              
+            <div class="image-column">
+                <div class="img-area">
+                    <img src="/imgs/image aspect ratio.png" alt="Placeholder">
+                </div>
+            </div>
+            <div class="text-column">
+                <h2>¿Quiénes somos?</h2>
+                <p>
+Principal Asset manager global en Latinoamérica con más de 140 años </p>
+                <div class="button-area">
+                    <a href="#" class="principal-button">Conoce más sobre Principal</a>
+                </div>
+            </div>  
+        </div>
+    </div>
+</section>
