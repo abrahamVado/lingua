@@ -1,0 +1,17 @@
+pds_timeline.admin:
+  version: 1.x
+  js:
+    assets/js/pds-timeline.admin.js: {}
+  css:
+    theme:
+      assets/css/pds-timeline.admin.css: {}
+  # Load only in admin routes. You attach this manually in hook_form_alter on the block config form.
+
+pds_timeline.public:
+  version: 1.x
+  js:
+    assets/js/pds-timeline.public.js: {}
+  css:
+    theme:
+      assets/css/pds-timeline.public.css: {}
+  # Attached in the block build() so it shows on the front.

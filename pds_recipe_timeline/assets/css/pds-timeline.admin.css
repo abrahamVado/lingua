@@ -1,0 +1,197 @@
+/* //1.- Reset base button spacing to align with the vertical layout. */
+.pds-timeline-admin .button{
+  margin-bottom: 0px;
+  padding: 10px;
+}
+/* //1.- Organize the modal as a vertical stack so panels grow naturally. */
+.pds-timeline-admin {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+}
+
+/* //1.- Style the horizontal tab bar to resemble Drupal Claro toggles. */
+.pds-timeline-admin__tabs-horizontal {
+  display: flex;
+  flex-wrap: nowrap;
+  border-bottom: 0px;
+  background: #f8f8f8;
+  border-radius: .5rem .5rem 0 0;
+  padding: 0 .5rem;
+  gap: .25rem;
+}
+
+/* //1.- Draw each tab trigger as a transparent button with custom focus styles. */
+.pds-timeline-admin__tab-btn-horizontal {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: .75rem 1rem;
+  font-size: .9rem;
+  line-height: 1.2rem;
+  cursor: pointer;
+  color: #444;
+}
+
+/* //1.- Highlight the active tab with a bold accent and underlined border. */
+.pds-timeline-admin__tab-btn-horizontal.is-active {
+  color: #003a8c;
+  font-weight: 600;
+  border-bottom-color: #005fcc;
+  background: #fff;
+  border-radius: .5rem .5rem 0 0;
+}
+
+/* //1.- Wrap panels with a light border to separate content from the background. */
+.pds-timeline-admin__panels-horizontal {
+  border: 1px solid #ccc;
+  border-radius: 0 0 .5rem .5rem;
+  background: #fff;
+  padding: 1rem;
+}
+#edit-settings-pds-timeline-admin-tabs-panels-wrapper-tabs-panels .pds-timeline-admin__panels-horizontal {
+  padding: 0px;
+}
+/* //1.- Hide panels by default so only the active tab is visible. */
+.pds-timeline-admin__panel-horizontal {
+  display: none;
+}
+
+/* //1.- Display the active panel while the others remain hidden. */
+.pds-timeline-admin__panel-horizontal.is-active {
+  display: block;
+}
+
+/* //1.- Introduce comfortable spacing between fields inside panels. */
+.pds-timeline-admin__panel-horizontal .form-item {
+  margin-bottom: 1rem;
+}
+
+/* //1.- Style the add-row button to match Claro primary buttons. */
+.pds-timeline-admin__add-btn {
+  margin-top: 1rem;
+
+  display: inline-block;
+  margin-block: var(--space-m);
+  margin-inline: 0 var(--space-s);
+  padding: calc(var(--space-m) - 1px) calc(var(--space-l) - 1px); /* 1 */
+  cursor: pointer;
+  text-align: center;
+  -webkit-text-decoration: none;
+  text-decoration: none;
+  color: var(--button-fg-color);
+  border: 1px solid transparent;
+  border-radius: var(--button-border-radius-size);
+  background-color: var(--button-bg-color);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  line-height: 1rem;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-font-smoothing: antialiased; /* 2 */
+  
+}
+
+/* //1.- Arrange the preview cards in a single-column responsive grid. */
+.pds-timeline-cardlist {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+/* //1.- Render each card with a subtle border and spacing for readability. */
+.pds-timeline-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .75rem;
+  border: 1px solid #ddd;
+  border-radius: .5rem;
+  background: #fafafa;
+  padding: .75rem;
+}
+
+/* //1.- Limit thumbnail dimensions to consistent square previews. */
+.pds-timeline-card__image img {
+  max-width: 64px;
+  max-height: 64px;
+  object-fit: cover;
+  border-radius: .375rem;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+
+/* //1.- Ensure card body text wraps nicely and remains legible. */
+.pds-timeline-card__body {
+  min-width: 0;
+  font-size: .85rem;
+  line-height: 1.3;
+  color: #222;
+}
+
+/* //1.- Emphasize the header as the main label for each card. */
+.pds-timeline-card__header {
+  font-weight: 600;
+  color: #000;
+  font-size: .9rem;
+}
+
+/* //1.- Present the subheader as secondary metadata below the title. */
+.pds-timeline-card__subheader {
+  color: #555;
+  font-size: .8rem;
+  margin-top: .25rem;
+}
+
+/* //1.- Space the description slightly so long text blocks stay readable. */
+.pds-timeline-card__desc {
+  color: #333;
+  margin-top: .5rem;
+  font-size: .8rem;
+}
+
+/* //1.- Style the call-to-action link with a themed accent color. */
+.pds-timeline-card__link {
+  color: #005fcc;
+  font-size: .8rem;
+  margin-top: .5rem;
+  word-break: break-all;
+}
+
+/* //1.- Display empty states using italicized grey text. */
+.pds-timeline-card-empty {
+  font-size: .8rem;
+  color: #666;
+  font-style: italic;
+}
+/* //1.- Reset the preview table wrapper margin so it aligns with modal edges. */
+.pds-timeline-table{
+  padding: 0px;
+  margin:0px;
+}
+/* 1.- Keep the image column compact without affecting the rest of the layout. */
+.pds-timeline-table__col-thumb,
+.pds-timeline-table__thumb {
+  width: 80px;
+  text-align: center;
+}
+
+/* 2.- Constrain the preview thumbnail while preserving aspect ratio. */
+.pds-timeline-table__thumb img {
+  max-width: 64px;
+  max-height: 64px;
+  object-fit: cover;
+  border-radius: .375rem;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+
+/* 3.- Display JSON previews in a compact, readable format. */
+.pds-timeline-table__json {
+  font-family: monospace;
+  font-size: 11px;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
