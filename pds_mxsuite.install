@@ -321,6 +321,7 @@ function pds_mxsuite_update_8014(): void {
       'pds_recipe_image_text',
       'pds_recipe_latamvideo',
       'pds_recipe_timeline',
+      'pds_recipe_internacional',     
     ] as $dir) {
       $path = $base . '/' . $dir;
       if (is_dir($path)) {
@@ -342,6 +343,7 @@ function pds_mxsuite_update_8014(): void {
       'pds_recipe_image_text',
       'pds_recipe_latamvideo',
       'pds_recipe_timeline',      
+      'pds_recipe_internacional',      
     ], TRUE);
   }
 }
