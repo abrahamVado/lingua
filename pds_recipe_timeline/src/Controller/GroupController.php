@@ -38,7 +38,7 @@ final class GroupController extends ControllerBase {
       $connection = \Drupal::database();
 
       //4.- Reuse any active record tied to the UUID when it already exists.
-      $existing_id = $connection->select('pds_timeline_group', 'g')
+      $existing_id = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -49,7 +49,7 @@ final class GroupController extends ControllerBase {
         //5.- Insert a fresh group row when the UUID has not been registered yet.
         $now = \Drupal::time()->getRequestTime();
         try {
-          $connection->insert('pds_timeline_group')
+          $connection->insert('pds_template_group')
             ->fields([
               'uuid' => $uuid,
               'type' => $type,
@@ -62,7 +62,7 @@ final class GroupController extends ControllerBase {
           //6.- Silence race-condition duplicate errors and fall through to reselect.
         }
 
-        $existing_id = $connection->select('pds_timeline_group', 'g')
+        $existing_id = $connection->select('pds_template_group', 'g')
           ->fields('g', ['id'])
           ->condition('g.uuid', $uuid)
           ->condition('g.deleted_at', NULL, 'IS NULL')

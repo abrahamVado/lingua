@@ -332,7 +332,7 @@ if (!function_exists('pds_recipe_timeline_ensure_group_and_get_id')) {
     try {
       //2.- Attempt to reuse an existing active group row for this UUID.
       $connection = \Drupal::database();
-      $existing_id = $connection->select('pds_timeline_group', 'g')
+      $existing_id = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -347,7 +347,7 @@ if (!function_exists('pds_recipe_timeline_ensure_group_and_get_id')) {
 
       try {
         //3.- Insert a fresh group row when the UUID has never been persisted before.
-        $connection->insert('pds_timeline_group')
+        $connection->insert('pds_template_group')
           ->fields([
             'uuid' => $uuid,
             'type' => $normalized_type,
@@ -361,7 +361,7 @@ if (!function_exists('pds_recipe_timeline_ensure_group_and_get_id')) {
       }
 
       //5.- Resolve the identifier again to cover both inserts and duplicates gracefully.
-      $new_id = $connection->select('pds_timeline_group', 'g')
+      $new_id = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -580,9 +580,135 @@ if (!function_exists('pds_recipe_timeline_resolve_schema_repairer')) {
           '@message' => $throwable->getMessage(),
         ]);
       }
+  }
+
+  //8.- Return NULL when both the service container and manual instantiation fail.
+  return NULL;
+}
+}
+
+if (!function_exists('pds_recipe_timeline_normalize_timeline_json')) {
+  /**
+   * Validate and normalize a potential timeline JSON string.
+   */
+  function pds_recipe_timeline_normalize_timeline_json($candidate): string {
+    //1.- Only accept scalar strings so other data types fail fast.
+    if (!is_string($candidate)) {
+      return '';
     }
 
-    //8.- Return NULL when both the service container and manual instantiation fail.
-    return NULL;
+    $trimmed = trim($candidate);
+    if ($trimmed === '') {
+      return '';
+    }
+
+    //2.- Decode the payload to confirm it is valid JSON before storing it verbatim.
+    json_decode($trimmed, TRUE);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+      return '';
+    }
+
+    return $trimmed;
+  }
+}
+
+if (!function_exists('pds_recipe_timeline_pack_description_payload')) {
+  /**
+   * Combine plain text and timeline JSON into a single storage string.
+   */
+  function pds_recipe_timeline_pack_description_payload(string $description, string $timeline_json): string {
+    $normalized_json = pds_recipe_timeline_normalize_timeline_json($timeline_json);
+
+    //1.- Keep legacy behavior when there is no structured data to preserve.
+    if ($normalized_json === '') {
+      return $description;
+    }
+
+    $payload = [
+      'text' => $description,
+      'timeline_json' => $normalized_json,
+    ];
+
+    $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE);
+    if (!is_string($encoded) || $encoded === '') {
+      //2.- Fall back to the plain text description when encoding fails unexpectedly.
+      return $description;
+    }
+
+    return $encoded;
+  }
+}
+
+if (!function_exists('pds_recipe_timeline_unpack_description_payload')) {
+  /**
+   * Extract plain text and structured timeline JSON from a stored string.
+   */
+  function pds_recipe_timeline_unpack_description_payload($stored): array {
+    $description = is_string($stored) ? (string) $stored : '';
+    $timeline_json = '';
+
+    if (!is_string($stored)) {
+      return [
+        'description' => $description,
+        'description_json' => $timeline_json,
+      ];
+    }
+
+    $trimmed = trim($stored);
+    if ($trimmed === '') {
+      return [
+        'description' => '',
+        'description_json' => '',
+      ];
+    }
+
+    $decoded = json_decode($trimmed, TRUE);
+    if (!is_array($decoded)) {
+      //1.- Treat non-JSON payloads as legacy plain text descriptions.
+      return [
+        'description' => $stored,
+        'description_json' => '',
+      ];
+    }
+
+    //2.- Support both the new keys and potential legacy structures during migrations.
+    if (array_key_exists('text', $decoded) && is_string($decoded['text'])) {
+      $description = $decoded['text'];
+    }
+    elseif (array_key_exists('description', $decoded) && is_string($decoded['description'])) {
+      $description = $decoded['description'];
+    }
+    else {
+      $description = '';
+    }
+
+    if (array_key_exists('timeline_json', $decoded) && is_string($decoded['timeline_json'])) {
+      $timeline_json = pds_recipe_timeline_normalize_timeline_json($decoded['timeline_json']);
+    }
+    elseif (array_key_exists('timeline', $decoded)) {
+      $candidate = $decoded['timeline'];
+      if (is_string($candidate)) {
+        $timeline_json = pds_recipe_timeline_normalize_timeline_json($candidate);
+      }
+      elseif (is_array($candidate)) {
+        $encoded = json_encode($candidate, JSON_UNESCAPED_UNICODE);
+        if (is_string($encoded)) {
+          $timeline_json = pds_recipe_timeline_normalize_timeline_json($encoded);
+        }
+      }
+    }
+
+    //3.- Fall back to the original string when no recognizable keys were present.
+    if ($description === '' && $timeline_json === '') {
+      return [
+        'description' => $stored,
+        'description_json' => '',
+      ];
+    }
+
+    return [
+      'description' => $description,
+      'description_json' => $timeline_json,
+    ];
   }
 }

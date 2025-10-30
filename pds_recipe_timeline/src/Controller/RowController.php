@@ -62,27 +62,10 @@ final class RowController extends ControllerBase {
     $description = isset($row['description']) && is_string($row['description']) ? $row['description'] : '';
     $link = isset($row['link']) && is_string($row['link']) ? $row['link'] : '';
     $description_json = '';
-    if (isset($row['description_json']) && is_string($row['description_json'])) {
-      $candidate_json = trim($row['description_json']);
-      if ($candidate_json !== '') {
-        $decoded_json = json_decode($candidate_json, TRUE);
-        if ($decoded_json !== NULL || json_last_error() === JSON_ERROR_NONE) {
-          //1.- Accept valid JSON payloads so the timeline modal can persist structured milestones.
-          $description_json = $candidate_json;
-        }
-      }
+    if (array_key_exists('description_json', $row)) {
+      $description_json = \pds_recipe_timeline_normalize_timeline_json($row['description_json']);
     }
-    $description_json = '';
-    if (isset($row['description_json']) && is_string($row['description_json'])) {
-      $candidate_json = trim($row['description_json']);
-      if ($candidate_json !== '') {
-        $decoded_json = json_decode($candidate_json, TRUE);
-        if ($decoded_json !== NULL || json_last_error() === JSON_ERROR_NONE) {
-          //1.- Accept the payload as-is when it represents valid JSON structures.
-          $description_json = $candidate_json;
-        }
-      }
-    }
+    $packed_description = \pds_recipe_timeline_pack_description_payload($description, $description_json);
     $desktop_img = isset($row['desktop_img']) && is_string($row['desktop_img']) ? $row['desktop_img'] : '';
     $mobile_img = isset($row['mobile_img']) && is_string($row['mobile_img']) ? $row['mobile_img'] : '';
     $image_url = isset($row['image_url']) && is_string($row['image_url']) ? $row['image_url'] : '';
@@ -158,7 +141,7 @@ final class RowController extends ControllerBase {
 
       if ($weight === NULL) {
         //9.- When the caller omits weight we append to the end by using max + 1.
-        $max_weight = $connection->select('pds_timeline_item', 'i')
+        $max_weight = $connection->select('pds_template_item', 'i')
           ->fields('i', ['weight'])
           ->condition('i.group_id', $group_id)
           ->condition('i.deleted_at', NULL, 'IS NULL')
@@ -174,15 +157,14 @@ final class RowController extends ControllerBase {
         : \Drupal::service('uuid')->generate();
 
       //10.- Insert the brand-new database record and capture the assigned identifier.
-      $insert_id = $connection->insert('pds_timeline_item')
+      $insert_id = $connection->insert('pds_template_item')
         ->fields([
           'uuid' => $row_uuid,
           'group_id' => (int) $group_id,
           'weight' => $weight,
           'header' => $header,
           'subheader' => $subheader,
-          'description' => $description,
-          'description_json' => $description_json,
+          'description' => $packed_description,
           'url' => $link,
           'desktop_img' => $desktop_img,
           'mobile_img' => $mobile_img,
@@ -290,7 +272,7 @@ final class RowController extends ControllerBase {
       }
 
       //4.- Load the numeric group id so we can scope the item query correctly.
-      $group_row = $connection->select('pds_timeline_group', 'g')
+      $group_row = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id', 'uuid'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -305,7 +287,7 @@ final class RowController extends ControllerBase {
       if (!$group_id) {
         //5.- Attempt to reuse a legacy group identifier supplied by the caller when the UUID lookup fails.
         foreach ($fallback_candidates as $candidate_id) {
-          $legacy_row = $connection->select('pds_timeline_group', 'g')
+          $legacy_row = $connection->select('pds_template_group', 'g')
             ->fields('g', ['id', 'uuid'])
             ->condition('g.id', $candidate_id)
             ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -324,7 +306,7 @@ final class RowController extends ControllerBase {
 
           if ($uuid !== '' && (!Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
             //7.- Repair the legacy record by storing the fresh UUID so future AJAX calls no longer need the fallback id.
-            $connection->update('pds_timeline_group')
+            $connection->update('pds_template_group')
               ->fields(['uuid' => $uuid])
               ->condition('id', $group_id)
               ->condition('deleted_at', NULL, 'IS NULL')
@@ -356,7 +338,7 @@ final class RowController extends ControllerBase {
             continue;
           }
 
-          $legacy_uuid = $connection->select('pds_timeline_group', 'g')
+          $legacy_uuid = $connection->select('pds_template_group', 'g')
             ->fields('g', ['uuid'])
             ->condition('g.id', $candidate_id)
             ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -366,7 +348,7 @@ final class RowController extends ControllerBase {
 
           if ($uuid !== '' && (!is_string($legacy_uuid) || !Uuid::isValid((string) $legacy_uuid) || $legacy_uuid !== $uuid)) {
             //8.- Repair the historical record by storing the active UUID so future AJAX calls skip the fallback path.
-            $connection->update('pds_timeline_group')
+            $connection->update('pds_template_group')
               ->fields(['uuid' => $uuid])
               ->condition('id', $candidate_id)
               ->condition('deleted_at', NULL, 'IS NULL')
@@ -398,7 +380,7 @@ final class RowController extends ControllerBase {
 
   private function loadRowsForGroup(Connection $connection, int $group_id): array {
     //1.- Query active timeline items ordered by their saved weight so previews mirror the editor ordering.
-    $query = $connection->select('pds_timeline_item', 'i')
+    $query = $connection->select('pds_template_item', 'i')
       ->fields('i', [
         'id',
         'uuid',
@@ -406,7 +388,6 @@ final class RowController extends ControllerBase {
         'header',
         'subheader',
         'description',
-        'description_json',
         'url',
         'desktop_img',
         'mobile_img',
@@ -425,13 +406,15 @@ final class RowController extends ControllerBase {
       $mobile = (string) $record->mobile_img;
 
       //2.- Normalize the database record into the structure expected by the admin preview table.
+      $payload = \pds_recipe_timeline_unpack_description_payload($record->description);
+
       $rows[] = [
         'id' => (int) $record->id,
         'uuid' => (string) $record->uuid,
         'header' => (string) $record->header,
         'subheader' => (string) $record->subheader,
-        'description' => (string) $record->description,
-        'description_json' => (string) $record->description_json,
+        'description' => (string) $payload['description'],
+        'description_json' => (string) $payload['description_json'],
         'link' => (string) $record->url,
         'desktop_img' => $desktop,
         'mobile_img' => $mobile,
@@ -533,7 +516,7 @@ final class RowController extends ControllerBase {
 
       $connection = \Drupal::database();
 
-      $existing = $connection->select('pds_timeline_item', 'i')
+      $existing = $connection->select('pds_template_item', 'i')
         ->fields('i', ['id', 'group_id', 'weight'])
         ->condition('i.uuid', $row_uuid)
         ->condition('i.deleted_at', NULL, 'IS NULL')
@@ -588,8 +571,7 @@ final class RowController extends ControllerBase {
       $fields = [
         'header' => $header,
         'subheader' => $subheader,
-        'description' => $description,
-        'description_json' => $description_json,
+        'description' => $packed_description,
         'url' => $link,
         'desktop_img' => $desktop_img,
         'mobile_img' => $mobile_img,
@@ -601,7 +583,7 @@ final class RowController extends ControllerBase {
         $fields['weight'] = $weight;
       }
 
-      $connection->update('pds_timeline_item')
+      $connection->update('pds_template_item')
         ->fields($fields)
         ->condition('uuid', $row_uuid)
         ->execute();
@@ -610,8 +592,8 @@ final class RowController extends ControllerBase {
       $response_row = [
         'header' => $fields['header'],
         'subheader' => $fields['subheader'],
-        'description' => $fields['description'],
-        'description_json' => $fields['description_json'],
+        'description' => $description,
+        'description_json' => $description_json,
         'link' => $fields['url'],
         'desktop_img' => $fields['desktop_img'],
         'mobile_img' => $fields['mobile_img'],
