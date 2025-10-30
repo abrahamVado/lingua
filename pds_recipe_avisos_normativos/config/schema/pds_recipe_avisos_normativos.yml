@@ -1,0 +1,8 @@
+pds_recipe_avisos_normativos.settings:
+  type: config_object
+  label: 'Principal: Avisos normativos (ajustes)'
+  mapping:
+    header:         { type: label,  label: 'Título principal' }
+    header_accent:  { type: label,  label: 'Título destacado' }
+    description:    { type: text,   label: 'Descripción opcional' }
+    description_accent: { type: text, label: 'Descripción destacada opcional' }

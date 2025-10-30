@@ -1,0 +1,50 @@
+pds_recipe_avisos_normativos.ensure_group:
+  path: '/pds-template/ensure-group/{uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_avisos_normativos\Controller\GroupController::ensureGroup'
+    _title: 'Ensure Avisos Normativos group'
+  requirements:
+    _permission: 'access content'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['POST']
+
+pds_recipe_avisos_normativos.resolve_row:
+  path: '/pds-template/resolve-row/{uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_avisos_normativos\Plugin\Block\PdsTemplateBlock::ajaxResolveRow'
+    _title: 'Resolve Avisos Normativos row'
+  requirements:
+    _permission: 'access content'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['POST']
+
+pds_recipe_avisos_normativos.create_row:
+  path: '/pds-template/create-row/{uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_avisos_normativos\Controller\RowController::createRow'
+    _title: 'Create Avisos Normativos row'
+  requirements:
+    _permission: 'access content'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['POST']
+
+pds_recipe_avisos_normativos.update_row:
+  path: '/pds-template/update-row/{uuid}/{row_uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_avisos_normativos\Controller\RowController::update'
+    _title: 'Update Avisos Normativos row'
+  requirements:
+    _permission: 'access content'
+    uuid: '[0-9a-fA-F-]+'
+    row_uuid: '[0-9a-fA-F-]+'
+  methods: ['PATCH', 'POST']
+
+pds_recipe_avisos_normativos.list_rows:
+  path: '/pds-template/list-rows/{uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_avisos_normativos\Controller\RowController::list'
+    _title: 'List Avisos Normativos rows'
+  requirements:
+    _permission: 'access content'
+    uuid: '[0-9a-fA-F-]+'
+  methods: ['GET']

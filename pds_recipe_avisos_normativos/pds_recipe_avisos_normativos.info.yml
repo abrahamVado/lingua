@@ -1,0 +1,9 @@
+name: 'Recipe: Avisos normativos'
+type: module
+description: 'Bloque editable para listar avisos normativos con el estilo de Principal Asset Management.'
+core_version_requirement: ^10 || ^11
+package: 'PDS Recipes'
+dependencies:
+  - drupal:block
+  - drupal:block_content
+  - drupal:layout_builder
