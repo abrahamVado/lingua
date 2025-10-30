@@ -34,7 +34,7 @@ final class PdsTimelineBlock extends BlockBase {
       'items' => [],
       //2.- Persist the numeric group id so front-end renderers can reference it.
       'group_id' => 0,
-      //3.- Store the stable UUID that ties this block instance to rows in pds_timeline_group.
+      //3.- Store the stable UUID that ties this block instance to rows in pds_template_group.
       'instance_uuid' => '',
       //4.- Keep track of the logical recipe type so derivatives can specialize behavior.
       'recipe_type' => 'pds_recipe_timeline',
@@ -62,7 +62,7 @@ final class PdsTimelineBlock extends BlockBase {
     if (is_numeric($stored_group_id) && (int) $stored_group_id > 0) {
       try {
         $connection = \Drupal::database();
-        $group_uuid = $connection->select('pds_timeline_group', 'g')
+        $group_uuid = $connection->select('pds_template_group', 'g')
           ->fields('g', ['uuid'])
           ->condition('g.id', (int) $stored_group_id)
           ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -79,7 +79,7 @@ final class PdsTimelineBlock extends BlockBase {
         if ($group_uuid !== FALSE) {
           //3.- Repair legacy rows that never stored a UUID so historical data continues to load in the editor by assigning a fresh identifier directly on the existing group record.
           $replacement_uuid = \Drupal::service('uuid')->generate();
-          $connection->update('pds_timeline_group')
+          $connection->update('pds_template_group')
             ->fields(['uuid' => $replacement_uuid])
             ->condition('id', (int) $stored_group_id)
             ->condition('deleted_at', NULL, 'IS NULL')
@@ -102,7 +102,7 @@ final class PdsTimelineBlock extends BlockBase {
   }
 
   /**
-   * Ensure a row exists in pds_timeline_group for this block UUID.
+   * Ensure a row exists in pds_template_group for this block UUID.
    * Return that row's numeric id (group_id).
    */
   private function ensureGroupAndGetId(): int {
@@ -136,7 +136,7 @@ final class PdsTimelineBlock extends BlockBase {
       }
 
       //2.- Resolve the numeric group id that matches the current UUID so AJAX previews stay in sync.
-      $group_row = $connection->select('pds_timeline_group', 'g')
+      $group_row = $connection->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
         ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -154,7 +154,7 @@ final class PdsTimelineBlock extends BlockBase {
           $group_id = $legacy_group_id;
 
           //4.- Attempt to hydrate the cached UUID from the legacy group so subsequent requests reuse it.
-          $legacy_uuid = $connection->select('pds_timeline_group', 'g')
+          $legacy_uuid = $connection->select('pds_template_group', 'g')
             ->fields('g', ['uuid'])
             ->condition('g.id', $group_id)
             ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -179,7 +179,7 @@ final class PdsTimelineBlock extends BlockBase {
           $fallback_rows = $this->loadRowsForGroup($connection, $legacy_group_id);
           if ($fallback_rows !== []) {
             //6.- Repair the legacy record by storing the active UUID and caching the recovered identifier.
-            $legacy_uuid = $connection->select('pds_timeline_group', 'g')
+            $legacy_uuid = $connection->select('pds_template_group', 'g')
               ->fields('g', ['uuid'])
               ->condition('g.id', $legacy_group_id)
               ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -188,7 +188,7 @@ final class PdsTimelineBlock extends BlockBase {
               ->fetchField();
 
             if ($uuid !== '' && (!is_string($legacy_uuid) || !Uuid::isValid((string) $legacy_uuid) || (string) $legacy_uuid !== $uuid)) {
-              $connection->update('pds_timeline_group')
+              $connection->update('pds_template_group')
                 ->fields(['uuid' => $uuid])
                 ->condition('id', $legacy_group_id)
                 ->condition('deleted_at', NULL, 'IS NULL')
@@ -215,7 +215,7 @@ final class PdsTimelineBlock extends BlockBase {
    */
   private function loadRowsForGroup(Connection $connection, int $group_id): array {
     //1.- Query the active items for the group while ignoring soft-deleted records.
-    $query = $connection->select('pds_timeline_item', 'i')
+    $query = $connection->select('pds_template_item', 'i')
       ->fields('i', [
         'id',
         'uuid',
@@ -223,7 +223,6 @@ final class PdsTimelineBlock extends BlockBase {
         'header',
         'subheader',
         'description',
-        'description_json',
         'url',
         'desktop_img',
         'mobile_img',
@@ -257,14 +256,16 @@ final class PdsTimelineBlock extends BlockBase {
         ? (int) $record->weight
         : NULL;
 
+      $payload = \pds_recipe_timeline_unpack_description_payload($record->description);
+
       $rows[] = [
         'id'          => $resolved_id,
         'uuid'        => $resolved_uuid,
         'weight'      => $resolved_weight,
         'header'      => $record->header,
         'subheader'   => $record->subheader,
-        'description' => $record->description,
-        'description_json' => (string) $record->description_json,
+        'description' => (string) $payload['description'],
+        'description_json' => (string) $payload['description_json'],
         'link'        => $record->url,
         'desktop_img' => $record->desktop_img,
         'mobile_img'  => $record->mobile_img,
@@ -580,7 +581,7 @@ final class PdsTimelineBlock extends BlockBase {
     //2.- Index the existing rows so we can reuse identifiers preserved on AJAX saves.
     $existing_by_uuid = [];
     $existing_by_id = [];
-    $records = $connection->select('pds_timeline_item', 'i')
+    $records = $connection->select('pds_template_item', 'i')
       ->fields('i', ['id', 'uuid'])
       ->condition('group_id', $group_id)
       ->condition('deleted_at', NULL, 'IS NULL')
@@ -602,6 +603,15 @@ final class PdsTimelineBlock extends BlockBase {
         : '';
       $candidate_id = isset($row['id']) && is_numeric($row['id']) ? (int) $row['id'] : NULL;
 
+      $plain_description = isset($row['description']) && is_string($row['description'])
+        ? $row['description']
+        : '';
+      $timeline_json = '';
+      if (array_key_exists('description_json', $row)) {
+        $timeline_json = \pds_recipe_timeline_normalize_timeline_json($row['description_json']);
+      }
+      $packed_description = \pds_recipe_timeline_pack_description_payload($plain_description, $timeline_json);
+
       $resolved_id = NULL;
       if ($uuid !== '' && isset($existing_by_uuid[$uuid])) {
         //1.- Match by UUID to maintain the relationship with auxiliary tables like the timeline dataset.
@@ -615,13 +625,12 @@ final class PdsTimelineBlock extends BlockBase {
 
       if ($resolved_id) {
         //3.- Refresh the stored values while keeping the primary key untouched.
-        $connection->update('pds_timeline_item')
+        $connection->update('pds_template_item')
           ->fields([
             'weight'      => $delta,
             'header'      => $row['header'] ?? '',
             'subheader'   => $row['subheader'] ?? '',
-            'description' => $row['description'] ?? '',
-            'description_json' => $row['description_json'] ?? '',
+            'description' => $packed_description,
             'url'         => $row['link'] ?? '',
             'desktop_img' => $row['desktop_img'] ?? '',
             'mobile_img'  => $row['mobile_img'] ?? '',
@@ -634,15 +643,14 @@ final class PdsTimelineBlock extends BlockBase {
       else {
         //4.- Insert fresh rows when no reusable identifier is present in the submitted snapshot.
         $uuid = $uuid !== '' ? $uuid : \Drupal::service('uuid')->generate();
-        $resolved_id = (int) $connection->insert('pds_timeline_item')
+        $resolved_id = (int) $connection->insert('pds_template_item')
           ->fields([
             'uuid'        => $uuid,
             'group_id'    => $group_id,
             'weight'      => $delta,
             'header'      => $row['header'] ?? '',
             'subheader'   => $row['subheader'] ?? '',
-            'description' => $row['description'] ?? '',
-            'description_json' => $row['description_json'] ?? '',
+            'description' => $packed_description,
             'url'         => $row['link'] ?? '',
             'desktop_img' => $row['desktop_img'] ?? '',
             'mobile_img'  => $row['mobile_img'] ?? '',
@@ -658,8 +666,8 @@ final class PdsTimelineBlock extends BlockBase {
       $snapshot[] = [
         'header'      => $row['header'] ?? '',
         'subheader'   => $row['subheader'] ?? '',
-        'description' => $row['description'] ?? '',
-        'description_json' => $row['description_json'] ?? '',
+        'description' => $plain_description,
+        'description_json' => $timeline_json,
         'link'        => $row['link'] ?? '',
         'desktop_img' => $row['desktop_img'] ?? '',
         'mobile_img'  => $row['mobile_img'] ?? '',
@@ -671,7 +679,7 @@ final class PdsTimelineBlock extends BlockBase {
     }
 
     //4.- Mark rows missing from the submission as deleted without touching preserved identifiers.
-    $deletion = $connection->update('pds_timeline_item')
+    $deletion = $connection->update('pds_template_item')
       ->fields(['deleted_at' => $now])
       ->condition('group_id', $group_id)
       ->condition('deleted_at', NULL, 'IS NULL');
