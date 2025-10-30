@@ -79,6 +79,699 @@
 
   var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
+  function trimString(value) {
+    //1.- Normalize any incoming value into a trimmed string for consistent storage.
+    if (typeof value !== 'string') {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      return String(value).trim();
+    }
+
+    return value.trim();
+  }
+
+  function defaultMilestonesState() {
+    //1.- Provide a baseline structure so the editor can render even with empty payloads.
+    return {
+      metadata: {
+        heading: '',
+        years: [],
+      },
+      segments: [],
+    };
+  }
+
+  function parseYearsInput(raw) {
+    //1.- Accept comma or newline separated values and normalize to trimmed strings.
+    if (typeof raw !== 'string') {
+      return [];
+    }
+
+    return raw
+      .split(/[\n,]+/)
+      .map(function (candidate) {
+        var value = trimString(candidate);
+        if (value.length > 32) {
+          //2.- Mirror the PHP normalization that limits year labels to 32 characters.
+          return value.slice(0, 32);
+        }
+        return value;
+      })
+      .filter(function (value) {
+        return value !== '';
+      });
+  }
+
+  function normalizeSegmentForEditor(segmentRaw, position, key) {
+    //1.- Convert strings and numbers into associative objects for uniform processing.
+    if (typeof segmentRaw === 'string') {
+      segmentRaw = { label: segmentRaw };
+    } else if (typeof segmentRaw === 'number') {
+      segmentRaw = { width: segmentRaw };
+    } else if (!segmentRaw || typeof segmentRaw !== 'object') {
+      segmentRaw = {};
+    }
+
+    var label = '';
+    if (typeof segmentRaw.label === 'string') {
+      label = segmentRaw.label.trim();
+    } else if (typeof segmentRaw.title === 'string') {
+      label = segmentRaw.title.trim();
+    } else if (typeof key === 'string') {
+      label = String(key).trim();
+    }
+
+    var infoText = '';
+    ['info', 'tooltip', 'description', 'text', 'label'].some(function (infoKey) {
+      if (infoText !== '') {
+        return true;
+      }
+      if (typeof segmentRaw[infoKey] === 'string') {
+        var candidate = segmentRaw[infoKey].trim();
+        if (candidate !== '') {
+          infoText = candidate;
+          return true;
+        }
+      }
+      return false;
+    });
+    if (infoText === '' && label !== '') {
+      infoText = label;
+    }
+
+    var image = '';
+    ['image', 'image_url', 'logo', 'img'].some(function (imageKey) {
+      if (image !== '') {
+        return true;
+      }
+      if (typeof segmentRaw[imageKey] === 'string') {
+        var candidate = segmentRaw[imageKey].trim();
+        if (candidate !== '') {
+          image = candidate;
+          return true;
+        }
+      }
+      return false;
+    });
+
+    var imageAlt = '';
+    ['image_alt', 'alt'].some(function (altKey) {
+      if (imageAlt !== '') {
+        return true;
+      }
+      if (typeof segmentRaw[altKey] === 'string') {
+        var candidate = segmentRaw[altKey].trim();
+        if (candidate !== '') {
+          imageAlt = candidate;
+          return true;
+        }
+      }
+      return false;
+    });
+    if (imageAlt === '' && label !== '') {
+      imageAlt = label;
+    }
+
+    var classes = [];
+    if (Array.isArray(segmentRaw.classes)) {
+      classes = segmentRaw.classes
+        .map(function (value) {
+          return typeof value === 'string' ? value.trim() : '';
+        })
+        .filter(function (value) {
+          return value !== '';
+        });
+    } else if (typeof segmentRaw.classes === 'string') {
+      classes = segmentRaw.classes
+        .split(/\s+/)
+        .map(function (value) {
+          return value.trim();
+        })
+        .filter(function (value) {
+          return value !== '';
+        });
+    }
+
+    var width = '';
+    ['width_percent', 'width', 'percentage', 'span'].some(function (widthKey) {
+      if (width !== '') {
+        return true;
+      }
+      if (segmentRaw[widthKey] !== undefined && segmentRaw[widthKey] !== null) {
+        width = trimString(segmentRaw[widthKey]);
+        return true;
+      }
+      return false;
+    });
+
+    var isPrincipal = false;
+    ['principal', 'is_principal'].forEach(function (principalKey) {
+      if (segmentRaw[principalKey]) {
+        isPrincipal = true;
+      }
+    });
+    if (!isPrincipal && typeof segmentRaw.type === 'string') {
+      isPrincipal = segmentRaw.type.trim().toLowerCase() === 'principal';
+    }
+    if (!isPrincipal && typeof segmentRaw.variant === 'string') {
+      isPrincipal = segmentRaw.variant.trim().toLowerCase() === 'principal';
+    }
+
+    var isFirst = false;
+    ['first', 'is_first', 'placeholder'].forEach(function (firstKey) {
+      if (segmentRaw[firstKey]) {
+        isFirst = true;
+      }
+    });
+
+    var tooltipVariant = 'default';
+    if (typeof segmentRaw.tooltip_variant === 'string') {
+      var variant = segmentRaw.tooltip_variant.trim();
+      if (variant !== '') {
+        tooltipVariant = variant;
+      }
+    } else if (isPrincipal) {
+      tooltipVariant = 'principal';
+    }
+
+    return {
+      position: position,
+      label: label,
+      info: infoText,
+      width: width,
+      tooltip: tooltipVariant,
+      principal: !!isPrincipal,
+      first: !!isFirst,
+      image: image,
+      imageAlt: imageAlt,
+      classes: classes.join(' '),
+    };
+  }
+
+  function parseMilestonesJson(raw) {
+    //1.- Start with the default structure so missing keys do not break rendering.
+    var state = defaultMilestonesState();
+    if (typeof raw !== 'string') {
+      return state;
+    }
+
+    var trimmed = raw.trim();
+    if (trimmed === '') {
+      return state;
+    }
+
+    var decoded;
+    try {
+      decoded = JSON.parse(trimmed);
+    } catch (err) {
+      return state;
+    }
+
+    var candidateSegments = [];
+    if (Array.isArray(decoded)) {
+      candidateSegments = decoded;
+    } else if (decoded && typeof decoded === 'object') {
+      if (Array.isArray(decoded.segments)) {
+        candidateSegments = decoded.segments;
+      } else if (Array.isArray(decoded.timeline)) {
+        candidateSegments = decoded.timeline;
+      } else if (decoded.timeline && typeof decoded.timeline === 'object') {
+        candidateSegments = decoded.timeline;
+      } else {
+        candidateSegments = decoded;
+      }
+
+      var metadataSources = [];
+      if (decoded.metadata && typeof decoded.metadata === 'object') {
+        metadataSources.push(decoded.metadata);
+      }
+      if (decoded.meta && typeof decoded.meta === 'object') {
+        metadataSources.push(decoded.meta);
+      }
+      metadataSources.push(decoded);
+
+      metadataSources.forEach(function (meta) {
+        if (!meta || typeof meta !== 'object') {
+          return;
+        }
+
+        if (state.metadata.heading === '' && typeof meta.heading === 'string') {
+          state.metadata.heading = meta.heading.trim();
+        }
+        if (state.metadata.heading === '' && typeof meta.title === 'string') {
+          state.metadata.heading = meta.title.trim();
+        }
+        if (state.metadata.years.length === 0 && Array.isArray(meta.years)) {
+          state.metadata.years = meta.years
+            .map(function (value) {
+              if (typeof value === 'string') {
+                return value.trim();
+              }
+              if (value && typeof value === 'object') {
+                if (typeof value.label === 'string') {
+                  return value.label.trim();
+                }
+                if (typeof value.value === 'string') {
+                  return value.value.trim();
+                }
+              }
+              return '';
+            })
+            .filter(function (value) {
+              return value !== '';
+            })
+            .map(function (value) {
+              return value.length > 32 ? value.slice(0, 32) : value;
+            });
+        }
+      });
+    }
+
+    var segments = [];
+    if (Array.isArray(candidateSegments)) {
+      candidateSegments.forEach(function (segmentRaw, index) {
+        segments.push(normalizeSegmentForEditor(segmentRaw, index, index));
+      });
+    } else if (candidateSegments && typeof candidateSegments === 'object') {
+      var position = 0;
+      Object.keys(candidateSegments).forEach(function (key) {
+        segments.push(normalizeSegmentForEditor(candidateSegments[key], position, key));
+        position += 1;
+      });
+    }
+
+    state.segments = segments.filter(function (segment) {
+      return segment && (segment.label !== '' || segment.info !== '' || segment.width !== '' || segment.image !== '');
+    });
+
+    return state;
+  }
+
+  function buildMilestonesJson(state) {
+    //1.- Always return an empty string for blank payloads so PHP stores legacy defaults.
+    if (!state || !state.segments) {
+      return '';
+    }
+
+    var payload = {
+      segments: [],
+      metadata: {
+        heading: '',
+        years: [],
+      },
+    };
+
+    if (state.metadata) {
+      var heading = trimString(state.metadata.heading || '');
+      if (heading !== '') {
+        payload.metadata.heading = heading;
+      }
+
+      if (Array.isArray(state.metadata.years)) {
+        payload.metadata.years = state.metadata.years
+          .map(function (value) {
+            return trimString(value);
+          })
+          .filter(function (value) {
+            return value !== '';
+          })
+          .map(function (value) {
+            return value.length > 32 ? value.slice(0, 32) : value;
+          });
+      }
+    }
+
+    state.segments.forEach(function (segment) {
+      if (!segment) {
+        return;
+      }
+
+      var label = trimString(segment.label || '');
+      var info = trimString(segment.info || '');
+      var width = trimString(segment.width || '');
+      var tooltip = trimString(segment.tooltip || '');
+      var image = trimString(segment.image || '');
+      var imageAlt = trimString(segment.imageAlt || '');
+      var classes = trimString(segment.classes || '');
+
+      var normalized = {};
+
+      if (label !== '') {
+        normalized.label = label;
+      }
+
+      if (info !== '') {
+        normalized.info = info;
+      }
+
+      if (width !== '') {
+        var numericWidth = parseFloat(width);
+        if (!isNaN(numericWidth) && isFinite(numericWidth)) {
+          normalized.width_percent = numericWidth;
+        } else {
+          normalized.width_percent = width;
+        }
+      }
+
+      if (tooltip !== '' && tooltip !== 'default') {
+        normalized.tooltip_variant = tooltip;
+      }
+
+      if (segment.principal) {
+        normalized.principal = true;
+      }
+
+      if (segment.first) {
+        normalized.first = true;
+      }
+
+      if (image !== '') {
+        normalized.image = image;
+      }
+
+      if (imageAlt !== '') {
+        normalized.image_alt = imageAlt;
+      }
+
+      if (classes !== '') {
+        normalized.classes = classes
+          .split(/\s+/)
+          .map(function (value) {
+            return value.trim();
+          })
+          .filter(function (value) {
+            return value !== '';
+          });
+      }
+
+      if (!normalized.label && label !== '') {
+        normalized.label = label;
+      }
+
+      if (Object.keys(normalized).length === 0) {
+        return;
+      }
+
+      payload.segments.push(normalized);
+    });
+
+    if (
+      payload.segments.length === 0 &&
+      payload.metadata.heading === '' &&
+      (!Array.isArray(payload.metadata.years) || payload.metadata.years.length === 0)
+    ) {
+      return '';
+    }
+
+    try {
+      return JSON.stringify(payload);
+    } catch (err) {
+      return '';
+    }
+  }
+
+  function getMilestonesSourceField(root) {
+    //1.- Locate the hidden textarea that stores the serialized milestones JSON.
+    return sel(root, 'pds-timeline-description-json', 'pds-timeline-description-json');
+  }
+
+  function getMilestonesEditorContainer(root) {
+    //1.- Resolve the container where the interactive editor UI will be rendered.
+    return root.querySelector('[data-pds-timeline-milestones-editor-root]');
+  }
+
+  function syncMilestonesHiddenField(root, state) {
+    //1.- Serialize the current state and mirror it into the hidden textarea for submission.
+    var source = getMilestonesSourceField(root);
+    if (!source) {
+      return '';
+    }
+    var json = buildMilestonesJson(state);
+    source.value = json;
+    return json;
+  }
+
+  function renderMilestonesEditor(root, state) {
+    //1.- Ensure both the hidden field and container exist before attempting to render controls.
+    var source = getMilestonesSourceField(root);
+    var container = getMilestonesEditorContainer(root);
+    if (!source || !container) {
+      return;
+    }
+
+    var workingState = state;
+    if (!workingState) {
+      workingState = parseMilestonesJson(source.value || '');
+    }
+    container._pdsTimelineMilestonesState = workingState;
+
+    //2.- Reset the container so the UI always reflects the latest state snapshot.
+    container.innerHTML = '';
+
+    var headingWrapper = document.createElement('div');
+    headingWrapper.className = 'pds-timeline-admin__milestones-meta';
+
+    var headingLabel = document.createElement('label');
+    headingLabel.className = 'pds-timeline-admin__milestones-field';
+    headingLabel.textContent = 'Timeline heading';
+    var headingInput = document.createElement('input');
+    headingInput.type = 'text';
+    headingInput.className = 'pds-timeline-admin__milestones-input';
+    headingInput.value = workingState.metadata.heading || '';
+    headingInput.addEventListener('input', function () {
+      workingState.metadata.heading = headingInput.value;
+      syncMilestonesHiddenField(root, workingState);
+    });
+    headingLabel.appendChild(headingInput);
+    headingWrapper.appendChild(headingLabel);
+
+    var yearsLabel = document.createElement('label');
+    yearsLabel.className = 'pds-timeline-admin__milestones-field';
+    yearsLabel.textContent = 'Timeline years (one per line)';
+    var yearsArea = document.createElement('textarea');
+    yearsArea.className = 'pds-timeline-admin__milestones-textarea';
+    yearsArea.rows = 3;
+    yearsArea.value = (workingState.metadata.years || []).join('\n');
+    yearsArea.addEventListener('input', function () {
+      workingState.metadata.years = parseYearsInput(yearsArea.value);
+      syncMilestonesHiddenField(root, workingState);
+    });
+    yearsLabel.appendChild(yearsArea);
+    headingWrapper.appendChild(yearsLabel);
+
+    container.appendChild(headingWrapper);
+
+    var list = document.createElement('div');
+    list.className = 'pds-timeline-admin__milestones-list';
+    if (!Array.isArray(workingState.segments) || workingState.segments.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'pds-timeline-admin__milestones-empty';
+      empty.textContent = 'No milestones added yet.';
+      list.appendChild(empty);
+    } else {
+      workingState.segments.forEach(function (segment, index) {
+        var card = document.createElement('div');
+        card.className = 'pds-timeline-admin__milestone';
+        card.setAttribute('data-pds-timeline-milestones-index', String(index));
+
+        var title = document.createElement('h4');
+        title.className = 'pds-timeline-admin__milestone-title';
+        title.textContent = segment.label ? segment.label : 'Milestone ' + (index + 1);
+        card.appendChild(title);
+
+        function addTextField(labelText, value, onInput) {
+          var wrapper = document.createElement('label');
+          wrapper.className = 'pds-timeline-admin__milestones-field';
+          wrapper.textContent = labelText;
+          var input = document.createElement('input');
+          input.type = 'text';
+          input.className = 'pds-timeline-admin__milestones-input';
+          input.value = value || '';
+          input.addEventListener('input', function () {
+            onInput(input.value);
+            if (labelText === 'Label') {
+              title.textContent = input.value ? input.value : 'Milestone ' + (index + 1);
+            }
+            syncMilestonesHiddenField(root, workingState);
+          });
+          wrapper.appendChild(input);
+          card.appendChild(wrapper);
+        }
+
+        addTextField('Label', segment.label || '', function (value) {
+          segment.label = value;
+        });
+        addTextField('Info text', segment.info || '', function (value) {
+          segment.info = value;
+        });
+        addTextField('Width (%)', segment.width || '', function (value) {
+          segment.width = value;
+        });
+
+        var toggleRow = document.createElement('div');
+        toggleRow.className = 'pds-timeline-admin__milestones-toggles';
+
+        function addCheckbox(labelText, checked, onChange) {
+          var wrapper = document.createElement('label');
+          wrapper.className = 'pds-timeline-admin__milestones-toggle';
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = !!checked;
+          checkbox.addEventListener('change', function () {
+            onChange(checkbox.checked);
+            syncMilestonesHiddenField(root, workingState);
+          });
+          wrapper.appendChild(checkbox);
+          wrapper.appendChild(document.createTextNode(labelText));
+          toggleRow.appendChild(wrapper);
+        }
+
+        addCheckbox('Principal', segment.principal, function (value) {
+          segment.principal = value;
+          if (segment.principal && (!segment.tooltip || segment.tooltip === '')) {
+            segment.tooltip = 'principal';
+          }
+        });
+        addCheckbox('First segment', segment.first, function (value) {
+          segment.first = value;
+        });
+
+        var tooltipLabel = document.createElement('label');
+        tooltipLabel.className = 'pds-timeline-admin__milestones-field';
+        tooltipLabel.textContent = 'Tooltip style';
+        var tooltipSelect = document.createElement('select');
+        tooltipSelect.className = 'pds-timeline-admin__milestones-select';
+        ['default', 'principal'].forEach(function (optionValue) {
+          var opt = document.createElement('option');
+          opt.value = optionValue;
+          opt.textContent = optionValue === 'default' ? 'Default' : 'Principal';
+          if ((segment.tooltip || 'default') === optionValue) {
+            opt.selected = true;
+          }
+          tooltipSelect.appendChild(opt);
+        });
+        tooltipSelect.addEventListener('change', function () {
+          segment.tooltip = tooltipSelect.value;
+          syncMilestonesHiddenField(root, workingState);
+        });
+        tooltipLabel.appendChild(tooltipSelect);
+        card.appendChild(toggleRow);
+        card.appendChild(tooltipLabel);
+
+        addTextField('Image URL', segment.image || '', function (value) {
+          segment.image = value;
+        });
+        addTextField('Image alt text', segment.imageAlt || '', function (value) {
+          segment.imageAlt = value;
+        });
+        addTextField('Extra CSS classes', segment.classes || '', function (value) {
+          segment.classes = value;
+        });
+
+        var actions = document.createElement('div');
+        actions.className = 'pds-timeline-admin__milestones-actions';
+
+        function makeButton(label, handler, disabled) {
+          var button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'button button--small';
+          button.textContent = label;
+          if (disabled) {
+            button.disabled = true;
+          }
+          button.addEventListener('click', function (event) {
+            event.preventDefault();
+            handler();
+          });
+          return button;
+        }
+
+        actions.appendChild(makeButton('Move up', function () {
+          if (index <= 0) {
+            return;
+          }
+          var previous = workingState.segments[index - 1];
+          workingState.segments[index - 1] = workingState.segments[index];
+          workingState.segments[index] = previous;
+          syncMilestonesHiddenField(root, workingState);
+          renderMilestonesEditor(root, workingState);
+        }, index === 0));
+
+        actions.appendChild(makeButton('Move down', function () {
+          if (index >= workingState.segments.length - 1) {
+            return;
+          }
+          var next = workingState.segments[index + 1];
+          workingState.segments[index + 1] = workingState.segments[index];
+          workingState.segments[index] = next;
+          syncMilestonesHiddenField(root, workingState);
+          renderMilestonesEditor(root, workingState);
+        }, index === workingState.segments.length - 1));
+
+        actions.appendChild(makeButton('Remove', function () {
+          workingState.segments.splice(index, 1);
+          syncMilestonesHiddenField(root, workingState);
+          renderMilestonesEditor(root, workingState);
+        }));
+
+        card.appendChild(actions);
+        list.appendChild(card);
+      });
+    }
+
+    container.appendChild(list);
+
+    var addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'button button--small pds-timeline-admin__milestones-add';
+    addButton.textContent = 'Add milestone';
+    addButton.addEventListener('click', function (event) {
+      event.preventDefault();
+      workingState.segments.push({
+        label: '',
+        info: '',
+        width: '',
+        tooltip: 'default',
+        principal: false,
+        first: false,
+        image: '',
+        imageAlt: '',
+        classes: '',
+      });
+      syncMilestonesHiddenField(root, workingState);
+      renderMilestonesEditor(root, workingState);
+    });
+
+    container.appendChild(addButton);
+
+    //3.- Ensure the hidden field reflects any normalization performed during rendering.
+    syncMilestonesHiddenField(root, workingState);
+  }
+
+  function resetMilestonesEditor(root) {
+    //1.- Clear the state and re-render the UI to display an empty collection.
+    renderMilestonesEditor(root, defaultMilestonesState());
+  }
+
+  function loadMilestonesEditor(root, jsonString) {
+    //1.- Populate the editor from the provided JSON snapshot.
+    var source = getMilestonesSourceField(root);
+    if (source) {
+      source.value = typeof jsonString === 'string' ? jsonString : '';
+    }
+    renderMilestonesEditor(root, parseMilestonesJson(typeof jsonString === 'string' ? jsonString : ''));
+  }
+
+  function readMilestonesJson(root) {
+    //1.- Always return a string so PHP receives predictable payload types.
+    var source = getMilestonesSourceField(root);
+    if (!source) {
+      return '';
+    }
+    return source.value || '';
+  }
+
   function ensureErrorContainer(root) {
     //1.- Reuse any existing feedback region so repeated errors do not duplicate markup.
     var container = root.querySelector('[data-pds-timeline-error]');
@@ -316,14 +1009,11 @@ function clearInputs(root) {
   if (f) {
     f.value = '';
   }
-  f = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-  if (f) {
-    f.value = '';
-  }
   f = sel(root, 'pds-timeline-description-json', 'pds-timeline-description-json');
   if (f) {
     f.value = '';
   }
+  resetMilestonesEditor(root);
   f = sel(root, 'pds-timeline-link', 'pds-timeline-link');
   if (f) {
     f.value = '';
@@ -339,23 +1029,24 @@ function clearInputs(root) {
     if (f) {
       f.value = row.header || '';
     }
-    f = sel(root, 'pds-timeline-subheader', 'pds-timeline-subheader');
-    if (f) {
-      f.value = row.subheader || '';
-    }
-  f = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+  f = sel(root, 'pds-timeline-subheader', 'pds-timeline-subheader');
   if (f) {
-    f.value = row.description || '';
+    f.value = row.subheader || '';
   }
-  f = sel(root, 'pds-timeline-description-json', 'pds-timeline-description-json');
+  var jsonField = sel(root, 'pds-timeline-description-json', 'pds-timeline-description-json');
+  var jsonValue = (row.description_json || row.timeline_json || '');
+  if (typeof jsonValue !== 'string') {
+    jsonValue = '';
+  }
+  if (jsonField) {
+    jsonField.value = jsonValue;
+  }
+  loadMilestonesEditor(root, jsonValue);
+  f = sel(root, 'pds-timeline-link', 'pds-timeline-link');
   if (f) {
-    f.value = row.description_json || '';
+    f.value = row.link || '';
   }
-    f = sel(root, 'pds-timeline-link', 'pds-timeline-link');
-    if (f) {
-      f.value = row.link || '';
-    }
-  }
+}
 
   function buildRowFromInputs(root, existingRow) {
     //1.- Start from the incoming row so edits preserve unmapped properties like UUID.
@@ -363,15 +1054,13 @@ function clearInputs(root) {
 
     var headerEl = sel(root, 'pds-timeline-header', 'pds-timeline-header');
     var subEl    = sel(root, 'pds-timeline-subheader', 'pds-timeline-subheader');
-    var descEl   = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-    var descJsonEl = sel(root, 'pds-timeline-description-json', 'pds-timeline-description-json');
     var linkEl   = sel(root, 'pds-timeline-link', 'pds-timeline-link');
 
     //2.- Read each field while falling back to empty strings for optional values.
     var header      = headerEl ? headerEl.value : '';
     var subheader   = subEl ? subEl.value : '';
-    var description = descEl ? descEl.value : '';
-    var descriptionJson = descJsonEl ? descJsonEl.value : '';
+    var description = '';
+    var descriptionJson = readMilestonesJson(root);
     var link        = linkEl ? linkEl.value : '';
     var fid         = getImageFid(root);
 
@@ -1330,18 +2019,15 @@ function clearInputs(root) {
 
     var headerEl = sel(root, 'pds-timeline-header', 'pds-timeline-header');
     var subEl = sel(root, 'pds-timeline-subheader', 'pds-timeline-subheader');
-    var descEl = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-    var descJsonEl = sel(root, 'pds-timeline-description-json', 'pds-timeline-description-json');
     var linkEl = sel(root, 'pds-timeline-link', 'pds-timeline-link');
 
     var headerVal = headerEl && typeof headerEl.value === 'string' ? headerEl.value.trim() : '';
     var subVal = subEl && typeof subEl.value === 'string' ? subEl.value.trim() : '';
-    var descVal = descEl && typeof descEl.value === 'string' ? descEl.value.trim() : '';
-    var descJsonVal = descJsonEl && typeof descJsonEl.value === 'string' ? descJsonEl.value.trim() : '';
+    var descJsonVal = readMilestonesJson(root).trim();
     var linkVal = linkEl && typeof linkEl.value === 'string' ? linkEl.value.trim() : '';
 
     //2.- Treat any filled field or uploaded file as pending edits that need committing.
-    if (headerVal !== '' || subVal !== '' || descVal !== '' || descJsonVal !== '' || linkVal !== '') {
+    if (headerVal !== '' || subVal !== '' || descJsonVal !== '' || linkVal !== '') {
       return true;
     }
 
@@ -1669,6 +2355,9 @@ function rebuildManagedFileEmpty(root) {
 
         //2.- Render the preview immediately using any serialized configuration snapshot.
         renderPreviewTable(root);
+
+        //3.- Initialize the milestones editor so the custom UI replaces the hidden textarea.
+        renderMilestonesEditor(root);
 
         //1.- Auto-request preview rows when no local snapshot exists so Tab B hydrates legacy saves instantly.
         var initialRows = readState(root);

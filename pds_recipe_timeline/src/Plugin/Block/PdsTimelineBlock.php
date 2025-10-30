@@ -1015,24 +1015,27 @@ final class PdsTimelineBlock extends BlockBase {
     ],
   ];
 
-  $form['pds_timeline_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['description'] = [
-    '#type' => 'textarea',
-    '#title' => $this->t('Description'),
-    '#rows' => 3,
-    '#attributes' => [
-      'data-drupal-selector' => 'pds-timeline-description',
-      'id' => 'pds-timeline-description',
-    ],
-  ];
-
   $form['pds_timeline_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['description_json'] = [
     '#type' => 'textarea',
     '#title' => $this->t('Milestones JSON'),
-    '#rows' => 5,
-    '#description' => $this->t('Store structured timeline milestones in JSON format, for example {"segments":[{"label":"Role","width":25}]}.'),
+    '#title_display' => 'invisible',
     '#attributes' => [
       'data-drupal-selector' => 'pds-timeline-description-json',
+      'data-pds-timeline-milestones-source' => '1',
       'id' => 'pds-timeline-description-json',
+      'class' => [
+        'visually-hidden',
+      ],
+    ],
+  ];
+
+  $form['pds_timeline_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['milestones_editor'] = [
+    '#type' => 'container',
+    '#attributes' => [
+      'class' => [
+        'pds-timeline-admin__milestones-editor',
+      ],
+      'data-pds-timeline-milestones-editor-root' => '1',
     ],
   ];
 
