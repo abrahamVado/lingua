@@ -1,0 +1,11 @@
+{
+  "name": "prodigiousmx/pds_recipe_internacional",
+  "description": "Recipe Internacional custom module providing international executives layout.",
+  "type": "drupal-custom-module",
+  "license": "proprietary",
+  "autoload": {
+    "psr-4": {
+      "Drupal\\pds_recipe_internacional\\": "src/"
+    }
+  }
+}

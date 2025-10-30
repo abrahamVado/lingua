@@ -1,0 +1,9 @@
+name: 'Recipe: Internacional'
+type: module
+description: 'Bloque editable de ejecutivos internacionales para Layout Builder.'
+core_version_requirement: ^10 || ^11
+package: 'PDS Recipes'
+dependencies:
+  - drupal:block
+  - drupal:block_content
+  - drupal:layout_builder
