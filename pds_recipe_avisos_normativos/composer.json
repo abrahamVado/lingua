@@ -1,0 +1,11 @@
+{
+  "name": "prodigiousmx/pds_recipe_avisos_normativos",
+  "description": "Recipe module that renders Avisos normativos cards for Principal Asset Management.",
+  "type": "drupal-custom-module",
+  "license": "proprietary",
+  "autoload": {
+    "psr-4": {
+      "Drupal\\pds_recipe_avisos_normativos\\": "src/"
+    }
+  }
+}

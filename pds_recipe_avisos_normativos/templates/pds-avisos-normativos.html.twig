@@ -1,0 +1,125 @@
+{#
+  Variables:
+  - items: array of rows saved in block config
+  - group_id: numeric identifier of the master record
+  - instance_uuid: UUID used as the stable key for API access
+  - master_metadata: associative array with group_id, instance_uuid, recipe_type, items_count
+  - extended_datasets: derivative datasets built for public consumers
+#}
+
+{% set component_config = config('pds_recipe_avisos_normativos.settings') %}
+{% set heading = component_config.get('header')|default('') %}
+{% set heading_accent = component_config.get('header_accent')|default('') %}
+{% set description = component_config.get('description')|default('') %}
+{% set description_accent = component_config.get('description_accent')|default('') %}
+
+<section
+  class="principal-avisos"
+  {% if master_metadata.group_id is defined and master_metadata.group_id != 0 %}
+    data-pds-template-master-id="{{ master_metadata.group_id }}"
+  {% endif %}
+  {% if master_metadata.instance_uuid is defined and master_metadata.instance_uuid %}
+    data-pds-template-master-uuid="{{ master_metadata.instance_uuid|e }}"
+  {% endif %}
+  {% if master_metadata.recipe_type is defined and master_metadata.recipe_type %}
+    data-pds-template-recipe-type="{{ master_metadata.recipe_type|e }}"
+  {% endif %}
+  {% if master_metadata.items_count is defined %}
+    data-pds-template-items-count="{{ master_metadata.items_count }}"
+  {% endif %}
+>
+  <div class="container">
+    <div class="principal-row-container">
+      {% if heading or heading_accent %}
+        <h2>
+          {{ heading|e }}
+          {% if heading_accent %}
+            <span>{{ heading_accent|e }}</span>
+          {% endif %}
+        </h2>
+      {% endif %}
+
+      {% if description or description_accent %}
+        <p class="principal-avisos__description">
+          {{ description|e }}
+          {% if description_accent %}
+            <strong>{{ description_accent|e }}</strong>
+          {% endif %}
+        </p>
+      {% endif %}
+
+      {% if items is iterable and items|length > 0 %}
+        {% for row in items %}
+          {% set has_link = row.link is defined and row.link %}
+          <article class="normativa-column">
+            <div class="viñeta" aria-hidden="true"></div>
+            <div class="normativa-info">
+              {% if row.header %}
+                <h4>{{ row.header|e }}</h4>
+              {% endif %}
+              {% if row.subheader %}
+                <h3>{{ row.subheader|e }}</h3>
+              {% endif %}
+              {% if row.description %}
+                <p>{{ row.description|e }}</p>
+              {% endif %}
+              {% if has_link %}
+                <div class="button-area">
+                  <a
+                    href="{{ row.link|e }}"
+                    class="principal-link principal-link--subtle"
+                    {% if row.link starts with 'http' %}
+                      rel="noopener noreferrer"
+                    {% endif %}
+                  >{{ 'Ir a detalle'|t }}</a>
+                  <img src="/icons/arrow-right.svg" alt="" aria-hidden="true" />
+                </div>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      {% else %}
+        <div class="principal-avisos__empty">{{ 'No hay avisos normativos disponibles.'|t }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if extended_datasets.media is defined or extended_datasets.geo is defined %}
+    <div class="principal-avisos__datasets" hidden>
+      {% if extended_datasets.media is defined %}
+        {% if extended_datasets.media.desktop is defined and extended_datasets.media.desktop|length > 0 %}
+          <ul data-pds-template-media="desktop">
+            {% for image in extended_datasets.media.desktop %}
+              <li data-pds-template-media-index="{{ image.index }}">
+                <span class="principal-avisos__media-label">{{ image.label|default('')|e }}</span>
+                <span class="principal-avisos__media-url">{{ image.url|e }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if extended_datasets.media.mobile is defined and extended_datasets.media.mobile|length > 0 %}
+          <ul data-pds-template-media="mobile">
+            {% for image in extended_datasets.media.mobile %}
+              <li data-pds-template-media-index="{{ image.index }}">
+                <span class="principal-avisos__media-label">{{ image.label|default('')|e }}</span>
+                <span class="principal-avisos__media-url">{{ image.url|e }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endif %}
+
+      {% if extended_datasets.geo is defined and extended_datasets.geo|length > 0 %}
+        <ul data-pds-template-geo="1">
+          {% for point in extended_datasets.geo %}
+            <li data-pds-template-media-index="{{ point.index }}">
+              <span class="principal-avisos__geo-label">{{ point.label|default('')|e }}</span>
+              <span class="principal-avisos__geo-lat">{{ point.latitude }}</span>
+              <span class="principal-avisos__geo-lng">{{ point.longitude }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
