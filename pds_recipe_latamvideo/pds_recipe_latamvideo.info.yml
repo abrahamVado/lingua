@@ -1,0 +1,9 @@
+name: 'Recipe: Latam Video'
+type: module
+description: 'Bloque de video destacado para Layout Builder (LATAM).'
+core_version_requirement: ^10 || ^11
+package: 'PDS Recipes'
+dependencies:
+  - drupal:block
+  - drupal:block_content
+  - drupal:layout_builder
