@@ -165,11 +165,6 @@ function _pds_mxsuite_get_table_definitions(): array {
         'size' => 'big',
         'not null' => FALSE,
       ],
-      'description_json' => [
-        'type' => 'text',
-        'size' => 'big',
-        'not null' => FALSE,
-      ],
       'url' => [
         'type' => 'varchar',
         'length' => 512,
