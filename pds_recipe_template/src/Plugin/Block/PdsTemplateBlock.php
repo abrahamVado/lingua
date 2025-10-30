@@ -9,6 +9,7 @@ use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
 use Drupal\file\Entity\File;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -684,36 +685,48 @@ final class PdsTemplateBlock extends BlockBase {
     ],
   ];
 
+  //1.- Replace the legacy description textarea with a hidden JSON store and a custom metadata widget.
   $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['description'] = [
-    '#type' => 'textarea',
-    '#title' => $this->t('Description'),
-    '#rows' => 3,
+    '#type' => 'container',
     '#attributes' => [
-      'data-drupal-selector' => 'pds-template-description',
-      'id' => 'pds-template-description',
+      'id' => 'pds-template-meta-wrapper',
+      'class' => ['pds-template-meta-wrapper'],
+      'data-drupal-selector' => 'pds-template-meta-wrapper',
     ],
-  ];
-
-  $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['image'] = [
-    '#type' => 'managed_file',
-    '#title' => $this->t('Image'),
-    '#upload_location' => 'public://pds_template/',
-    '#default_value' => [],
-    '#upload_validators' => [
-      'file_validate_extensions' => ['png jpg jpeg webp'],
+    'store' => [
+      '#type' => 'textarea',
+      '#title' => $this->t('Metadata'),
+      '#title_display' => 'invisible',
+      '#rows' => 1,
+      '#attributes' => [
+        'data-drupal-selector' => 'pds-template-description',
+        'id' => 'pds-template-description',
+        'hidden' => 'hidden',
+        'data-pds-template-meta-store' => '1',
+      ],
     ],
-    '#attributes' => [
-      'id' => 'pds-template-image',
-    ],
-  ];
-
-  $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['link'] = [
-    '#type' => 'url',
-    '#title' => $this->t('Link'),
-    '#maxlength' => 512,
-    '#attributes' => [
-      'data-drupal-selector' => 'pds-template-link',
-      'id' => 'pds-template-link',
+    'widget' => [
+      '#type' => 'markup',
+      '#markup' => Markup::create(
+        '<div class="pds-template-meta" data-pds-template-meta-root="1">'
+        . '<fieldset class="pds-template-meta__fieldset">'
+        . '  <legend>' . Html::escape((string) $this->t('Add item')) . '</legend>'
+        . '  <label class="pds-template-meta__label">'
+        . '    ' . Html::escape((string) $this->t('Name'))
+        . '    <input type="text" data-pds-template-meta-name="1" required />'
+        . '  </label>'
+        . '  <label class="pds-template-meta__label">'
+        . '    ' . Html::escape((string) $this->t('Value'))
+        . '    <input type="text" data-pds-template-meta-value="1" required />'
+        . '  </label>'
+        . '  <button type="button" class="pds-template-meta__add" data-pds-template-meta-add="1">'
+        . Html::escape((string) $this->t('Add / Update'))
+        . '  </button>'
+        . '</fieldset>'
+        . '<h4 class="pds-template-meta__heading">' . Html::escape((string) $this->t('Items')) . '</h4>'
+        . '<ul class="pds-template-meta__list" data-pds-template-meta-list="1" aria-live="polite"></ul>'
+        . '</div>'
+      ),
     ],
   ];
 
