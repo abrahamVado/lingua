@@ -267,6 +267,7 @@ final class RowController extends ControllerBase {
         }
 
         $connection = \Drupal::database();
+        $supports_type = $this->groupTableSupportsType($connection);
 
         // 3) Fallback candidate ids (legacy flow).
         $fallback_candidates = [];
@@ -288,11 +289,15 @@ final class RowController extends ControllerBase {
         $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');
 
         // 5) Canonical lookup by (uuid,type).
-        $group_row = $connection->select('pds_template_group', 'g')
+        $group_query = $connection->select('pds_template_group', 'g')
           ->fields('g', ['id', 'uuid'])
           ->condition('g.uuid', $uuid)
-          ->condition('g.type', $type)
-          ->condition('g.deleted_at', NULL, 'IS NULL')
+          ->condition('g.deleted_at', NULL, 'IS NULL');
+        if ($supports_type) {
+          //1.- Narrow down the lookup by recipe type only when the column exists so legacy schemas keep working.
+          $group_query->condition('g.type', $type);
+        }
+        $group_row = $group_query
           ->execute()
           ->fetchAssoc();
 
@@ -318,8 +323,13 @@ final class RowController extends ControllerBase {
 
             if ($uuid !== '' && (!\Drupal\Component\Uuid\Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
               // Repair row to the current (uuid,type) so future lookups are direct.
+              $fields = ['uuid' => $uuid];
+              if ($supports_type) {
+                //2.- Persist the recipe discriminator only in schemas that already provide the column.
+                $fields['type'] = $type;
+              }
               $connection->update('pds_template_group')
-                ->fields(['uuid' => $uuid, 'type' => $type])
+                ->fields($fields)
                 ->condition('id', $group_id)
                 ->condition('deleted_at', NULL, 'IS NULL')
                 ->execute();
@@ -361,8 +371,13 @@ final class RowController extends ControllerBase {
               ->fetchField();
 
             if ($uuid !== '' && (!is_string($legacy_uuid) || !\Drupal\Component\Uuid\Uuid::isValid((string) $legacy_uuid) || (string) $legacy_uuid !== $uuid)) {
+              $fields = ['uuid' => $uuid];
+              if ($supports_type) {
+                //3.- Mirror the active recipe type when the column is available to keep future lookups scoped.
+                $fields['type'] = $type;
+              }
               $connection->update('pds_template_group')
-                ->fields(['uuid' => $uuid, 'type' => $type])
+                ->fields($fields)
                 ->condition('id', $candidate_id)
                 ->condition('deleted_at', NULL, 'IS NULL')
                 ->execute();
@@ -571,6 +586,29 @@ final class RowController extends ControllerBase {
     return \pds_recipe_template_resolve_schema_repairer();
   }
 
+  /**
+   * Detect whether the group table already exposes the "type" column.
+   */
+  private function groupTableSupportsType(Connection $connection): bool {
+    static $has_type = NULL;
+
+    if ($has_type === NULL) {
+      try {
+        //5.- Cache the lookup per-request so repeated checks stay inexpensive during multi-call flows.
+        $has_type = $connection->schema()->fieldExists('pds_template_group', 'type');
+      }
+      catch (Throwable $throwable) {
+        //6.- Log once per request and gracefully degrade to UUID-only behavior when introspection fails.
+        \Drupal::logger('pds_recipe_template')->warning('Unable to detect pds_template_group.type column: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+        $has_type = FALSE;
+      }
+    }
+
+    return (bool) $has_type;
+  }
+
 // src/Controller/RowController.php (add this method)
 
   public function delete(Request $request, string $uuid, string $row_uuid): JsonResponse {
@@ -596,14 +634,19 @@ final class RowController extends ControllerBase {
       $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');
 
       $db = \Drupal::database();
+      $supports_type = $this->groupTableSupportsType($db);
 
       // 3) Find group by (uuid,type). If not present yet, treat as no-op.
-      $gid = (int) $db->select('pds_template_group', 'g')
+      $group_query = $db->select('pds_template_group', 'g')
         ->fields('g', ['id'])
         ->condition('g.uuid', $uuid)
-        ->condition('g.type', $type)
         ->condition('g.deleted_at', NULL, 'IS NULL')
-        ->range(0, 1)
+        ->range(0, 1);
+      if ($supports_type) {
+        //4.- Honor the recipe discriminator when the schema supports it to avoid cross-recipe deletions.
+        $group_query->condition('g.type', $type);
+      }
+      $gid = (int) $group_query
         ->execute()
         ->fetchField();
 
