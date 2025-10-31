@@ -246,10 +246,18 @@ final class PdsTimelineBlock extends BlockBase {
 
       //4.- Normalize identifier metadata so the modal preview can reuse the same payload structure as the JSON listing endpoint and keep edit actions wired to the persisted rows.
       $resolved_id = isset($record->id) ? (int) $record->id : 0;
-      $resolved_uuid = isset($record->uuid) ? (string) $record->uuid : '';
-      if ($resolved_uuid !== '' && !Uuid::isValid($resolved_uuid)) {
-        //5.- Ignore malformed UUIDs so legacy noise does not block rendering.
-        $resolved_uuid = '';
+      $raw_uuid = isset($record->uuid) ? (string) $record->uuid : '';
+      $resolved_uuid = '';
+      if ($raw_uuid !== '' && Uuid::isValid($raw_uuid)) {
+        //5.- Accept valid UUIDs immediately so modern rows reuse their stored identifier.
+        $resolved_uuid = $raw_uuid;
+      }
+      elseif ($resolved_id > 0) {
+        //6.- Repair legacy rows missing UUIDs by reusing their numeric id to look up or assign a replacement UUID.
+        $repaired = \pds_recipe_timeline_repair_item_uuid($connection, $resolved_id, $raw_uuid);
+        if ($repaired !== '' && Uuid::isValid($repaired)) {
+          $resolved_uuid = $repaired;
+        }
       }
 
       $resolved_weight = isset($record->weight) && is_numeric($record->weight)
@@ -298,9 +306,16 @@ final class PdsTimelineBlock extends BlockBase {
       ->condition('deleted_at', NULL, 'IS NULL')
       ->execute();
     foreach ($records as $record) {
-      $existing_by_id[(int) $record->id] = (string) $record->uuid;
-      if (is_string($record->uuid) && $record->uuid !== '') {
-        $existing_by_uuid[(string) $record->uuid] = (int) $record->id;
+      $id = (int) $record->id;
+      $raw_uuid = is_string($record->uuid) ? (string) $record->uuid : '';
+      if ($raw_uuid === '' || !Uuid::isValid($raw_uuid)) {
+        //1.- Normalize legacy rows by repairing the missing UUID before indexing them for lookups.
+        $raw_uuid = \pds_recipe_timeline_repair_item_uuid($connection, $id, $raw_uuid);
+      }
+
+      $existing_by_id[$id] = $raw_uuid;
+      if (is_string($raw_uuid) && $raw_uuid !== '') {
+        $existing_by_uuid[$raw_uuid] = $id;
       }
     }
 
@@ -326,21 +341,37 @@ final class PdsTimelineBlock extends BlockBase {
       }
 
       if ($resolved_id) {
+        if ($uuid === '') {
+          //1.- Restore the UUID on legacy rows so subsequent edits can target them via AJAX.
+          $uuid = \pds_recipe_timeline_repair_item_uuid($connection, $resolved_id, $existing_by_id[$resolved_id] ?? '');
+        }
+
+        $update_fields = [
+          'weight'      => $delta,
+          'header'      => $row['header'] ?? '',
+          'subheader'   => $row['subheader'] ?? '',
+          'description' => $row['description'] ?? '',
+          'url'         => $row['link'] ?? '',
+          'desktop_img' => $row['desktop_img'] ?? '',
+          'mobile_img'  => $row['mobile_img'] ?? '',
+          'latitud'     => $row['latitud'] ?? NULL,
+          'longitud'    => $row['longitud'] ?? NULL,
+        ];
+        if ($uuid !== '' && Uuid::isValid($uuid)) {
+          //2.- Persist the recovered UUID so the database record exposes a stable identifier going forward.
+          $update_fields['uuid'] = $uuid;
+        }
+
         //3.- Refresh the stored values while keeping the primary key untouched.
         $connection->update('pds_template_item')
-          ->fields([
-            'weight'      => $delta,
-            'header'      => $row['header'] ?? '',
-            'subheader'   => $row['subheader'] ?? '',
-            'description' => $row['description'] ?? '',
-            'url'         => $row['link'] ?? '',
-            'desktop_img' => $row['desktop_img'] ?? '',
-            'mobile_img'  => $row['mobile_img'] ?? '',
-            'latitud'     => $row['latitud'] ?? NULL,
-            'longitud'    => $row['longitud'] ?? NULL,
-          ])
+          ->fields($update_fields)
           ->condition('id', $resolved_id)
           ->execute();
+
+        $existing_by_id[$resolved_id] = $uuid;
+        if ($uuid !== '' && Uuid::isValid($uuid)) {
+          $existing_by_uuid[$uuid] = $resolved_id;
+        }
       }
       else {
         //4.- Insert fresh rows when no reusable identifier is present in the submitted snapshot.
@@ -362,6 +393,11 @@ final class PdsTimelineBlock extends BlockBase {
             'deleted_at'  => NULL,
           ])
           ->execute();
+
+        $existing_by_id[$resolved_id] = $uuid;
+        if ($uuid !== '' && Uuid::isValid($uuid)) {
+          $existing_by_uuid[$uuid] = $resolved_id;
+        }
       }
 
       $kept_ids[] = $resolved_id;
