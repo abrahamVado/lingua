@@ -1,21 +1,47 @@
 services:
+  # Dedicated logger channel (nice-to-have).
+  logger.channel.pds_recipe_template:
+    parent: logger.channel_base
+    arguments: ['pds_recipe_template']
+
+  # Central repository – constructor: (Connection $db, UuidInterface $uuid, TimeInterface $time, LoggerInterface $logger, RowImagePromoter $promoter)
+  pds_recipe_template.repository:
+    class: 'Drupal\pds_recipe_template\TemplateRepository'
+    arguments:
+      - '@database'
+      - '@uuid'
+      - '@datetime.time'
+      - '@logger.channel.pds_recipe_template'
+      - '@pds_recipe_template.row_image_promoter'
+      - '@pds_recipe_template.template_group_manager'
+
+  # GroupEnsurer – thin service (adjust args if your constructor differs).
   pds_recipe_template.template_group_manager:
-    class: 'Drupal\\pds_recipe_template\\Service\\GroupEnsurer'
+    class: 'Drupal\pds_recipe_template\Service\GroupEnsurer'
+    arguments:
+      - '@database'
+      - '@datetime.time'
+      - '@uuid'
+      - '@logger.channel.pds_recipe_template'
+
+  # Back-compat alias (kept deprecate with required %alias_id% placeholder).
   pds_recipe_template.group_ensurer:
     alias: pds_recipe_template.template_group_manager
     deprecated:
       package: pds_recipe_template
       version: '1.0'
-      message: 'Legacy alias retained for readability. The "%alias_id%" service is deprecated; use "pds_recipe_template.template_group_manager" instead.'
+      message: 'The "%alias_id%" service is deprecated; use "pds_recipe_template.template_group_manager" instead.'
+
+  # Row image promoter – constructor: (EntityTypeManagerInterface, FileUrlGeneratorInterface)
   pds_recipe_template.row_image_promoter:
-    class: 'Drupal\\pds_recipe_template\\Service\\RowImagePromoter'
-    factory: 'pds_recipe_template_create_row_image_promoter'
+    class: 'Drupal\pds_recipe_template\Service\RowImagePromoter'
     arguments:
       - '@entity_type.manager'
       - '@file_url_generator'
+
+  # Legacy schema repairer – constructor: (Connection, TimeInterface, UuidInterface, LoggerChannelFactoryInterface)
   pds_recipe_template.legacy_schema_repairer:
-    class: 'Drupal\\pds_recipe_template\\Service\\LegacySchemaRepairer'
-    factory: 'pds_recipe_template_create_legacy_schema_repairer'
+    class: 'Drupal\pds_recipe_template\Service\LegacySchemaRepairer'
     arguments:
       - '@database'
       - '@datetime.time'

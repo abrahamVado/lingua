@@ -14,39 +14,84 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Logger\LoggerChannelInterface;
 use Throwable;
 
+/**
+ * LegacySchemaRepairer
+ *
+ * PURPOSE (EN)
+ * - Runtime safety-net that verifies and (if needed) upgrades the storage schema
+ *   for PDS templates:
+ *   - Ensures `pds_template_group` exists and has modern columns (uuid/type).
+ *   - Ensures `pds_template_item` exists and has modern columns.
+ *   - Transparently migrates/repairs legacy tables/columns without requiring
+ *     manual updates or downtime.
+ *
+ * PROPÓSITO (ES)
+ * - Red de seguridad en tiempo de ejecución para verificar y (si hace falta)
+ *   actualizar el esquema de almacenamiento:
+ *   - Garantiza `pds_template_group` (uuid/type).
+ *   - Garantiza `pds_template_item`.
+ *   - Migra/repara tablas/columnas heredadas sin pasos manuales ni downtime.
+ *
+ * DESIGN NOTES
+ * - Idempotent: safe to call repeatedly.
+ * - Race-tolerant: rename/create wrapped with fallbacks and restores.
+ * - Conservative: logs errors, bails out safely instead of throwing fatals.
+ */
 final class LegacySchemaRepairer {
 
+  /** Low-level DB connection used for schema ops and bulk inserts. */
   private Connection $connection;
 
+  /** Time service to keep timestamps consistent/testable. */
   private TimeInterface $time;
 
+  /** UUID generator for backfilling missing identifiers. */
   private UuidInterface $uuid;
 
+  /** Channel logger (pds_recipe_template). */
   private LoggerChannelInterface $logger;
 
-  public function __construct(Connection $connection, TimeInterface $time, UuidInterface $uuid, LoggerChannelFactoryInterface $logger_factory) {
+  /**
+   * DI constructor.
+   * - We derive a namespaced logger via the factory to keep logs grouped.
+   */
+  public function __construct(
+    Connection $connection,
+    TimeInterface $time,
+    UuidInterface $uuid,
+    LoggerChannelFactoryInterface $logger_factory
+  ) {
     $this->connection = $connection;
     $this->time = $time;
     $this->uuid = $uuid;
     $this->logger = $logger_factory->get('pds_recipe_template');
   }
 
+  /**
+   * PUBLIC ENTRYPOINT
+   * Ensure that item storage is ready for use (and group table too).
+   *
+   * RETURNS
+   * - true  → schema is present and up-to-date (or successfully rebuilt).
+   * - false → an unexpected failure happened (caller should abort politely).
+   */
   public function ensureItemTableUpToDate(): bool {
     try {
-      //1.- Provision the master and child tables when they are entirely missing.
+      // 1) Ensure/repair GROUP table first (items depend on it).
       $schema = $this->connection->schema();
       $group_definition = $this->buildGroupDefinition();
       if (!$this->ensureGroupTableUpToDate($group_definition)) {
         return FALSE;
       }
 
+      // 2) Create ITEM table if it does not exist.
       $item_definition = $this->buildItemDefinition();
       if (!$schema->tableExists('pds_template_item')) {
         $schema->createTable('pds_template_item', $item_definition);
-        return TRUE;
+        return TRUE; // Freshly created → done.
       }
 
-      //2.- Inspect the existing schema for missing or legacy columns.
+      // 3) Inspect for missing modern fields and presence of legacy ones.
       $expected_fields = array_keys($item_definition['fields']);
       $missing_fields = [];
       foreach ($expected_fields as $field) {
@@ -56,6 +101,7 @@ final class LegacySchemaRepairer {
       }
 
       $legacy_fields_present = FALSE;
+      // Legacy columns we no longer use, but may exist in older installs.
       $legacy_fields = ['block_uuid', 'link', 'image_url', 'latitude', 'longitude'];
       foreach ($legacy_fields as $legacy_field) {
         if ($schema->fieldExists('pds_template_item', $legacy_field)) {
@@ -64,15 +110,16 @@ final class LegacySchemaRepairer {
         }
       }
 
+      // 4) If nothing to fix, we’re done. Otherwise rebuild with a migration.
       if (!$missing_fields && !$legacy_fields_present) {
         return TRUE;
       }
 
-      //3.- Rebuild the table on the fly so runtime operations use the modern layout.
+      // 5) Rebuild item table (rename → create → migrate → drop temp).
       return $this->rebuildItemTable($item_definition);
     }
     catch (Throwable $throwable) {
-      //4.- Capture unexpected failures so callers can fall back to manual updates.
+      // 6) Defensive logging. Let caller react gracefully.
       $this->logger->error('Failed to verify template storage: @message', [
         '@message' => $throwable->getMessage(),
       ]);
@@ -80,16 +127,21 @@ final class LegacySchemaRepairer {
     }
   }
 
+  /**
+   * Ensure/repair GROUP table (`pds_template_group`).
+   * - Creates table if missing.
+   * - Rebuilds table if legacy columns are detected or fields are missing.
+   */
   private function ensureGroupTableUpToDate(array $definition): bool {
     $schema = $this->connection->schema();
 
+    // 1) Create from scratch if absent.
     if (!$schema->tableExists('pds_template_group')) {
-      //1.- Provision the table when it was never created so runtime repairs can continue.
       $schema->createTable('pds_template_group', $definition);
       return TRUE;
     }
 
-    //2.- Compare the live schema with the expected definition to detect missing columns.
+    // 2) Detect missing modern fields.
     $expected_fields = array_keys($definition['fields']);
     $missing_fields = [];
     foreach ($expected_fields as $field) {
@@ -98,7 +150,7 @@ final class LegacySchemaRepairer {
       }
     }
 
-    //3.- Watch for legacy leftovers that indicate the table still uses the pre-UUID structure.
+    // 3) Detect obvious legacy footprint.
     $legacy_fields_present = FALSE;
     $legacy_fields = ['block_uuid', 'layout_id', 'deleted'];
     foreach ($legacy_fields as $legacy_field) {
@@ -108,31 +160,38 @@ final class LegacySchemaRepairer {
       }
     }
 
+    // 4) Up-to-date? done. Else reconstruct via rename→create→migrate.
     if ($missing_fields === [] && !$legacy_fields_present) {
       return TRUE;
     }
 
-    //4.- Rebuild the table to upgrade legacy installations that never received the UUID column.
     return $this->rebuildGroupTable($definition);
   }
 
+  /**
+   * Rebuild GROUP table:
+   * - Renames current → temp
+   * - Creates new
+   * - Migrates data (repairs UUID/TYPE if absent)
+   * - Drops temp
+   */
   private function rebuildGroupTable(array $definition): bool {
     $schema = $this->connection->schema();
     $base_legacy_table = 'pds_template_group_legacy_runtime';
     $legacy_table = $base_legacy_table;
     $suffix = 0;
 
-    //1.- Pick a unique name for the temporary table so repeated repairs never clash.
+    // 1) Ensure temp name is unique even if prior repairs left a temp table around.
     while ($schema->tableExists($legacy_table)) {
       $suffix++;
       $legacy_table = $base_legacy_table . '_' . $suffix;
     }
 
+    // 2) Move old table out of the way.
     try {
       $schema->renameTable('pds_template_group', $legacy_table);
     }
     catch (SchemaObjectDoesNotExistException $exception) {
-      //2.- Abort gracefully when the source table disappeared mid-run and log the failure.
       $this->logger->error('Unable to migrate template groups: @message', [
         '@message' => $exception->getMessage(),
       ]);
@@ -145,11 +204,12 @@ final class LegacySchemaRepairer {
       return FALSE;
     }
 
+    // 3) Create new, modern table.
     try {
       $schema->createTable('pds_template_group', $definition);
     }
     catch (SchemaObjectExistsException $exception) {
-      //3.- Restore the previous table when concurrent rebuilds already recreated it.
+      // Concurrent builder won → restore and bail.
       $this->attemptGroupTableRestore($legacy_table);
       $this->logger->error('Unable to recreate template group table: @message', [
         '@message' => $exception->getMessage(),
@@ -164,6 +224,7 @@ final class LegacySchemaRepairer {
       return FALSE;
     }
 
+    // 4) Read all legacy rows for migration.
     $select = $this->connection->select($legacy_table, 'legacy')
       ->fields('legacy');
 
@@ -180,29 +241,27 @@ final class LegacySchemaRepairer {
 
     $now = $this->time->getRequestTime();
 
+    // 5) Normalize + insert row-by-row into the modern table.
     foreach ($result as $record) {
       $id = isset($record->id) ? (int) $record->id : 0;
       if ($id <= 0) {
-        //4.- Skip malformed records because they cannot be associated with existing rows.
+        // Skip malformed ids.
         continue;
       }
 
+      // 5.1) UUID repair: prefer legacy block_uuid, else generate.
       $stored_uuid = isset($record->uuid) ? trim((string) $record->uuid) : '';
       if (!Uuid::isValid($stored_uuid)) {
-        //5.- Prefer legacy block_uuid values before generating a replacement identifier.
         $legacy_uuid = isset($record->block_uuid) ? trim((string) $record->block_uuid) : '';
-        if (Uuid::isValid($legacy_uuid)) {
-          $stored_uuid = $legacy_uuid;
-        }
-        else {
-          $stored_uuid = $this->uuid->generate();
-        }
+        $stored_uuid = Uuid::isValid($legacy_uuid) ? $legacy_uuid : $this->uuid->generate();
       }
 
+      // 5.2) TYPE default.
       $type = isset($record->type) && is_string($record->type) && $record->type !== ''
         ? (string) $record->type
         : 'pds_recipe_template';
 
+      // 5.3) Timestamps.
       $created_at = isset($record->created_at) && is_numeric($record->created_at)
         ? (int) $record->created_at
         : $now;
@@ -218,19 +277,19 @@ final class LegacySchemaRepairer {
       }
 
       try {
-        //6.- Reinsert the normalized row while preserving the original identifier for item relations.
+        // 5.4) Insert preserving original numeric id (so FK relations remain valid).
         $this->connection->insert('pds_template_group')
           ->fields([
-            'id' => $id,
-            'uuid' => $stored_uuid,
-            'type' => $type,
+            'id'         => $id,
+            'uuid'       => $stored_uuid,
+            'type'       => $type,
             'created_at' => $created_at,
             'deleted_at' => $deleted_at,
           ])
           ->execute();
       }
       catch (Throwable $throwable) {
-        //7.- Log and skip duplicates so the rebuild can continue processing healthy rows.
+        // If duplicate or any other issue, log and continue to next.
         $this->logger->warning('Skipped legacy template group @id: @message', [
           '@id' => $id,
           '@message' => $throwable->getMessage(),
@@ -239,8 +298,8 @@ final class LegacySchemaRepairer {
       }
     }
 
+    // 6) Drop temporary legacy table (non-fatal if it fails).
     try {
-      //8.- Drop the legacy copy now that the replacement table has been fully populated.
       $schema->dropTable($legacy_table);
     }
     catch (Throwable $throwable) {
@@ -253,6 +312,9 @@ final class LegacySchemaRepairer {
     return TRUE;
   }
 
+  /**
+   * Best-effort rollback for GROUP table when a rebuild fails midway.
+   */
   private function attemptGroupTableRestore(string $legacy_table): void {
     $schema = $this->connection->schema();
 
@@ -260,36 +322,42 @@ final class LegacySchemaRepairer {
       if ($schema->tableExists('pds_template_group')) {
         $schema->dropTable('pds_template_group');
       }
-
       if ($schema->tableExists($legacy_table)) {
         $schema->renameTable($legacy_table, 'pds_template_group');
       }
     }
     catch (Throwable $throwable) {
-      //1.- Swallow restore failures because the caller has already reported the root issue.
+      // Soft-fail: caller already handled the root error.
       $this->logger->warning('Unable to restore original template group table: @message', [
         '@message' => $throwable->getMessage(),
       ]);
     }
   }
 
+  /**
+   * Rebuild ITEM table:
+   * - Renames current → temp
+   * - Creates new
+   * - Migrates rows (maps legacy columns → modern ones)
+   * - Drops temp
+   */
   private function rebuildItemTable(array $definition): bool {
     $schema = $this->connection->schema();
     $base_legacy_table = 'pds_template_item_legacy_runtime';
     $legacy_table = $base_legacy_table;
     $suffix = 0;
 
-    //1.- Pick a unique temporary table name when earlier repairs left artefacts behind.
+    // 1) Unique temp name.
     while ($schema->tableExists($legacy_table)) {
       $suffix++;
       $legacy_table = $base_legacy_table . '_' . $suffix;
     }
 
+    // 2) Move old table aside.
     try {
       $schema->renameTable('pds_template_item', $legacy_table);
     }
     catch (SchemaObjectDoesNotExistException $exception) {
-      //2.- Abort gracefully when the rename fails because the table disappeared mid-run.
       $this->logger->error('Unable to migrate template items: @message', [
         '@message' => $exception->getMessage(),
       ]);
@@ -302,11 +370,12 @@ final class LegacySchemaRepairer {
       return FALSE;
     }
 
+    // 3) Create modern table.
     try {
       $schema->createTable('pds_template_item', $definition);
     }
     catch (SchemaObjectExistsException $exception) {
-      //3.- Restore the previous table when creation collides with a concurrent repair.
+      // Another process already created it → restore old and exit.
       $this->attemptTableRestore($legacy_table);
       $this->logger->error('Unable to recreate template items table: @message', [
         '@message' => $exception->getMessage(),
@@ -321,6 +390,7 @@ final class LegacySchemaRepairer {
       return FALSE;
     }
 
+    // 4) Stream legacy rows for migration.
     $select = $this->connection->select($legacy_table, 'legacy')
       ->fields('legacy');
 
@@ -337,99 +407,103 @@ final class LegacySchemaRepairer {
 
     $now = $this->time->getRequestTime();
 
+    // 5) Map each legacy row → modern schema.
     foreach ($result as $record) {
-      //4.- Skip incomplete legacy rows so corrupt entries never block the rebuild.
+      // 5.1) Minimal gate: header must exist.
       $header = trim((string) ($record->header ?? ''));
       if ($header === '') {
         continue;
       }
 
+      // 5.2) Group resolution:
+      //      Prefer legacy block_uuid → ensure group, else reuse numeric group_id.
       $group_id = NULL;
       $block_uuid = isset($record->block_uuid) ? trim((string) $record->block_uuid) : '';
       if ($block_uuid !== '') {
+        // NOTE: central helper ensures (uuid,type) exist; type defaults to template base.
         $group_id = \pds_recipe_template_ensure_group_and_get_id($block_uuid, 'pds_recipe_template');
       }
       elseif (isset($record->group_id) && is_numeric($record->group_id)) {
         $group_id = (int) $record->group_id;
       }
-
       if (!$group_id) {
-        continue;
+        continue; // cannot place the row without a group id
       }
 
+      // 5.3) Row UUID.
       $stored_uuid = isset($record->uuid) ? (string) $record->uuid : '';
       if (!Uuid::isValid($stored_uuid)) {
         $stored_uuid = $this->uuid->generate();
       }
 
-      $weight = isset($record->weight) && is_numeric($record->weight) ? (int) $record->weight : 0;
-      $subheader = isset($record->subheader) ? (string) $record->subheader : '';
+      // 5.4) Other normalized fields.
+      $weight      = isset($record->weight) && is_numeric($record->weight) ? (int) $record->weight : 0;
+      $subheader   = isset($record->subheader)   ? (string) $record->subheader   : '';
       $description = isset($record->description) ? (string) $record->description : '';
 
+      // 5.5) URL mapping: prefer modern 'url', fallback to legacy 'link'.
       $url = '';
       if (isset($record->url)) {
         $url = (string) $record->url;
-      }
-      elseif (isset($record->link)) {
+      } elseif (isset($record->link)) {
         $url = (string) $record->link;
       }
 
+      // 5.6) Media mapping: prefer modern; fallback from single legacy 'image_url'.
       $desktop_img = '';
       if (isset($record->desktop_img)) {
         $desktop_img = (string) $record->desktop_img;
-      }
-      elseif (isset($record->image_url)) {
+      } elseif (isset($record->image_url)) {
         $desktop_img = (string) $record->image_url;
       }
 
       $mobile_img = '';
       if (isset($record->mobile_img)) {
         $mobile_img = (string) $record->mobile_img;
-      }
-      elseif ($desktop_img !== '') {
+      } elseif ($desktop_img !== '') {
         $mobile_img = $desktop_img;
       }
 
+      // 5.7) Geo mapping: (latitud/longitud) or (latitude/longitude).
       $latitud = NULL;
       if (property_exists($record, 'latitud')) {
         $latitud = $record->latitud === NULL ? NULL : (float) $record->latitud;
-      }
-      elseif (property_exists($record, 'latitude')) {
+      } elseif (property_exists($record, 'latitude')) {
         $latitud = $record->latitude === NULL ? NULL : (float) $record->latitude;
       }
 
       $longitud = NULL;
       if (property_exists($record, 'longitud')) {
         $longitud = $record->longitud === NULL ? NULL : (float) $record->longitud;
-      }
-      elseif (property_exists($record, 'longitude')) {
+      } elseif (property_exists($record, 'longitude')) {
         $longitud = $record->longitude === NULL ? NULL : (float) $record->longitude;
       }
 
-      $created_at = isset($record->created_at) && is_numeric($record->created_at) ? (int) $record->created_at : $now;
+      $created_at = isset($record->created_at) && is_numeric($record->created_at)
+        ? (int) $record->created_at
+        : $now;
 
+      // 5.8) Insert normalized row; skip on conflict but continue migration.
       try {
-        //5.- Persist the normalized row so every legacy entry survives the rebuild.
         $this->connection->insert('pds_template_item')
           ->fields([
-            'uuid' => $stored_uuid,
-            'group_id' => (int) $group_id,
-            'weight' => $weight,
-            'header' => $header,
-            'subheader' => $subheader,
+            'uuid'        => $stored_uuid,
+            'group_id'    => (int) $group_id,
+            'weight'      => $weight,
+            'header'      => $header,
+            'subheader'   => $subheader,
             'description' => $description,
-            'url' => $url,
+            'url'         => $url,
             'desktop_img' => $desktop_img,
-            'mobile_img' => $mobile_img,
-            'latitud' => $latitud,
-            'longitud' => $longitud,
-            'created_at' => $created_at,
-            'deleted_at' => NULL,
+            'mobile_img'  => $mobile_img,
+            'latitud'     => $latitud,
+            'longitud'    => $longitud,
+            'created_at'  => $created_at,
+            'deleted_at'  => NULL,
           ])
           ->execute();
       }
       catch (Throwable $throwable) {
-        //6.- Skip duplicate UUIDs or other insert errors so healthy rows continue migrating.
         $this->logger->warning('Skipped legacy template row: @message', [
           '@message' => $throwable->getMessage(),
         ]);
@@ -437,8 +511,8 @@ final class LegacySchemaRepairer {
       }
     }
 
+    // 6) Drop temp legacy table; non-fatal if busy/locked.
     try {
-      //7.- Drop the temporary table to avoid cluttering the database with unused copies.
       $schema->dropTable($legacy_table);
     }
     catch (Throwable $throwable) {
@@ -451,6 +525,9 @@ final class LegacySchemaRepairer {
     return TRUE;
   }
 
+  /**
+   * Best-effort rollback for ITEM table when a rebuild fails midway.
+   */
   private function attemptTableRestore(string $legacy_table): void {
     $schema = $this->connection->schema();
 
@@ -458,21 +535,23 @@ final class LegacySchemaRepairer {
       if ($schema->tableExists('pds_template_item')) {
         $schema->dropTable('pds_template_item');
       }
-
       if ($schema->tableExists($legacy_table)) {
         $schema->renameTable($legacy_table, 'pds_template_item');
       }
     }
     catch (Throwable $throwable) {
-      //1.- Swallow restore failures because the caller already handles the original exception.
+      // Soft-fail: caller already surfaced the main error.
       $this->logger->warning('Unable to restore original template items table: @message', [
         '@message' => $throwable->getMessage(),
       ]);
     }
   }
 
+  /**
+   * Canonical GROUP schema definition (kept in sync with install).
+   */
   private function buildGroupDefinition(): array {
-    //1.- Mirror the schema defined during installation so runtime repairs stay in sync.
+    // 1) Keep this aligned with your .install schema to avoid drift.
     return [
       'description' => 'Logical group of template items (one rendered component instance).',
       'fields' => [
@@ -503,6 +582,8 @@ final class LegacySchemaRepairer {
       ],
       'primary key' => ['id'],
       'unique keys' => [
+        // NOTE: If you later enforce multi-recipe uniqueness, consider a composite.
+        // For now we keep historical unique(uuid) to avoid breaking older data.
         'uuid' => ['uuid'],
       ],
       'indexes' => [
@@ -512,8 +593,11 @@ final class LegacySchemaRepairer {
     ];
   }
 
+  /**
+   * Canonical ITEM schema definition (kept in sync with install).
+   */
   private function buildItemDefinition(): array {
-    //1.- Match the production schema so inserts and updates share the same expectations.
+    // 1) Keep this aligned with your .install schema to avoid drift.
     return [
       'description' => 'Items/cards that belong to a template group.',
       'fields' => [
@@ -594,12 +678,11 @@ final class LegacySchemaRepairer {
         'uuid' => ['uuid'],
       ],
       'indexes' => [
-        'group_id' => ['group_id'],
-        'weight' => ['weight'],
+        'group_id'   => ['group_id'],
+        'weight'     => ['weight'],
         'deleted_at' => ['deleted_at'],
       ],
     ];
   }
 
 }
-

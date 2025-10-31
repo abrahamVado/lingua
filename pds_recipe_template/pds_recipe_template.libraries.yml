@@ -1,17 +1,40 @@
+# File: pds_recipe_template.libraries.yml
+
 pds_template.admin:
   version: 1.x
   js:
-    assets/js/pds-template.admin.js: {}
+    assets/js/pds-template.helpers.js: { weight: -10 }  # <-- load first
+    assets/js/pds-template.admin.js:
+      # Load JS non-blocking from the footer.
+      scope: footer
+      attributes:
+        defer: true
   css:
     theme:
       assets/css/pds-template.admin.css: {}
-  # Load only in admin routes. You attach this manually in hook_form_alter on the block config form.
+  dependencies:
+    # Core runtime + settings object.
+    - core/drupal
+    - core/drupalSettings
+    # If your admin JS uses once(...) helpers:
+    - core/once
+    # If you use Drupal.Ajax / AjaxCommands in the admin UI:
+    - core/ajax
+  # Attach this ONLY on admin forms (e.g., block config / LB modal) via form alter.
+  # Example: $form['#attached']['library'][] = 'pds_recipe_template/pds_template.admin';
 
 pds_template.public:
   version: 1.x
   js:
-    assets/js/pds-template.public.js: {}
+    assets/js/pds-template.public.js:
+      scope: footer
+      attributes:
+        defer: true
   css:
     theme:
       assets/css/pds-template.public.css: {}
-  # Attached in the block build() so it shows on the front.
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+  # Attach in your Block::build() so it renders on the front end only for this block.

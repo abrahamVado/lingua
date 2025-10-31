@@ -1,11 +1,21 @@
+# File: pds_recipe_template.routing.yml
+# Notes:
+# - Unsafe methods (POST/PATCH) require CSRF tokens via _csrf_token: 'TRUE'.
+# - UUID regex is limited to exactly 36 chars of hex + dashes (UUID v4-style).
+# - _format: json helps the Negotiate middleware & clients agree on JSON.
+
 pds_recipe_template.ensure_group:
   path: '/pds-template/ensure-group/{uuid}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\GroupController::ensureGroup'
     _title: 'Ensure PDS Template group'
+    _format: 'json'
   requirements:
-    _permission: 'access content'
-    uuid: '[0-9a-fA-F-]+'
+    # Prefer a custom capability over broad 'access content'.
+    _permission: 'administer pds template'
+    # 36-char hex/dash UUID (e.g., 8-4-4-4-12). Routing regex does not need ^$.
+    uuid: '[0-9a-fA-F-]{36}'
+    _csrf_token: 'TRUE'   # POST must carry a CSRF token.
   methods: ['POST']
 
 pds_recipe_template.resolve_row:
@@ -13,9 +23,11 @@ pds_recipe_template.resolve_row:
   defaults:
     _controller: '\Drupal\pds_recipe_template\Plugin\Block\PdsTemplateBlock::ajaxResolveRow'
     _title: 'Resolve PDS Template row'
+    _format: 'json'
   requirements:
-    _permission: 'access content'
-    uuid: '[0-9a-fA-F-]+'
+    _permission: 'administer pds template'
+    uuid: '[0-9a-fA-F-]{36}'
+    _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.create_row:
@@ -23,9 +35,11 @@ pds_recipe_template.create_row:
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::createRow'
     _title: 'Create PDS Template row'
+    _format: 'json'
   requirements:
-    _permission: 'access content'
-    uuid: '[0-9a-fA-F-]+'
+    _permission: 'administer pds template'
+    uuid: '[0-9a-fA-F-]{36}'
+    _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.update_row:
@@ -33,10 +47,13 @@ pds_recipe_template.update_row:
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::update'
     _title: 'Update PDS Template row'
+    _format: 'json'
   requirements:
-    _permission: 'access content'
-    uuid: '[0-9a-fA-F-]+'
-    row_uuid: '[0-9a-fA-F-]+'
+    _permission: 'administer pds template'
+    uuid: '[0-9a-fA-F-]{36}'
+    row_uuid: '[0-9a-fA-F-]{36}'
+    _csrf_token: 'TRUE'
+  # PATCH is ideal; POST kept for environments with limited verb support.
   methods: ['PATCH', 'POST']
 
 pds_recipe_template.list_rows:
@@ -44,7 +61,9 @@ pds_recipe_template.list_rows:
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::list'
     _title: 'List PDS Template rows'
+    _format: 'json'
   requirements:
-    _permission: 'access content'
-    uuid: '[0-9a-fA-F-]+'
+    # Listing is still privileged because it reveals editor-previews.
+    _permission: 'administer pds template'
+    uuid: '[0-9a-fA-F-]{36}'
   methods: ['GET']
