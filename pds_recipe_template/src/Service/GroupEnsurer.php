@@ -21,6 +21,9 @@ use Throwable;
  */
 final class GroupEnsurer {
 
+  /** Cache schema inspection so repeated calls stay inexpensive. */
+  private ?bool $groupSupportsType = NULL;
+
   public function __construct(
     private readonly Connection $db,
     private readonly TimeInterface $time,
@@ -68,13 +71,17 @@ final class GroupEnsurer {
       // 3) Create if missing (race-safe).
       $now = $this->time->getRequestTime();
       try {
+        $fields = [
+          'uuid' => $uuid,
+          'created_at' => $now,
+          'deleted_at' => NULL,
+        ];
+        if ($this->groupTableSupportsType()) {
+          //1.- Persist the recipe discriminator when legacy databases already include the column.
+          $fields['type'] = $type;
+        }
         $this->db->insert('pds_template_group')
-          ->fields([
-            'uuid' => $uuid,
-            'type' => $type,
-            'created_at' => $now,
-            'deleted_at' => NULL,
-          ])
+          ->fields($fields)
           ->execute();
       }
       catch (Throwable $e) {
@@ -97,6 +104,25 @@ final class GroupEnsurer {
       ]);
       return 0;
     }
+  }
+
+  /** Determine whether the group table already exposes the "type" column. */
+  private function groupTableSupportsType(): bool {
+    if ($this->groupSupportsType === NULL) {
+      try {
+        //2.- Inspect the schema once per request to gracefully downgrade on legacy installs.
+        $this->groupSupportsType = $this->db->schema()->fieldExists('pds_template_group', 'type');
+      }
+      catch (Throwable $e) {
+        //3.- Record the failure and proceed without the recipe filter when introspection is unavailable.
+        $this->logger->warning('Unable to inspect pds_template_group.type column: @msg', [
+          '@msg' => $e->getMessage(),
+        ]);
+        $this->groupSupportsType = FALSE;
+      }
+    }
+
+    return (bool) $this->groupSupportsType;
   }
 
   /**
