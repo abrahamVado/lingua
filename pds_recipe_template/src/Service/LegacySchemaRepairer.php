@@ -6,7 +6,6 @@ namespace Drupal\pds_recipe_template\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Component\Uuid\Uuid;
-use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\SchemaObjectDoesNotExistException;
 use Drupal\Core\Database\SchemaObjectExistsException;
@@ -45,9 +44,6 @@ final class LegacySchemaRepairer {
   /** Time service to keep timestamps consistent/testable. */
   private TimeInterface $time;
 
-  /** UUID generator for backfilling missing identifiers. */
-  private UuidInterface $uuid;
-
   /** Channel logger (pds_recipe_template). */
   private LoggerChannelInterface $logger;
 
@@ -58,12 +54,10 @@ final class LegacySchemaRepairer {
   public function __construct(
     Connection $connection,
     TimeInterface $time,
-    UuidInterface $uuid,
     LoggerChannelFactoryInterface $logger_factory
   ) {
     $this->connection = $connection;
     $this->time = $time;
-    $this->uuid = $uuid;
     $this->logger = $logger_factory->get('pds_recipe_template');
   }
 
@@ -249,11 +243,17 @@ final class LegacySchemaRepairer {
         continue;
       }
 
-      // 5.1) UUID repair: prefer legacy block_uuid, else generate.
-      $stored_uuid = isset($record->uuid) ? trim((string) $record->uuid) : '';
-      if (!Uuid::isValid($stored_uuid)) {
-        $legacy_uuid = isset($record->block_uuid) ? trim((string) $record->block_uuid) : '';
-        $stored_uuid = Uuid::isValid($legacy_uuid) ? $legacy_uuid : $this->uuid->generate();
+      //1.- Reuse any legacy UUID without generating replacements.
+      $stored_uuid = NULL;
+      $primary_uuid = isset($record->uuid) ? trim((string) $record->uuid) : '';
+      if ($primary_uuid !== '' && Uuid::isValid($primary_uuid)) {
+        $stored_uuid = $primary_uuid;
+      }
+      elseif (isset($record->block_uuid)) {
+        $legacy_uuid = trim((string) $record->block_uuid);
+        if ($legacy_uuid !== '' && Uuid::isValid($legacy_uuid)) {
+          $stored_uuid = $legacy_uuid;
+        }
       }
 
       // 5.2) TYPE default.
@@ -278,14 +278,18 @@ final class LegacySchemaRepairer {
 
       try {
         // 5.4) Insert preserving original numeric id (so FK relations remain valid).
+        $fields = [
+          'id'         => $id,
+          'type'       => $type,
+          'created_at' => $created_at,
+          'deleted_at' => $deleted_at,
+        ];
+        if (is_string($stored_uuid) && $stored_uuid !== '') {
+          $fields['uuid'] = $stored_uuid;
+        }
+
         $this->connection->insert('pds_template_group')
-          ->fields([
-            'id'         => $id,
-            'uuid'       => $stored_uuid,
-            'type'       => $type,
-            'created_at' => $created_at,
-            'deleted_at' => $deleted_at,
-          ])
+          ->fields($fields)
           ->execute();
       }
       catch (Throwable $throwable) {
@@ -430,10 +434,13 @@ final class LegacySchemaRepairer {
         continue; // cannot place the row without a group id
       }
 
-      // 5.3) Row UUID.
-      $stored_uuid = isset($record->uuid) ? (string) $record->uuid : '';
-      if (!Uuid::isValid($stored_uuid)) {
-        $stored_uuid = $this->uuid->generate();
+      //2.- Preserve a legacy UUID only when it is valid.
+      $stored_uuid = NULL;
+      if (isset($record->uuid)) {
+        $candidate_uuid = trim((string) $record->uuid);
+        if ($candidate_uuid !== '' && Uuid::isValid($candidate_uuid)) {
+          $stored_uuid = $candidate_uuid;
+        }
       }
 
       // 5.4) Other normalized fields.
@@ -485,22 +492,26 @@ final class LegacySchemaRepairer {
 
       // 5.8) Insert normalized row; skip on conflict but continue migration.
       try {
+        $fields = [
+          'group_id'    => (int) $group_id,
+          'weight'      => $weight,
+          'header'      => $header,
+          'subheader'   => $subheader,
+          'description' => $description,
+          'url'         => $url,
+          'desktop_img' => $desktop_img,
+          'mobile_img'  => $mobile_img,
+          'latitud'     => $latitud,
+          'longitud'    => $longitud,
+          'created_at'  => $created_at,
+          'deleted_at'  => NULL,
+        ];
+        if (is_string($stored_uuid) && $stored_uuid !== '') {
+          $fields['uuid'] = $stored_uuid;
+        }
+
         $this->connection->insert('pds_template_item')
-          ->fields([
-            'uuid'        => $stored_uuid,
-            'group_id'    => (int) $group_id,
-            'weight'      => $weight,
-            'header'      => $header,
-            'subheader'   => $subheader,
-            'description' => $description,
-            'url'         => $url,
-            'desktop_img' => $desktop_img,
-            'mobile_img'  => $mobile_img,
-            'latitud'     => $latitud,
-            'longitud'    => $longitud,
-            'created_at'  => $created_at,
-            'deleted_at'  => NULL,
-          ])
+          ->fields($fields)
           ->execute();
       }
       catch (Throwable $throwable) {
@@ -562,7 +573,7 @@ final class LegacySchemaRepairer {
         'uuid' => [
           'type' => 'varchar',
           'length' => 128,
-          'not null' => TRUE,
+          'not null' => FALSE,
         ],
         'type' => [
           'type' => 'varchar',
@@ -608,7 +619,7 @@ final class LegacySchemaRepairer {
         'uuid' => [
           'type' => 'varchar',
           'length' => 128,
-          'not null' => TRUE,
+          'not null' => FALSE,
         ],
         'group_id' => [
           'type' => 'int',

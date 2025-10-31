@@ -167,7 +167,7 @@ final class RowController extends ControllerBase {
       $image_url   = (string) ($promotion['image_url']   ?? $image_url);
       $image_fid   = $promotion['image_fid'] ?? NULL;
 
-      // 12) Compute default weight (append).
+      //12.- Compute default weight (append).
       if ($weight === NULL) {
         $max_weight = $connection->select('pds_template_item', 'i')
           ->fields('i', ['weight'])
@@ -180,31 +180,39 @@ final class RowController extends ControllerBase {
         $weight = $max_weight ? ((int) $max_weight + 1) : 0;
       }
 
-      // 13) Row UUID (keep supplied if valid, else generate).
-      $row_uuid = isset($row['uuid']) && is_string($row['uuid']) && Uuid::isValid($row['uuid'])
-        ? $row['uuid']
-        : \Drupal::service('uuid')->generate();
+      //13.- Accept an optional legacy UUID; do not generate new identifiers.
+      $row_uuid = NULL;
+      if (isset($row['uuid']) && is_string($row['uuid'])) {
+        $candidate_uuid = trim($row['uuid']);
+        if ($candidate_uuid !== '' && Uuid::isValid($candidate_uuid)) {
+          $row_uuid = $candidate_uuid;
+        }
+      }
 
-      // 14) Insert DB record.
+      //14.- Insert DB record capturing the numeric id provided by the database.
+      $fields = [
+        'group_id'    => (int) $groupId,
+        'weight'      => $weight,
+        'header'      => $header,
+        'subheader'   => $subheader,
+        'description' => $description,
+        'url'         => $link,
+        'desktop_img' => $desktop_img,
+        'mobile_img'  => $mobile_img,
+        'latitud'     => $latitud,
+        'longitud'    => $longitud,
+        'created_at'  => $now,
+        'deleted_at'  => NULL,
+      ];
+      if (is_string($row_uuid) && $row_uuid !== '') {
+        $fields['uuid'] = $row_uuid;
+      }
+
       $insert_id = $connection->insert('pds_template_item')
-        ->fields([
-          'uuid'        => $row_uuid,
-          'group_id'    => (int) $groupId,
-          'weight'      => $weight,
-          'header'      => $header,
-          'subheader'   => $subheader,
-          'description' => $description,
-          'url'         => $link,
-          'desktop_img' => $desktop_img,
-          'mobile_img'  => $mobile_img,
-          'latitud'     => $latitud,
-          'longitud'    => $longitud,
-          'created_at'  => $now,
-          'deleted_at'  => NULL,
-        ])
+        ->fields($fields)
         ->execute();
 
-      // 15) Response payload = exactly what the UI needs to refresh local cache.
+      //15.- Response payload = exactly what the UI needs to refresh local cache.
       $response_row = [
         'header'      => $header,
         'subheader'   => $subheader,
@@ -218,16 +226,22 @@ final class RowController extends ControllerBase {
       if ($image_url !== '') { $response_row['image_url'] = $image_url; }
       if ($image_fid)        { $response_row['image_fid'] = $image_fid; }
       if ($weight !== NULL)  { $response_row['weight']    = $weight;    }
+      if (is_string($row_uuid) && $row_uuid !== '') { $response_row['uuid'] = $row_uuid; }
 
-      return new JsonResponse([
+      $payload = [
         'status' => 'ok',
         'id'     => (int) $insert_id,
         'weight' => $weight,
         'row'    => $response_row,
-      ]);
+      ];
+      if (is_string($row_uuid) && $row_uuid !== '') {
+        $payload['uuid'] = $row_uuid;
+      }
+
+      return new JsonResponse($payload);
     }
     catch (Throwable $throwable) {
-      // 16) Log exact reason for admins; return friendly error to UI.
+      //16.- Log exact reason for admins; return friendly error to UI.
       \Drupal::logger('pds_recipe_template')->error('Row creation failed for group id @group: @message', [
         '@group' => $groupId,
         '@message' => $throwable->getMessage(),
@@ -454,7 +468,7 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
-      //7.- Persist the failure so the operations dashboard can highlight which (uuid,row_uuid) update failed and why.
+      //7.- Persist the failure so the operations dashboard can highlight which (group_id,row_id) update failed and why.
       \Drupal::logger('pds_recipe_template')->error('Row update failed for group id @group / row id @row: @message', [
         '@group' => $groupId,
         '@row' => $rowId,
