@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_template;
 
+use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Database\Connection;
 use Drupal\Component\Datetime\TimeInterface;
 use Psr\Log\LoggerInterface;
@@ -128,11 +129,16 @@ final class TemplateRepository {
 
   /**
    * Ensure group and return its id.
-   * INPUT: numeric ID and recipe type.
-   * NOTE: Ensurer is ID-based now.
+   * INPUT: block instance UUID + recipe type.
    */
-  public function ensureGroupAndGetId(int $id, string $type): int {
-    return (int) $this->ensurer->ensureGroupAndGetId($id, $type);
+  public function ensureGroupAndGetId(string $uuid, string $type): int {
+    //1.- Reject obviously invalid UUIDs before touching the service/DB.
+    if ($uuid === '' || !Uuid::isValid($uuid)) {
+      return 0;
+    }
+
+    //2.- Delegate to the dedicated manager which handles insert-or-select.
+    return (int) $this->ensurer->ensureGroupAndGetId($uuid, $type);
   }
 
   /* ============ ROW DELETE ============ */

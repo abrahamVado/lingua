@@ -39,26 +39,26 @@ final class GroupController extends ControllerBase {
   }
 
   /**
-   * POST /pds-recipe/{uuid}/ensure-group?type=...
+   * POST /pds-template/ensure-group/{id}?type=...
    *
    * REQUEST:
-   *   - Path: {uuid} (required, instance UUID)
-   *   - Query: ?type=... (optional; also accepted via body, but query wins)
-   *   - Body: {"recipe_type":"..."} (optional fallback)
+   *   - Path: {id} (numeric group id; use 0 to request creation)
+   *   - Query: ?type=... (optional; overrides body) & ?instance_uuid=...
+   *   - Body: {"recipe_type":"...","instance_uuid":"..."} (optional fallback)
    *
    * RESPONSE (success):
    *   { "status": "ok", "group_id": 123, "type": "pds_recipe_template" }
    */
-  public function ensureGroup(Request $request, string $uuid): JsonResponse {
-    // 1) Validate UUID early: never touch DB with malformed identifiers.
-    if (!Uuid::isValid($uuid)) {
+  public function ensureGroup(Request $request, int $id): JsonResponse {
+    //1.- Sanity-check the numeric identifier (negative ids are invalid).
+    if ($id < 0) {
       return new JsonResponse([
         'status'  => 'error',
-        'message' => 'Invalid UUID.',
+        'message' => 'Invalid group id.',
       ], 400);
     }
 
-    // 2) Permission gate: layout editors/admins only.
+    //2.- Permission gate: layout editors/admins only.
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse([
         'status'  => 'error',
@@ -66,11 +66,12 @@ final class GroupController extends ControllerBase {
       ], 403);
     }
 
-    // 3) Resolve + whitelist the recipe type (supports multi-recipe on one endpoint).
-    $repo = $this->repo();
+    //3.- Decode JSON body for optional hints.
     $payload = json_decode($request->getContent() ?: '[]', true);
     $payload = is_array($payload) ? $payload : [];
 
+    //4.- Resolve recipe type, preferring the explicit query parameter.
+    $repo = $this->repo();
     $type_candidate = $request->query->get('type');
     if (!is_string($type_candidate) || $type_candidate === '') {
       $type_candidate = isset($payload['recipe_type']) && is_string($payload['recipe_type'])
@@ -79,108 +80,79 @@ final class GroupController extends ControllerBase {
     }
     $type = $repo->resolveRecipeType($type_candidate, 'pds_recipe_template');
 
+    //5.- Gather the instance UUID (query wins, body is fallback).
+    $instance_uuid = $request->query->get('instance_uuid');
+    if (!is_string($instance_uuid) || $instance_uuid === '') {
+      if (isset($payload['instance_uuid']) && is_string($payload['instance_uuid'])) {
+        $instance_uuid = $payload['instance_uuid'];
+      }
+      elseif (isset($payload['uuid']) && is_string($payload['uuid'])) {
+        $instance_uuid = $payload['uuid'];
+      }
+      else {
+        $instance_uuid = '';
+      }
+    }
+    $instance_uuid = trim((string) $instance_uuid);
+
     try {
-      $connection = \Drupal::database();
+      //6.- Reuse existing numeric groups when available.
+      if ($id > 0) {
+        $group = $repo->loadActiveGroupById($id);
+        if ($group) {
+          $type_ok = $repo->ensureGroupTypeValue($id, $type);
+          if (!$type_ok && $repo->groupTableSupportsType()) {
+            return new JsonResponse([
+              'status'  => 'error',
+              'message' => 'Group type mismatch.',
+            ], 409);
+          }
 
-      // 4) Try the canonical (uuid + type) directly. This is the happy path.
-      $existing_id = $connection->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $uuid)
-        ->condition('g.type', $type)
-        ->condition('g.deleted_at', NULL, 'IS NULL')
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-
-      if ($existing_id) {
-        // 4.1) Already exists – return it.
-        return new JsonResponse([
-          'status'   => 'ok',
-          'group_id' => (int) $existing_id,
-          'type'     => $type,
-        ]);
+          return new JsonResponse([
+            'status'         => 'ok',
+            'group_id'       => $id,
+            'type'           => $type,
+            'instance_uuid'  => $group['uuid'] ?? '',
+          ]);
+        }
       }
 
-      // 5) Legacy repair path:
-      //    Find a row with the same uuid but missing/empty type and fix it.
-      $legacy_id = $connection->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $uuid)
-        ->condition('g.deleted_at', NULL, 'IS NULL')
-        ->isNull('g.type')                    // type IS NULL
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-
-      if (!$legacy_id) {
-        // Some sites may store empty-string instead of NULL for type; handle that too.
-        $legacy_id = $connection->select('pds_template_group', 'g')
-          ->fields('g', ['id'])
-          ->condition('g.uuid', $uuid)
-          ->condition('g.type', '', '=')     // type = ''
-          ->condition('g.deleted_at', NULL, 'IS NULL')
-          ->range(0, 1)
-          ->execute()
-          ->fetchField();
-      }
-
-      if ($legacy_id) {
-        // 5.1) Repair legacy row by setting the desired type.
-        $connection->update('pds_template_group')
-          ->fields(['type' => $type])
-          ->condition('id', (int) $legacy_id)
-          ->condition('deleted_at', NULL, 'IS NULL')
-          ->execute();
-
-        return new JsonResponse([
-          'status'   => 'ok',
-          'group_id' => (int) $legacy_id,
-          'type'     => $type,
-        ]);
-      }
-
-      // 6) Insert a fresh group row (race-condition tolerant).
-      $now = \Drupal::time()->getRequestTime();
-      try {
-        $connection->insert('pds_template_group')
-          ->fields([
-            'uuid'       => $uuid,
-            'type'       => $type,
-            'created_at' => $now,
-            'deleted_at' => NULL,
-          ])
-          ->execute();
-      } catch (\Exception $race) {
-        // 6.1) If two requests race, ignore duplicate errors and reselect below.
-      }
-
-      // 7) Reselect by (uuid + type) to return the correct id post-race.
-      $existing_id = $connection->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $uuid)
-        ->condition('g.type', $type)
-        ->condition('g.deleted_at', NULL, 'IS NULL')
-        ->range(0, 1)
-        ->execute()
-        ->fetchField();
-
-      if (!$existing_id) {
-        // 7.1) Defensive: still not found → report a clean 500 for the UI.
+      //7.- Without a valid UUID we cannot create or locate a group.
+      if ($instance_uuid === '' || !Uuid::isValid($instance_uuid)) {
+        $code = $id > 0 ? 404 : 400;
+        $message = $id > 0 ? 'Group not found.' : 'Missing instance uuid.';
         return new JsonResponse([
           'status'  => 'error',
-          'message' => 'Unable to resolve group.',
+          'message' => $message,
+        ], $code);
+      }
+
+      //8.- Create or fetch the group by UUID, then ensure its type.
+      $group_id = $repo->ensureGroupAndGetId($instance_uuid, $type);
+      if ($group_id <= 0) {
+        return new JsonResponse([
+          'status'  => 'error',
+          'message' => 'Unable to ensure group.',
         ], 500);
       }
 
-      // 8) Success: return id + type so callers can cache both.
+      $type_ok = $repo->ensureGroupTypeValue($group_id, $type);
+      if (!$type_ok && $repo->groupTableSupportsType()) {
+        return new JsonResponse([
+          'status'  => 'error',
+          'message' => 'Group type mismatch.',
+        ], 409);
+      }
+
       return new JsonResponse([
-        'status'   => 'ok',
-        'group_id' => (int) $existing_id,
-        'type'     => $type,
+        'status'         => 'ok',
+        'group_id'       => $group_id,
+        'type'           => $type,
+        'instance_uuid'  => $instance_uuid,
       ]);
     }
-    catch (\Exception $e) {
-      // 9) Graceful failure for the modal; log can be added if you prefer.
+    catch (\Throwable $e) {
+      //9.- Graceful failure for the modal; keep the error generic for editors.
       return new JsonResponse([
         'status'  => 'error',
         'message' => 'Unable to ensure group.',
