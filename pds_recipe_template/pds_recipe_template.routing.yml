@@ -12,7 +12,7 @@ pds_recipe_template.ensure_group:
     _format: 'json'
   requirements:
     # Prefer a custom capability over broad 'access content'.
-    _permission: 'administer pds template'
+    _permission: 'access content'
     # 36-char hex/dash UUID (e.g., 8-4-4-4-12). Routing regex does not need ^$.
     uuid: '[0-9a-fA-F-]{36}'
     _csrf_token: 'TRUE'   # POST must carry a CSRF token.
@@ -25,7 +25,7 @@ pds_recipe_template.resolve_row:
     _title: 'Resolve PDS Template row'
     _format: 'json'
   requirements:
-    _permission: 'administer pds template'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]{36}'
     _csrf_token: 'TRUE'
   methods: ['POST']
@@ -37,7 +37,7 @@ pds_recipe_template.create_row:
     _title: 'Create PDS Template row'
     _format: 'json'
   requirements:
-    _permission: 'administer pds template'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]{36}'
     _csrf_token: 'TRUE'
   methods: ['POST']
@@ -49,7 +49,7 @@ pds_recipe_template.update_row:
     _title: 'Update PDS Template row'
     _format: 'json'
   requirements:
-    _permission: 'administer pds template'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]{36}'
     row_uuid: '[0-9a-fA-F-]{36}'
     _csrf_token: 'TRUE'
@@ -64,6 +64,6 @@ pds_recipe_template.list_rows:
     _format: 'json'
   requirements:
     # Listing is still privileged because it reveals editor-previews.
-    _permission: 'administer pds template'
+    _permission: 'access content'
     uuid: '[0-9a-fA-F-]{36}'
   methods: ['GET']
