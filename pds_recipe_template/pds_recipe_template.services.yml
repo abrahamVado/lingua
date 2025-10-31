@@ -1,30 +1,31 @@
 services:
-  # Dedicated logger channel (nice-to-have).
+  # Dedicated logger channel for this module.
   logger.channel.pds_recipe_template:
     parent: logger.channel_base
     arguments: ['pds_recipe_template']
 
-  # Central repository – constructor: (Connection $db, UuidInterface $uuid, TimeInterface $time, LoggerInterface $logger, RowImagePromoter $promoter)
+  # Central repository
+  # INPUT: Works with numeric IDs. No UUID generation or validation here.
+  # WHY: Primary key lookups are indexed and faster.
   pds_recipe_template.repository:
     class: 'Drupal\pds_recipe_template\TemplateRepository'
     arguments:
-      - '@database'
-      - '@uuid'
-      - '@datetime.time'
-      - '@logger.channel.pds_recipe_template'
+      - '@database'                       # Connection
+      - '@datetime.time'                  # TimeInterface
+      - '@logger.channel.pds_recipe_template' # LoggerInterface
       - '@pds_recipe_template.row_image_promoter'
       - '@pds_recipe_template.template_group_manager'
 
-  # GroupEnsurer – thin service (adjust args if your constructor differs).
+  # Template group manager (ensurer)
+  # INPUT: No UUID dependency. Uses DB + time + logger only.
   pds_recipe_template.template_group_manager:
     class: 'Drupal\pds_recipe_template\Service\GroupEnsurer'
     arguments:
       - '@database'
       - '@datetime.time'
-      - '@uuid'
       - '@logger.channel.pds_recipe_template'
 
-  # Back-compat alias (kept deprecate with required %alias_id% placeholder).
+  # Back-compat alias. Keep deprecation to guide callers to the new ID-based service.
   pds_recipe_template.group_ensurer:
     alias: pds_recipe_template.template_group_manager
     deprecated:
@@ -32,18 +33,20 @@ services:
       version: '1.0'
       message: 'The "%alias_id%" service is deprecated; use "pds_recipe_template.template_group_manager" instead.'
 
-  # Row image promoter – constructor: (EntityTypeManagerInterface, FileUrlGeneratorInterface)
+  # Row image promoter. Unchanged.
   pds_recipe_template.row_image_promoter:
     class: 'Drupal\pds_recipe_template\Service\RowImagePromoter'
     arguments:
       - '@entity_type.manager'
       - '@file_url_generator'
 
-  # Legacy schema repairer – constructor: (Connection, TimeInterface, UuidInterface, LoggerChannelFactoryInterface)
+  # Legacy schema repairer.
+  # OPTION A (prefer): No UUID dependency if you only fix schema and IDs.
+  # OPTION B: If you still map legacy UUID -> ID during a one-off migration, add '@uuid' back.
   pds_recipe_template.legacy_schema_repairer:
     class: 'Drupal\pds_recipe_template\Service\LegacySchemaRepairer'
     arguments:
       - '@database'
       - '@datetime.time'
-      - '@uuid'
       - '@logger.factory'
+      # - '@uuid'  # Enable only if needed for one-time UUID→ID migration.

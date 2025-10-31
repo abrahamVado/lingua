@@ -1,21 +1,20 @@
 # File: pds_recipe_template.routing.yml
 # Notes:
-# - Unsafe methods (POST/PATCH) require CSRF tokens via _csrf_token: 'TRUE'.
-# - UUID regex is limited to exactly 36 chars of hex + dashes (UUID v4-style).
-# - _format: json helps the Negotiate middleware & clients agree on JSON.
+# - All entity references use numeric IDs.
+# - Use '\d+' to enforce integers at routing level.
+# - Unsafe methods (POST/PATCH/DELETE) require CSRF via _csrf_token: 'TRUE'.
+# - _format: json helps content negotiation.
 
 pds_recipe_template.ensure_group:
-  path: '/pds-template/ensure-group/{uuid}'
+  path: '/pds-template/ensure-group/{id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\GroupController::ensureGroup'
     _title: 'Ensure PDS Template group'
     _format: 'json'
   requirements:
-    # Prefer a custom capability over broad 'access content'.
     _permission: 'access content'
-    # 36-char hex/dash UUID (e.g., 8-4-4-4-12). Routing regex does not need ^$.
-    uuid: '[0-9a-fA-F-]{36}'
-    _csrf_token: 'TRUE'   # POST must carry a CSRF token.
+    id: '\d+'
+    _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.debug_table:
@@ -23,71 +22,68 @@ pds_recipe_template.debug_table:
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\DebugController::table'
   requirements:
-    _permission: 'access content'   # or another admin perm you already have
+    _permission: 'access content'
+    table: '[a-z0-9_]+'
   options:
-    _admin_route: true  
+    _admin_route: true
 
 pds_recipe_template.resolve_row:
-  path: '/pds-template/resolve-row/{group_id}'
+  path: '/pds-template/resolve-row/{id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Plugin\Block\PdsTemplateBlock::ajaxResolveRow'
     _title: 'Resolve PDS Template row'
     _format: 'json'
   requirements:
     _permission: 'access content'
-    group_id: '\d+'
+    id: '\d+'
     _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.delete_row:
-  path: '/pds-template/delete-row/{group_id}/{row_id}'
+  path: '/pds-template/delete-row/{id}/{row_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::delete'
     _title: 'Delete PDS Template row'
+    _format: 'json'
   requirements:
-    _permission: 'access content'   # or your custom permission if you added one
-    group_id: '\d+'
+    _permission: 'access content'
+    id: '\d+'
     row_id: '\d+'
+    _csrf_token: 'TRUE'
   methods: ['DELETE','POST']
-  # If you later enforce CSRF header, add:
-  # options:
-  #   _csrf_token: TRUE
-
 
 pds_recipe_template.create_row:
-  path: '/pds-template/create-row/{group_id}'
+  path: '/pds-template/create-row/{id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::createRow'
     _title: 'Create PDS Template row'
     _format: 'json'
   requirements:
     _permission: 'access content'
-    group_id: '\d+'
+    id: '\d+'
     _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.update_row:
-  path: '/pds-template/update-row/{group_id}/{row_id}'
+  path: '/pds-template/update-row/{id}/{row_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::update'
     _title: 'Update PDS Template row'
     _format: 'json'
   requirements:
     _permission: 'access content'
-    group_id: '\d+'
+    id: '\d+'
     row_id: '\d+'
     _csrf_token: 'TRUE'
-  # PATCH is ideal; POST kept for environments with limited verb support.
-  methods: ['PATCH', 'POST']
+  methods: ['PATCH','POST']
 
 pds_recipe_template.list_rows:
-  path: '/pds-template/list-rows/{group_id}'
+  path: '/pds-template/list-rows/{id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::list'
     _title: 'List PDS Template rows'
     _format: 'json'
   requirements:
-    # Listing is still privileged because it reveals editor-previews.
     _permission: 'access content'
-    group_id: '\d+'
+    id: '\d+'
   methods: ['GET']

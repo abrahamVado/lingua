@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Drupal\pds_recipe_template;
 
 use Drupal\Core\Database\Connection;
-use Drupal\Component\Uuid\Uuid;
-use Drupal\Component\Uuid\UuidInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use Psr\Log\LoggerInterface;
 use Drupal\pds_recipe_template\Service\RowImagePromoter;
@@ -15,9 +13,12 @@ use Drupal\Core\Database\Query\SelectInterface;
 
 final class TemplateRepository {
 
+  /**
+   * INPUT: ID-first repository. No UuidInterface.
+   * WHY: Use primary keys for lookups and writes.
+   */
   public function __construct(
     private Connection $db,
-    private UuidInterface $uuid,
     private TimeInterface $time,
     private LoggerInterface $logger,
     private RowImagePromoter $promoter,
@@ -30,20 +31,6 @@ final class TemplateRepository {
   /* =========================
    * Helpers
    * ========================= */
-
-  /** Build an "active rows" condition tolerant of legacy placeholders. */
-  private function buildActiveCondition(string $alias = 'i') {
-    $or = $this->db->orConditionGroup()
-      ->isNull("$alias.deleted_at")
-      ->condition("$alias.deleted_at", '', '=')
-      ->condition("$alias.deleted_at", '0', '=')
-      ->condition("$alias.deleted_at", 0, '=');
-    return $or;
-  }
-
-  /* =========================
-  * Helpers
-  * ========================= */
 
   /** Attach an "active rows" condition tolerant of legacy placeholders to a query. */
   private function addActiveCondition(SelectInterface $q, string $alias = 'i'): void {
@@ -67,93 +54,9 @@ final class TemplateRepository {
     $q->condition($or);
   }
 
-
-  /** Build a relaxed type condition (strict type OR legacy null/empty). */
-  private function buildTypeCondition(string $alias, ?string $type) {
-    if ($type === null || $type === '') {
-      // No type filter at all.
-      return null;
-    }
-    return $this->db->orConditionGroup()
-      ->condition("$alias.type", $type, '=')
-      ->isNull("$alias.type")
-      ->condition("$alias.type", '', '=');
-  }
-
   /* =========================
-   * UUID + GROUP RESOLUTION
+   * GROUP LOAD
    * ========================= */
-
-  public function resolveInstanceUuid(?string $storedUuid, ?int $storedGroupId): string {
-    $storedUuid = is_string($storedUuid) ? trim($storedUuid) : '';
-    if ($storedUuid !== '' && Uuid::isValid($storedUuid)) {
-      return $storedUuid;
-    }
-
-    if (is_int($storedGroupId) && $storedGroupId > 0) {
-      $groupUuid = $this->getUuidByGroupId($storedGroupId);
-      if (is_string($groupUuid) && $groupUuid !== '' && Uuid::isValid($groupUuid)) {
-        return $groupUuid;
-      }
-      if ($groupUuid !== null) {
-        $replacement = $this->uuid->generate();
-        $this->setUuidForGroup($storedGroupId, $replacement);
-        return $replacement;
-      }
-    }
-    return $this->uuid->generate();
-  }
-
-  /**
-   * Resolve group id by UUID (optionally scoped by recipe type with legacy fallback).
-   */
-  public function getGroupIdByUuid(string $uuid, ?string $type = null): int {
-    if ($uuid === '' || !Uuid::isValid($uuid)) {
-      return 0;
-    }
-
-    $q = $this->db->select('pds_template_group', 'g')
-      ->fields('g', ['id'])
-      ->condition('g.uuid', $uuid)
-      ->range(0, 1);
-
-    $this->addActiveCondition($q, 'g');     // <-- changed
-    $this->addTypeCondition($q, 'g', $type);// <-- changed
-
-    $id = $q->execute()->fetchField();
-    if (is_numeric($id)) {
-      return (int) $id;
-    }
-
-    // Retry without type if strict match failed.
-    if ($type !== null && $type !== '') {
-      $q2 = $this->db->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $uuid)
-        ->range(0, 1);
-      $this->addActiveCondition($q2, 'g');  // <-- changed
-      $id2 = $q2->execute()->fetchField();
-      return is_numeric($id2) ? (int) $id2 : 0;
-    }
-
-    return 0;
-  }
-
-
-  public function getUuidByGroupId(int $groupId): ?string {
-    $q = $this->db->select('pds_template_group', 'g')
-      ->fields('g', ['uuid'])
-      ->condition('g.id', $groupId)
-      ->range(0, 1);
-
-    $this->addActiveCondition($q, 'g');   // <-- changed
-
-    $uuid = $q->execute()->fetchField();
-    if ($uuid === false) {
-      return null;
-    }
-    return (string) $uuid;
-  }
 
   /**
    * Load an active group row by numeric id.
@@ -164,12 +67,12 @@ final class TemplateRepository {
     }
 
     $query = $this->db->select('pds_template_group', 'g')
-      ->fields('g', ['id', 'uuid'])
+      ->fields('g', ['id', 'uuid']) // uuid kept for legacy reads only
       ->condition('g.id', $groupId)
       ->range(0, 1);
 
     if ($this->groupTableSupportsType()) {
-      //1.- Request the recipe discriminator when available to keep editors scoped to their block.
+      // 1) Request the recipe discriminator when available to keep editors scoped.
       $query->addField('g', 'type');
     }
 
@@ -181,7 +84,7 @@ final class TemplateRepository {
     }
 
     return [
-      'id' => (int) ($record['id'] ?? 0),
+      'id'   => (int) ($record['id'] ?? 0),
       'uuid' => is_string($record['uuid'] ?? null) ? (string) $record['uuid'] : '',
       'type' => isset($record['type']) && is_string($record['type']) ? (string) $record['type'] : null,
     ];
@@ -203,7 +106,7 @@ final class TemplateRepository {
     $stored = is_string($current) ? trim($current) : '';
 
     if ($stored === '') {
-      //2.- Backfill missing type values so legacy rows stay in sync with the new numeric workflow.
+      // 2) Backfill missing type values to keep legacy rows aligned.
       $this->db->update('pds_template_group')
         ->fields(['type' => $type])
         ->condition('id', $groupId)
@@ -212,7 +115,7 @@ final class TemplateRepository {
     }
 
     if ($stored !== $type) {
-      //3.- Reject conflicting assignments but record the mismatch for troubleshooting.
+      // 3) Reject conflicting assignments but record the mismatch for troubleshooting.
       $this->logger->warning('Group @id type mismatch: expected @expected, found @stored.', [
         '@id' => $groupId,
         '@expected' => $type,
@@ -223,72 +126,34 @@ final class TemplateRepository {
     return true;
   }
 
-
-  public function setUuidForGroup(int $groupId, string $uuid): void {
-    if ($groupId <= 0 || $uuid === '' || !Uuid::isValid($uuid)) {
-      return;
-    }
-    $this->db->update('pds_template_group')
-      ->fields(['uuid' => $uuid])
-      ->condition('id', $groupId)
-      ->execute();
+  /**
+   * Ensure group and return its id.
+   * INPUT: numeric ID and recipe type.
+   * NOTE: Ensurer is ID-based now.
+   */
+  public function ensureGroupAndGetId(int $id, string $type): int {
+    return (int) $this->ensurer->ensureGroupAndGetId($id, $type);
   }
 
-  public function ensureGroupAndGetId(string $uuid, string $type): int {
-    return (int) $this->ensurer->ensureGroupAndGetId($uuid, $type);
-  }
-
-  public function resolveGroupId(string $uuid, ?int $legacyGroupId): int {
-    // Try with the canonical type first (if ensurer knows it), but keep compatibility by calling without type.
-    $groupId = $this->getGroupIdByUuid($uuid /*, optional type could be added here */);
-    if ($groupId > 0) {
-      return $groupId;
-    }
-
-    if (is_int($legacyGroupId) && $legacyGroupId > 0) {
-      $legacy = $this->getUuidByGroupId($legacyGroupId);
-      if ($legacy !== null) {
-        if ($uuid !== '' && (!is_string($legacy) || !Uuid::isValid((string) $legacy) || (string) $legacy !== $uuid)) {
-          $this->setUuidForGroup($legacyGroupId, $uuid);
-        }
-        return $legacyGroupId;
-      }
-    }
-    return 0;
-  }
+  /* ============ ROW DELETE ============ */
 
   /**
-   * Soft-delete a row by (group uuid, row uuid).
-   * Accepts legacy states (''/'0'/0) as “not deleted” and will set a timestamp.
+   * Soft-delete a row by (group_id, row_id).
+   * WHY: ID-first. No UUID lookups.
    */
-    public function softDeleteRowByGroupAndRowUuid(string $groupUuid, string $rowUuid): bool {
-      if (!Uuid::isValid($groupUuid) || !Uuid::isValid($rowUuid)) {
-        return false;
-      }
-
-      $q = $this->db->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $groupUuid)
-        ->range(0, 1);
-      $this->addActiveCondition($q, 'g');   // <-- changed
-
-      $gid = $q->execute()->fetchField();
-      if (!$gid) {
-        return false;
-      }
-
-      $now = $this->time->getRequestTime();
-
-      // No IS NULL guard here — legacy placeholders are allowed to be overwritten.
-      $updated = $this->db->update('pds_template_item')
-        ->fields(['deleted_at' => $now])
-        ->condition('uuid', $rowUuid)
-        ->condition('group_id', (int) $gid)
-        ->execute();
-
-      return ((int) $updated) > 0;
+  public function softDeleteRowByIds(int $groupId, int $rowId): bool {
+    if ($groupId <= 0 || $rowId <= 0) {
+      return false;
     }
+    $now = $this->time->getRequestTime();
+    $updated = $this->db->update('pds_template_item')
+      ->fields(['deleted_at' => $now])
+      ->condition('group_id', $groupId)
+      ->condition('id', $rowId)
+      ->execute();
 
+    return ((int) $updated) > 0;
+  }
 
   /* =========== ITEM LOAD =========== */
 
@@ -304,6 +169,7 @@ final class TemplateRepository {
       return [];
     }
 
+    // Keep uuid in reads for legacy UI tolerance. Do not depend on it.
     $wanted = [
       'id','uuid','weight','header','subheader','description','url',
       'desktop_img','mobile_img','latitud','longitud',
@@ -327,7 +193,7 @@ final class TemplateRepository {
 
     // Tolerant active filter if column exists.
     if ($schema->fieldExists($table, 'deleted_at')) {
-      $this->addActiveCondition($query, 'i');   // <-- changed
+      $this->addActiveCondition($query, 'i');
     }
 
     if ($schema->fieldExists($table, 'weight')) {
@@ -346,15 +212,12 @@ final class TemplateRepository {
       $mobile  = (string) ($get('mobile_img')  ?? '');
       $primary = $desktop !== '' ? $desktop : $mobile;
 
-      $rawUuid = (string) ($get('uuid') ?? '');
-      $uuid    = ($rawUuid !== '' && Uuid::isValid($rawUuid)) ? $rawUuid : '';
-
       $weightRaw = $get('weight');
       $weight    = (is_numeric($weightRaw) ? (int) $weightRaw : 0);
 
       $rows[] = [
         'id'          => (int) ($get('id') ?? 0),
-        'uuid'        => $uuid,
+        'uuid'        => (string) ($get('uuid') ?? ''), // legacy read-only
         'weight'      => $weight,
         'header'      => (string) ($get('header')    ?? ''),
         'subheader'   => (string) ($get('subheader') ?? ''),
@@ -374,46 +237,39 @@ final class TemplateRepository {
 
   /* ============ ITEM UPSERT ============ */
 
+  /**
+   * Upsert items by numeric ID. UUID is optional and never generated.
+   * POLICY: Prefer ID. If ID missing, insert a new row.
+   */
   public function upsertItems(int $groupId, array $cleanItems, int $nowUnix): array {
     if ($groupId <= 0) {
       return [];
     }
 
-    $existingByUuid = [];
-    $existingById   = [];
-    $records = $this->db->select('pds_template_item', 'i')
-      ->fields('i', ['id', 'uuid'])
+    $schema = $this->db->schema();
+    $table  = 'pds_template_item';
+    $hasUuidCol = $schema->fieldExists($table, 'uuid');
+
+    // Map existing rows by ID only.
+    $records = $this->db->select($table, 'i')
+      ->fields('i', ['id'])
       ->condition('group_id', $groupId)
-      // Only consider active rows when mapping existing → prevents reviving deleted by mistake,
-      // but we will explicitly NULL deleted_at on update below.
       ->execute();
 
+    $existingIds = [];
     foreach ($records as $r) {
-      $existingById[(int) $r->id] = (string) $r->uuid;
-      if (is_string($r->uuid) && $r->uuid !== '') {
-        $existingByUuid[(string) $r->uuid] = (int) $r->id;
-      }
+      $existingIds[(int) $r->id] = true;
     }
 
     $keptIds  = [];
     $snapshot = [];
 
     foreach ($cleanItems as $delta => $row) {
-      $uuid = (isset($row['uuid']) && is_string($row['uuid']) && Uuid::isValid($row['uuid'])) ? $row['uuid'] : '';
       $candidateId = (isset($row['id']) && is_numeric($row['id'])) ? (int) $row['id'] : null;
 
-      $resolvedId = null;
-      if ($uuid !== '' && isset($existingByUuid[$uuid])) {
-        $resolvedId = $existingByUuid[$uuid];
-      }
-      elseif ($candidateId && isset($existingById[$candidateId])) {
-        $resolvedId = $candidateId;
-        $uuid = $existingById[$candidateId] ?? $uuid;
-      }
-
-      if ($resolvedId) {
+      if ($candidateId && isset($existingIds[$candidateId])) {
         // Reactivate on update: always set deleted_at = NULL.
-        $this->db->update('pds_template_item')
+        $this->db->update($table)
           ->fields([
             'weight'      => $delta,
             'header'      => $row['header']      ?? '',
@@ -426,27 +282,33 @@ final class TemplateRepository {
             'longitud'    => $row['longitud']    ?? null,
             'deleted_at'  => null,
           ])
-          ->condition('id', $resolvedId)
+          ->condition('id', $candidateId)
           ->execute();
-      }
-      else {
-        $uuid = $uuid !== '' ? $uuid : $this->uuid->generate();
-        $resolvedId = (int) $this->db->insert('pds_template_item')
-          ->fields([
-            'uuid'        => $uuid,
-            'group_id'    => $groupId,
-            'weight'      => $delta,
-            'header'      => $row['header']      ?? '',
-            'subheader'   => $row['subheader']   ?? '',
-            'description' => $row['description'] ?? '',
-            'url'         => $row['link']        ?? '',
-            'desktop_img' => $row['desktop_img'] ?? '',
-            'mobile_img'  => $row['mobile_img']  ?? '',
-            'latitud'     => $row['latitud']     ?? null,
-            'longitud'    => $row['longitud']    ?? null,
-            'created_at'  => $nowUnix,
-            'deleted_at'  => null,
-          ])
+
+        $resolvedId = $candidateId;
+      } else {
+        // Insert. Do NOT generate UUIDs. If a uuid value was provided and column exists, persist it as-is.
+        $fields = [
+          'group_id'    => $groupId,
+          'weight'      => $delta,
+          'header'      => $row['header']      ?? '',
+          'subheader'   => $row['subheader']   ?? '',
+          'description' => $row['description'] ?? '',
+          'url'         => $row['link']        ?? '',
+          'desktop_img' => $row['desktop_img'] ?? '',
+          'mobile_img'  => $row['mobile_img']  ?? '',
+          'latitud'     => $row['latitud']     ?? null,
+          'longitud'    => $row['longitud']    ?? null,
+          'created_at'  => $nowUnix,
+          'deleted_at'  => null,
+        ];
+        if ($hasUuidCol && !empty($row['uuid']) && is_string($row['uuid'])) {
+          // Legacy tolerance only. No validation, no generation.
+          $fields['uuid'] = $row['uuid'];
+        }
+
+        $resolvedId = (int) $this->db->insert($table)
+          ->fields($fields)
           ->execute();
       }
 
@@ -461,12 +323,13 @@ final class TemplateRepository {
         'latitud'     => $row['latitud']     ?? null,
         'longitud'    => $row['longitud']    ?? null,
         'id'          => $resolvedId,
-        'uuid'        => $uuid,
+        // uuid echoed back only if client sent it and column exists.
+        'uuid'        => (!empty($row['uuid']) && is_string($row['uuid'])) ? $row['uuid'] : '',
       ];
     }
 
-    // Soft-delete anything not kept (regardless of its previous placeholder value).
-    $upd = $this->db->update('pds_template_item')
+    // Soft-delete anything not kept.
+    $upd = $this->db->update($table)
       ->fields(['deleted_at' => $nowUnix])
       ->condition('group_id', $groupId);
 
@@ -488,6 +351,10 @@ final class TemplateRepository {
   }
 
   // ---------------- ITEM NORMALIZATION ----------------
+  /**
+   * Normalize client payload.
+   * POLICY: Keep 'id'. 'uuid' is accepted but ignored unless inserting with legacy col present.
+   */
   public function normalizeSubmittedItems(array $items): array {
     $clean = [];
     foreach ($items as $delta => $item) {
@@ -503,12 +370,7 @@ final class TemplateRepository {
       $desktop_img = trim((string) ($item['desktop_img'] ?? ''));
       $mobile_img  = trim((string) ($item['mobile_img']  ?? ''));
       $image_url   = trim((string) ($item['image_url']   ?? ''));
-      $stored_id   = isset($item['id'])   && is_numeric($item['id'])   ? (int) $item['id']   : null;
-      $stored_uuid = isset($item['uuid']) && is_string($item['uuid'])  ? trim($item['uuid']) : '';
-
-      if ($stored_uuid !== '' && !Uuid::isValid($stored_uuid)) {
-        $stored_uuid = '';
-      }
+      $stored_id   = isset($item['id']) && is_numeric($item['id']) ? (int) $item['id'] : null;
 
       if ($desktop_img === '' && $image_url !== '') { $desktop_img = $image_url; }
       if ($mobile_img  === '' && $image_url !== '') { $mobile_img  = $image_url; }
@@ -537,7 +399,8 @@ final class TemplateRepository {
         'latitud'     => $item['latitud']  ?? null,
         'longitud'    => $item['longitud'] ?? null,
         'id'          => $stored_id,
-        'uuid'        => $stored_uuid,
+        // Keep any provided uuid verbatim for legacy insert tolerance.
+        'uuid'        => is_string($item['uuid'] ?? null) ? trim((string) $item['uuid']) : '',
       ];
     }
 
@@ -581,11 +444,11 @@ final class TemplateRepository {
   public function groupTableSupportsType(): bool {
     if ($this->groupHasTypeColumn === null) {
       try {
-        //4.- Cache schema introspection so each request only probes the database once.
+        // 4) Cache schema introspection so each request only probes the database once.
         $this->groupHasTypeColumn = $this->db->schema()->fieldExists('pds_template_group', 'type');
       }
       catch (\Throwable $throwable) {
-        //5.- Degrade gracefully on broken schemas while flagging the issue for administrators.
+        // 5) Degrade gracefully on broken schemas while flagging the issue for administrators.
         $this->logger->warning('Unable to detect pds_template_group.type column: @message', [
           '@message' => $throwable->getMessage(),
         ]);

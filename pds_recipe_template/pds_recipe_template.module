@@ -11,8 +11,7 @@ use Drupal\pds_recipe_template\Service\LegacySchemaRepairer;
 
 /**
  * Permission gate used by AJAX routes (create/update/list/ensure-group).
- *
- * Keep permissive to match LB editors; later you can swap to a custom permission.
+ * WHY: Keep permissive to match Layout Builder editors.
  */
 if (!function_exists('pds_recipe_template_user_can_manage_template')) {
   function pds_recipe_template_user_can_manage_template(?AccountInterface $account = NULL): bool {
@@ -21,7 +20,7 @@ if (!function_exists('pds_recipe_template_user_can_manage_template')) {
       return FALSE;
     }
 
-    // Mirror typical Layout Builder / blocks editor capabilities.
+    // Mirrors typical Layout Builder / blocks editor capabilities.
     $perms = [
       'administer blocks',
       'administer layout builder',
@@ -49,35 +48,30 @@ function pds_recipe_template_theme($existing, $type, $theme, $path) {
       'path' => $path . '/templates',
       'variables' => [
         'items' => [],
-        'group_id' => NULL,
-        'instance_uuid' => '',
+        'group_id' => NULL,   // int|null
+        'instance_id' => 0,   // int. Replaces legacy instance_uuid.
       ],
     ],
   ];
 }
 
 /**
- * Legacy shim used by older code paths. Delegates to the GroupEnsurer service.
+ * Ensure group by numeric ID.
  *
- * @param string $uuid
- * @param string $type
- *   Recipe type (e.g., 'pds_recipe_template', 'pds_recipe_executives', etc.).
- *
- * @return int
- *   Numeric group id, or 0 on failure.
+ * INPUT: $id > 0, $type machine name.
+ * WHY: Use primary key, avoid UUID lookups.
+ * OUTPUT: Numeric group id or 0 on failure.
  */
-function pds_recipe_template_ensure_group_and_get_id(string $uuid, string $type = 'pds_recipe_template'): int {
+function pds_recipe_template_ensure_group_and_get_id(int $id, string $type = 'pds_recipe_template'): int {
   /** @var \Drupal\pds_recipe_template\Service\GroupEnsurer $ensurer */
   $ensurer = \Drupal::service('pds_recipe_template.template_group_manager');
-  return (int) $ensurer->ensureGroupAndGetId($uuid, $type);
+  // Service is assumed to be ID-based now.
+  return (int) $ensurer->ensureGroupAndGetId($id, $type);
 }
 
 /**
  * Resolve the RowImagePromoter for AJAX row create/update flows.
- *
- * Controllers call this helper to avoid hard dependencies during early bootstrap.
- *
- * @return \Drupal\pds_recipe_template\Service\RowImagePromoter
+ * WHY: Avoid hard DI during early bootstrap.
  */
 if (!function_exists('pds_recipe_template_resolve_row_image_promoter')) {
   function pds_recipe_template_resolve_row_image_promoter(): RowImagePromoter {
@@ -97,9 +91,8 @@ if (!function_exists('pds_recipe_template_resolve_row_image_promoter')) {
 /**
  * Resolve the LegacySchemaRepairer for install/repair-time checks.
  *
- * Used by controllers and update flows to self-heal tables at runtime.
- *
- * @return \Drupal\pds_recipe_template\Service\LegacySchemaRepairer
+ * WHY: Self-heal tables at runtime without hard coupling to container config.
+ * NOTE: UUID dependency removed. Add it back only if you still translate legacy UUID→ID.
  */
 if (!function_exists('pds_recipe_template_resolve_schema_repairer')) {
   function pds_recipe_template_resolve_schema_repairer(): LegacySchemaRepairer {
@@ -111,9 +104,9 @@ if (!function_exists('pds_recipe_template_resolve_schema_repairer')) {
       // Safe direct construction fallback.
       $db   = \Drupal::database();
       $time = \Drupal::time();
-      $uuid = \Drupal::service('uuid');
       $loggerFactory = \Drupal::service('logger.factory');
-      return new LegacySchemaRepairer($db, $time, $uuid, $loggerFactory);
+      // Constructor now: (Connection, TimeInterface, LoggerChannelFactoryInterface)
+      return new LegacySchemaRepairer($db, $time, $loggerFactory);
     }
   }
 }
