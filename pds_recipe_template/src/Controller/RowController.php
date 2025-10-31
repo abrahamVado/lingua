@@ -44,8 +44,8 @@ final class RowController extends ControllerBase {
   }
 
   /**
-   * POST /pds-recipe/{uuid}/row
-   * Create a new row within the group resolved by (uuid + recipe type).
+   * POST /pds-template/create-row/{id}
+   * Create a new row within the numeric group.
    *
    * INPUT (JSON):
    * {
@@ -65,12 +65,12 @@ final class RowController extends ControllerBase {
    *   }
    * }
    */
-  public function createRow(Request $request, string $group_id): JsonResponse {
+  public function createRow(Request $request, int $group_id): JsonResponse {
     //1.- Validate numeric group id before doing any heavy work.
-    if (!is_numeric($group_id) || (int) $group_id <= 0) {
+    if ($group_id <= 0) {
       return new JsonResponse(['status' => 'error', 'message' => 'Invalid group id.'], 400);
     }
-    $groupId = (int) $group_id;
+    $groupId = $group_id;
 
     //2.- Permission gate for editors/admins.
     if (!pds_recipe_template_user_can_manage_template()) {
@@ -237,19 +237,19 @@ final class RowController extends ControllerBase {
   }
 
   /**
-   * GET /pds-recipe/group/{group_id}/rows?type=...
+   * GET /pds-template/list-rows/{id}?type=...
    * List rows for a numeric group id.
    */
-  public function list(Request $request, string $group_id): JsonResponse {
+  public function list(Request $request, int $group_id): JsonResponse {
     //1.- Validate numeric id and permissions.
-    if (!is_numeric($group_id) || (int) $group_id <= 0) {
+    if ($group_id <= 0) {
       return new JsonResponse(['status' => 'error', 'message' => 'Invalid group id.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
-    $groupId = (int) $group_id;
+    $groupId = $group_id;
 
     try {
       $repo = $this->repo();
@@ -290,20 +290,20 @@ final class RowController extends ControllerBase {
 
 
   /**
-   * PATCH /pds-recipe/group/{group_id}/row/{row_id}
+   * PATCH /pds-template/update-row/{id}/{row_id}
    * Update an existing row using numeric identifiers.
    */
-  public function update(Request $request, string $group_id, string $row_id): JsonResponse {
+  public function update(Request $request, int $group_id, int $row_id): JsonResponse {
     //1.- Validate numeric identifiers and permissions.
-    if (!is_numeric($group_id) || (int) $group_id <= 0 || !is_numeric($row_id) || (int) $row_id <= 0) {
+    if ($group_id <= 0 || $row_id <= 0) {
       return new JsonResponse(['status' => 'error', 'message' => 'Invalid identifiers.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
-    $groupId = (int) $group_id;
-    $rowId = (int) $row_id;
+    $groupId = $group_id;
+    $rowId = $row_id;
 
     //2.- Parse payload and resolve recipe type.
     $payload = json_decode($request->getContent() ?: '[]', TRUE);
@@ -472,17 +472,17 @@ final class RowController extends ControllerBase {
     // 1) Delegate to procedural helper to be robust during container rebuilds.
     return \pds_recipe_template_resolve_schema_repairer();
   }
-  public function delete(Request $request, string $group_id, string $row_id): JsonResponse {
+  public function delete(Request $request, int $group_id, int $row_id): JsonResponse {
     //1.- Validate identifiers + permission.
-    if (!is_numeric($group_id) || (int) $group_id <= 0 || !is_numeric($row_id) || (int) $row_id <= 0) {
+    if ($group_id <= 0 || $row_id <= 0) {
       return new JsonResponse(['status' => 'error', 'message' => 'Invalid identifiers.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
-    $groupId = (int) $group_id;
-    $rowId = (int) $row_id;
+    $groupId = $group_id;
+    $rowId = $row_id;
 
     try {
       $repo = $this->repo();

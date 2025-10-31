@@ -236,8 +236,14 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     // Endpoint URLs for JS (absolute so LB iframe is safe).
     $ensure_group_url = Url::fromRoute(
       'pds_recipe_template.ensure_group',
-      ['uuid' => $block_uuid],
-      ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
+      ['id' => $group_id ?: 0],
+      [
+        'absolute' => TRUE,
+        'query' => [
+          'type' => $recipe_type,
+          'instance_uuid' => $block_uuid,
+        ],
+      ],
     )->toString();
 
     $resolve_row_url = Url::fromRoute(
@@ -518,8 +524,8 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
   /**
    * Promote a temporary upload (fid) into a permanent file and return URLs.
    */
-  public static function ajaxResolveRow(Request $request, string $group_id): JsonResponse {
-    if (!is_numeric($group_id) || (int) $group_id < 0) {
+  public static function ajaxResolveRow(Request $request, int $group_id): JsonResponse {
+    if ($group_id < 0) {
       return new JsonResponse(['status' => 'error', 'message' => 'Invalid group id.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {

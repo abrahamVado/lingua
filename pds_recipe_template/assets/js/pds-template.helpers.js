@@ -188,6 +188,13 @@
     root._pdsTemplateGroupId = groupId;
     var hidden = findField(root, { ds:'pds-template-group-id', id:'pds-template-group-id', nameEnd:'[group_id]' });
     if (hidden) hidden.value = String(groupId);
+    var ensureUrl = root.getAttribute('data-pds-template-ensure-group-url');
+    if (ensureUrl && typeof ensureUrl === 'string') {
+      var rewritten = ensureUrl.replace(/(ensure-group\/)(\d+)/, '$1' + groupId);
+      if (rewritten !== ensureUrl) {
+        root.setAttribute('data-pds-template-ensure-group-url', rewritten);
+      }
+    }
   }
 
   // ---- Managed file helpers ----

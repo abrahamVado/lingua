@@ -62,11 +62,11 @@ function pds_recipe_template_theme($existing, $type, $theme, $path) {
  * WHY: Use primary key, avoid UUID lookups.
  * OUTPUT: Numeric group id or 0 on failure.
  */
-function pds_recipe_template_ensure_group_and_get_id(int $id, string $type = 'pds_recipe_template'): int {
+function pds_recipe_template_ensure_group_and_get_id(string $uuid, string $type = 'pds_recipe_template'): int {
   /** @var \Drupal\pds_recipe_template\Service\GroupEnsurer $ensurer */
   $ensurer = \Drupal::service('pds_recipe_template.template_group_manager');
-  // Service is assumed to be ID-based now.
-  return (int) $ensurer->ensureGroupAndGetId($id, $type);
+  //1.- Delegate to the service which handles insert-or-select by UUID.
+  return (int) $ensurer->ensureGroupAndGetId($uuid, $type);
 }
 
 /**
