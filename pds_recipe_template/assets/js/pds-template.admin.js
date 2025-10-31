@@ -14,26 +14,26 @@
   //
   // DOM helpers (from helper)
   //
-  var findField = PDSTemplate.findField;
-  var sel       = PDSTemplate.sel;
-  var selAll    = PDSTemplate.selAll;
+  var findField  = PDSTemplate.findField;
+  var sel        = PDSTemplate.sel;
+  var selAll     = PDSTemplate.selAll;
   var escapeHtml = PDSTemplate.escapeHtml;
 
   //
   // State helpers (from helper)
   //
-  var readState      = PDSTemplate.readState;
-  var writeState     = PDSTemplate.writeState;
-  var readEditIndex  = PDSTemplate.readEditIndex;
-  var writeEditIndex = PDSTemplate.writeEditIndex;
+  var readState         = PDSTemplate.readState;
+  var writeState        = PDSTemplate.writeState;
+  var readEditIndex     = PDSTemplate.readEditIndex;
+  var writeEditIndex    = PDSTemplate.writeEditIndex;
   var applyGroupIdToDom = PDSTemplate.applyGroupIdToDom;
 
   //
   // Managed file helpers (from helper)
   //
-  var initFileWidgetTemplate     = PDSTemplate.initFileWidgetTemplate;
-  var resetFileWidgetToPristine  = PDSTemplate.resetFileWidgetToPristine;
-  var getImageFid                = PDSTemplate.getImageFid;
+  var initFileWidgetTemplate    = PDSTemplate.initFileWidgetTemplate;
+  var resetFileWidgetToPristine = PDSTemplate.resetFileWidgetToPristine;
+  var getImageFid               = PDSTemplate.getImageFid;
 
   //
   // CSRF + fetch wrapper (from helper)
@@ -44,6 +44,11 @@
   // Misc helpers
   //
   var normalizeTimelineEntries = PDSTemplate.normalizeTimelineEntries;
+
+  //
+  // Backend helper: DELETE row (from helper)  <-- added alias
+  //
+  var deleteRowViaAjax = PDSTemplate.deleteRowViaAjax;
 
   //
   // Small utilities (local)
@@ -434,7 +439,7 @@
 
         if (!json || json.status !== 'ok' || !Array.isArray(json.rows)) {
           var message = (json && json.message) ? json.message : 'Unable to load preview.';
-          if (wrapper && wrapper.hasAttribute('data-pds-template-preview-root')) {
+          if (wrapper && wrapper.hasAttribute && wrapper.hasAttribute('data-pds-template-preview-root')) {
             setPreviewState(wrapper, 'error', message);
           }
           return;
@@ -490,7 +495,7 @@
       })
       .catch(function () {
         if (root._pdsPreviewRequestToken !== requestToken) return;
-        if (wrapper && wrapper.hasAttribute('data-pds-template-preview-root')) {
+        if (wrapper && wrapper.hasAttribute && wrapper.hasAttribute('data-pds-template-preview-root')) {
           setPreviewState(wrapper, 'error', 'Unable to load preview.');
         }
       });
@@ -557,6 +562,7 @@
     var delBtn = tr ? tr.querySelector('.pds-template-row-del') : null;
     if (delBtn) delBtn.disabled = true;
 
+    // use helper alias
     deleteRowViaAjax(root, row)
       .then(function (result) {
         // Normalize result; treat 404/410 style replies as success.
@@ -594,8 +600,6 @@
         delete root._pdsDeleting[row.uuid];
       });
   }
-
-
 
   function persistRow(root, idx) {
     var rows = readState(root);
@@ -649,14 +653,14 @@
     if (readEditIndex(root) >= 0) return true;
 
     var headerEl = sel(root, 'pds-template-header', 'pds-template-header');
-    var subEl = sel(root, 'pds-template-subheader', 'pds-template-subheader');
-    var descEl = sel(root, 'pds-template-description', 'pds-template-description');
-    var linkEl = sel(root, 'pds-template-link', 'pds-template-link');
+    var subEl    = sel(root, 'pds-template-subheader', 'pds-template-subheader');
+    var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
+    var linkEl   = sel(root, 'pds-template-link', 'pds-template-link');
 
     var headerVal = headerEl && typeof headerEl.value === 'string' ? headerEl.value.trim() : '';
-    var subVal = subEl && typeof subEl.value === 'string' ? subEl.value.trim() : '';
-    var descVal = descEl && typeof descEl.value === 'string' ? descEl.value.trim() : '';
-    var linkVal = linkEl && typeof linkEl.value === 'string' ? linkEl.value.trim() : '';
+    var subVal    = subEl && typeof subEl.value === 'string' ? subEl.value.trim() : '';
+    var descVal   = descEl && typeof descEl.value === 'string' ? descEl.value.trim() : '';
+    var linkVal   = linkEl && typeof linkEl.value === 'string' ? linkEl.value.trim() : '';
 
     if (headerVal !== '' || subVal !== '' || descVal !== '' || linkVal !== '') return true;
     return !!getImageFid(root);

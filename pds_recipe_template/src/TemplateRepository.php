@@ -128,7 +128,7 @@ final class TemplateRepository {
       return false;
     }
 
-    $gid = $this->connection->select('pds_template_group', 'g')
+    $gid = $this->db->select('pds_template_group', 'g')
       ->fields('g', ['id'])
       ->condition('g.uuid', $groupUuid)
       ->condition('g.deleted_at', NULL, 'IS NULL')
@@ -139,9 +139,9 @@ final class TemplateRepository {
       return false;
     }
 
-    $now = $this->time->getRequestTime();
+    $now = $this->time->getRequestTime(); 
 
-    $updated = $this->connection->update('pds_template_item')
+    $updated = $this->db->update('pds_template_item')
       ->fields(['deleted_at' => $now])
       ->condition('uuid', $rowUuid)
       ->condition('group_id', (int) $gid)
@@ -153,53 +153,96 @@ final class TemplateRepository {
 
 
   /* =========== ITEM LOAD =========== */
-
   public function loadItems(int $groupId): array {
+    // 1) Quick rejects.
     if ($groupId <= 0) {
       return [];
     }
 
-    $result = $this->db->select('pds_template_item', 'i')
-      ->fields('i', [
-        'id', 'uuid', 'weight', 'header', 'subheader', 'description', 'url',
-        'desktop_img', 'mobile_img', 'latitud', 'longitud',
-      ])
-      ->condition('i.group_id', $groupId)
-      ->condition('i.deleted_at', null, 'IS NULL')
-      ->orderBy('i.weight', 'ASC')
-      ->execute();
+    $schema = $this->db->schema();
+    $table  = 'pds_template_item';
 
+    // 2) If the table itself is missing, return empty (controller can decide what to do).
+    if (!$schema->tableExists($table)) {
+      return [];
+    }
+
+    // 3) Expected fields in ideal/latest schema.
+    $wanted = [
+      'id','uuid','weight','header','subheader','description','url',
+      'desktop_img','mobile_img','latitud','longitud',
+    ];
+
+    // 4) Discover which fields actually exist *now* to avoid selecting non-existent columns.
+    //    Use a static cache per request to keep it cheap if called multiple times.
+    static $presentCache = [];
+    if (!isset($presentCache[$table])) {
+      $present = [];
+      foreach ($wanted as $f) {
+        if ($schema->fieldExists($table, $f)) {
+          $present[] = $f;
+        }
+      }
+      $presentCache[$table] = $present;
+    }
+    $present = $presentCache[$table];
+
+    // 5) Build the base query using only present fields.
+    $query = $this->db->select($table, 'i')
+      ->fields('i', $present)
+      ->condition('i.group_id', $groupId);
+
+    // 6) Add soft-delete filter only if the column exists in this environment.
+    if ($schema->fieldExists($table, 'deleted_at')) {
+      $query->condition('i.deleted_at', NULL, 'IS NULL');
+    }
+
+    // 7) Keep ordering stable if the column exists; otherwise, leave DB order.
+    if ($schema->fieldExists($table, 'weight')) {
+      $query->orderBy('i.weight', 'ASC');
+    }
+
+    $result = $query->execute();
+
+    // 8) Map DB rows → normalized payload. Provide safe defaults when fields are absent.
     $rows = [];
-    foreach ($result as $record) {
-      $primary = (string) $record->desktop_img;
-      if ($primary === '') {
-        $primary = (string) $record->mobile_img;
-      }
+    foreach ($result as $r) {
+      // Defensive reads — only access properties that were selected (present in $present).
+      $get = static function ($prop) use ($r, $present) {
+        return in_array($prop, $present, true) ? ($r->$prop ?? NULL) : NULL;
+      };
 
-      $resolvedUuid = isset($record->uuid) ? (string) $record->uuid : '';
-      if ($resolvedUuid !== '' && !Uuid::isValid($resolvedUuid)) {
-        $resolvedUuid = '';
-      }
+      $desktop = (string) ($get('desktop_img') ?? '');
+      $mobile  = (string) ($get('mobile_img')  ?? '');
+      $primary = $desktop !== '' ? $desktop : $mobile;
+
+      $rawUuid = (string) ($get('uuid') ?? '');
+      $uuid    = ($rawUuid !== '' && \Drupal\Component\Uuid\Uuid::isValid($rawUuid)) ? $rawUuid : '';
+
+      $weightRaw = $get('weight');
+      $weight    = (is_numeric($weightRaw) ? (int) $weightRaw : 0);
 
       $rows[] = [
-        'id'          => (int) $record->id,
-        'uuid'        => $resolvedUuid,
-        'weight'      => (isset($record->weight) && is_numeric($record->weight)) ? (int) $record->weight : null,
-        'header'      => $record->header,
-        'subheader'   => $record->subheader,
-        'description' => $record->description,
-        'link'        => $record->url,
-        'desktop_img' => $record->desktop_img,
-        'mobile_img'  => $record->mobile_img,
+        'id'          => (int) ($get('id') ?? 0),
+        'uuid'        => $uuid,
+        'weight'      => $weight,
+        'header'      => (string) ($get('header')    ?? ''),
+        'subheader'   => (string) ($get('subheader') ?? ''),
+        'description' => (string) ($get('description') ?? ''),
+        'link'        => (string) ($get('url') ?? ''),
+        'desktop_img' => $desktop,
+        'mobile_img'  => $mobile,
         'image_url'   => $primary,
         'thumbnail'   => $primary,
-        'latitud'     => $record->latitud,
-        'longitud'    => $record->longitud,
+        'latitud'     => ($get('latitud')  !== NULL ? (float) $get('latitud')  : NULL),
+        'longitud'    => ($get('longitud') !== NULL ? (float) $get('longitud') : NULL),
       ];
     }
 
     return $rows;
   }
+
+
 
   /* ============ ITEM UPSERT ============ */
 

@@ -18,6 +18,15 @@ pds_recipe_template.ensure_group:
     _csrf_token: 'TRUE'   # POST must carry a CSRF token.
   methods: ['POST']
 
+pds_recipe_template.debug_table:
+  path: '/admin/reports/pds-template/debug-table/{table}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_template\Controller\DebugController::table'
+  requirements:
+    _permission: 'access content'   # or another admin perm you already have
+  options:
+    _admin_route: true  
+
 pds_recipe_template.resolve_row:
   path: '/pds-template/resolve-row/{uuid}'
   defaults:
