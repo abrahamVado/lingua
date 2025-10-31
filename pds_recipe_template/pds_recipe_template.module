@@ -2,23 +2,26 @@
 
 /**
  * @file
- * Hooks for pds_recipe_template.
+ * Hooks and runtime helpers for pds_recipe_template.
  */
-use Drupal\Core\Session\AccountInterface;
 
+use Drupal\Core\Session\AccountInterface;
+use Drupal\pds_recipe_template\Service\RowImagePromoter;
+use Drupal\pds_recipe_template\Service\LegacySchemaRepairer;
+
+/**
+ * Permission gate used by AJAX routes (create/update/list/ensure-group).
+ *
+ * Keep permissive to match LB editors; later you can swap to a custom permission.
+ */
 if (!function_exists('pds_recipe_template_user_can_manage_template')) {
-  /**
-   * Gate for template admin actions (create/update/list/ensure-group).
-   *
-   * Keep permissive to match LB editors; tighten later with a custom permission.
-   */
   function pds_recipe_template_user_can_manage_template(?AccountInterface $account = NULL): bool {
     $account = $account ?: \Drupal::currentUser();
     if (!$account) {
       return FALSE;
     }
 
-    // Mirror typical LB/blocks editor capabilities.
+    // Mirror typical Layout Builder / blocks editor capabilities.
     $perms = [
       'administer blocks',
       'administer layout builder',
@@ -35,6 +38,7 @@ if (!function_exists('pds_recipe_template_user_can_manage_template')) {
     return FALSE;
   }
 }
+
 /**
  * Implements hook_theme().
  */
@@ -57,7 +61,7 @@ function pds_recipe_template_theme($existing, $type, $theme, $path) {
  *
  * @param string $uuid
  * @param string $type
- *   Recipe type (e.g. 'pds_recipe_template', 'pds_recipe_executives', etc.).
+ *   Recipe type (e.g., 'pds_recipe_template', 'pds_recipe_executives', etc.).
  *
  * @return int
  *   Numeric group id, or 0 on failure.
@@ -66,4 +70,50 @@ function pds_recipe_template_ensure_group_and_get_id(string $uuid, string $type 
   /** @var \Drupal\pds_recipe_template\Service\GroupEnsurer $ensurer */
   $ensurer = \Drupal::service('pds_recipe_template.template_group_manager');
   return (int) $ensurer->ensureGroupAndGetId($uuid, $type);
+}
+
+/**
+ * Resolve the RowImagePromoter for AJAX row create/update flows.
+ *
+ * Controllers call this helper to avoid hard dependencies during early bootstrap.
+ *
+ * @return \Drupal\pds_recipe_template\Service\RowImagePromoter
+ */
+if (!function_exists('pds_recipe_template_resolve_row_image_promoter')) {
+  function pds_recipe_template_resolve_row_image_promoter(): RowImagePromoter {
+    try {
+      /** @var \Drupal\pds_recipe_template\Service\RowImagePromoter $svc */
+      return \Drupal::service('pds_recipe_template.row_image_promoter');
+    }
+    catch (\Throwable $e) {
+      // Minimal, safe fallback so the editor keeps working even if container is unhappy.
+      $etm = \Drupal::service('entity_type.manager');
+      $urlGen = \Drupal::service('file_url_generator');
+      return new RowImagePromoter($etm, $urlGen);
+    }
+  }
+}
+
+/**
+ * Resolve the LegacySchemaRepairer for install/repair-time checks.
+ *
+ * Used by controllers and update flows to self-heal tables at runtime.
+ *
+ * @return \Drupal\pds_recipe_template\Service\LegacySchemaRepairer
+ */
+if (!function_exists('pds_recipe_template_resolve_schema_repairer')) {
+  function pds_recipe_template_resolve_schema_repairer(): LegacySchemaRepairer {
+    try {
+      /** @var \Drupal\pds_recipe_template\Service\LegacySchemaRepairer $svc */
+      return \Drupal::service('pds_recipe_template.legacy_schema_repairer');
+    }
+    catch (\Throwable $e) {
+      // Safe direct construction fallback.
+      $db   = \Drupal::database();
+      $time = \Drupal::time();
+      $uuid = \Drupal::service('uuid');
+      $loggerFactory = \Drupal::service('logger.factory');
+      return new LegacySchemaRepairer($db, $time, $uuid, $loggerFactory);
+    }
+  }
 }
