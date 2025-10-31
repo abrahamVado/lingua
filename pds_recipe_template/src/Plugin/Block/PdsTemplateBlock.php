@@ -6,7 +6,7 @@
  * INPUTS:
  *  - $this->configuration: items[], group_id (int), instance_uuid (UUID), recipe_type
  *  - DB tables: pds_template_group, pds_template_item
- *  - Hidden form fields: pds_template_admin[group_id], pds_template_admin[cards_state]
+ *  - Hidden form fields: pds_template_admin[group_id], pds_template_admin[cards_state], pds_template_admin[instance_uuid]
  *
  * OUTPUTS:
  *  - Frontend: render array #theme('pds_template_block') + drupalSettings datasets
@@ -17,26 +17,13 @@
  *  - Form handlers: blockForm(), blockSubmit()
  *  - AJAX: ajaxResolveRow() (promote temporary file → URL)
  *
- * USED BY:
- *  - Layout Builder UI and page render where block is placed
- *
  * DEPENDENCIES:
- *  - Services: database, uuid, file_url_generator, time()
+ *  - Services: TemplateRepository (internally uses db/uuid/time/logger/promoter)
  *  - Traits: PdsTemplateBlockStateTrait, PdsTemplateRenderContextTrait
- *  - Procedural helpers: pds_recipe_template_ensure_group_and_get_id(), pds_recipe_template_resolve_row_image_promoter()
- *
- * SIDE EFFECTS:
- *  - Creates/updates pds_template_group and pds_template_item
- *  - Soft-deletes missing rows by setting deleted_at
- *  - Promotes File entities to permanent
- *
- * SAFE TO DELETE?
- *  - Whole class: No, core to feature.
- *  - buildCardsMarkup(), ajaxItems(), addItemSubmit(): Legacy preview. Delete if no routes/callers.
  *
  * NOTES:
- *  - Robust legacy recovery: resolves UUID from old group_id and backfills.
- *  - Configuration snapshot kept for render fallback when DB unavailable.
+ *  - On first open, we resolve/generate a UUID and expose it to JS via data-* and a hidden field.
+ *  - We persist instance_uuid in configuration on submit to keep it stable across reopens.
  */
 
 declare(strict_types=1);
@@ -46,10 +33,8 @@ namespace Drupal\pds_recipe_template\Plugin\Block;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Block\BlockBase;
-use Drupal\Core\Database\Connection;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
-use Drupal\file\Entity\File;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
@@ -64,6 +49,10 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  * )
  */
 final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPluginInterface {
+
+  use PdsTemplateBlockStateTrait;         // working_items, group id in FormState
+  use PdsTemplateRenderContextTrait;      // buildMasterMetadata(), buildExtendedDatasets()
+
   public function __construct(array $configuration, $plugin_id, $plugin_definition, private TemplateRepository $repo) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
   }
@@ -71,31 +60,21 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
   public static function create(ContainerInterface $c, array $configuration, $plugin_id, $plugin_definition): self {
     return new self($configuration, $plugin_id, $plugin_definition, $c->get('pds_recipe_template.repository'));
   }
-  use PdsTemplateBlockStateTrait;         // State helpers: working_items, group id in FormState.
-  use PdsTemplateRenderContextTrait;      // Render helpers: buildMasterMetadata(), buildExtendedDatasets().
 
   /**
    * DEFAULTS
-   * PURPOSE: Provide render fallbacks and forward-compat flags.
    */
   public function defaultConfiguration(): array {
     return [
-      // 1) Render fallback when DB/tables are missing.
-      'items' => [],
-      // 2) Numeric FK to group table for legacy lookups and cross-requests reuse.
-      'group_id' => 0,
-      // 3) Stable logical key that links this block instance to group row.
-      'instance_uuid' => '',
-      // 4) Logical recipe label for derivatives.
+      'items' => [],                 // Render fallback when DB/tables are missing.
+      'group_id' => 0,               // Numeric FK (legacy reuse).
+      'instance_uuid' => '',         // Stable logical key that links this block instance to group row.
       'recipe_type' => 'pds_recipe_template',
     ];
   }
 
   /**
-   * getBlockInstanceUuid()
-   * PURPOSE: Return a stable UUID for this block. Repair legacy configs from group_id if needed.
-   * OUTPUT: string UUID, also persisted into $this->configuration['instance_uuid'].
-   * SAFE TO CHANGE: Keep recovery and caching logic; UI depends on stable identifier.
+   * Return (and cache) the instance UUID. Repairs from legacy group_id if needed.
    */
   private function getBlockInstanceUuid(): string {
     $resolved = $this->repo->resolveInstanceUuid(
@@ -109,11 +88,8 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     return $resolved;
   }
 
-
   /**
-   * ensureGroupAndGetId()
-   * PURPOSE: Ensure a pds_template_group row exists for current UUID and return its id.
-   * OUTPUT: int group_id or 0.
+   * Ensure group row exists for current UUID and return id.
    */
   private function ensureGroupAndGetId(): int {
     $uuid = $this->getBlockInstanceUuid();
@@ -122,12 +98,8 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     return $this->repo->ensureGroupAndGetId($uuid, $type);
   }
 
-
   /**
-   * loadItemsForBlock()
-   * PURPOSE: Load active items from DB by current UUID; fall back to legacy group_id or config snapshot.
-   * OUTPUT: array of normalized rows ready for Twig and JS.
-   * ERROR TOLERANCE: Swallows DB exceptions and returns config snapshot.
+   * Load active items by UUID; fallback to legacy group_id or config snapshot.
    */
   private function loadItemsForBlock(): array {
     $uuid = $this->getBlockInstanceUuid();
@@ -138,19 +110,15 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     }
 
     try {
-      // Prefer group by UUID, fallback/repair with legacy id.
       $group_id = $this->repo->resolveGroupId($uuid, $legacy_group_id);
       if ($group_id > 0) {
         $rows = $this->repo->loadItems($group_id);
         if ($rows !== []) {
-          // Cache the effective group id for reuse.
           if (($this->configuration['group_id'] ?? 0) !== $group_id) {
             $this->configuration['group_id'] = $group_id;
           }
           return $rows;
         }
-
-        // If no rows, try legacy_id specifically (rare legacy case).
         if ($legacy_group_id > 0 && $legacy_group_id !== $group_id) {
           $fallback = $this->repo->loadItems($legacy_group_id);
           if ($fallback !== []) {
@@ -159,20 +127,15 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
           }
         }
       }
-
-      // Snapshot fallback.
       return $this->configuration['items'] ?? [];
     }
-    catch (\Exception $e) {
+    catch (\Exception) {
       return $this->configuration['items'] ?? [];
     }
   }
 
   /**
-   * saveItemsForBlock()
-   * PURPOSE: Upsert submitted items for group, soft-delete missing ones, update config snapshot.
-   * INPUT: array $clean_items, ?int $group_id
-   * SIDE EFFECTS: DB writes, config snapshot refresh.
+   * Upsert submitted items, soft-delete missing, refresh config snapshot.
    */
   private function saveItemsForBlock(array $clean_items, ?int $group_id = NULL): void {
     if (!$group_id) {
@@ -187,12 +150,8 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     }
   }
 
-
   /**
-   * build()
-   * PURPOSE: Render frontend block with datasets and settings. Ensures group id exists.
-   * OUTPUT: theme('pds_template_block') + attached libraries and drupalSettings.
-   * CACHE: Disabled (max-age -1), varied by route context.
+   * Render frontend block with datasets and settings. Ensures group id exists.
    */
   public function build(): array {
     $items = $this->loadItemsForBlock();
@@ -239,12 +198,12 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
   }
 
   /**
-   * blockForm()
-   * PURPOSE: Build LB modal UI. Injects endpoints, hidden JSON state, tabs, and preview root.
-   * OUTPUT: $form subtree 'pds_template_admin'
-   * NOTE: Buttons are plain <button> but JS cancels submission; one add trigger is a <div>.
+   * Build LB modal UI. Inject endpoints, hidden JSON state, tabs, and preview root.
    */
   public function blockForm($form, FormStateInterface $form_state) {
+    // Ensure a UUID *on first open* so AJAX endpoints receive a valid {uuid}.
+    $block_uuid = $this->getBlockInstanceUuid();
+
     $working_items = $this->getWorkingItems($form_state);
     $group_id = $this->getGroupIdFromFormState($form_state);
     $stored_group_id = 0;
@@ -255,7 +214,7 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     if (!$group_id && $stored_group_id > 0) {
       $group_id = $stored_group_id;
     }
-    $block_uuid = $this->getBlockInstanceUuid();
+
     $recipe_type = $this->repo->resolveRecipeType($this->configuration['recipe_type'] ?? null);
 
     if (
@@ -263,42 +222,41 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
       && !$form_state->hasTemporaryValue('working_items')
     ) {
       $this->setWorkingItems($form_state, $working_items);
-
       if (!$group_id) {
         $group_id = $this->ensureGroupAndGetId();
       }
     }
-
     if (!$group_id) {
       $group_id = $this->ensureGroupAndGetId();
     }
-
-    // Persist id into FormState for AJAX rebuilds.
     $this->setGroupIdOnFormState($form_state, $group_id);
 
-    // Endpoint URLs for JS.
+    // Endpoint URLs for JS (absolute so LB iframe is safe).
     $ensure_group_url = Url::fromRoute(
       'pds_recipe_template.ensure_group',
       ['uuid' => $block_uuid],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
+
     $resolve_row_url = Url::fromRoute(
       'pds_recipe_template.resolve_row',
       ['uuid' => $block_uuid],
       ['absolute' => TRUE],
     )->toString();
+
     $create_row_url = Url::fromRoute(
       'pds_recipe_template.create_row',
       ['uuid' => $block_uuid],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
+
     $update_row_url = Url::fromRoute(
       'pds_recipe_template.update_row',
       ['uuid' => $block_uuid, 'row_uuid' => '00000000-0000-0000-0000-000000000000'],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
 
-    // List endpoint supports legacy fallback ids.
+    // Listing supports legacy fallback ids for hydration.
     $list_query = ['type' => $recipe_type];
     if ($group_id > 0) {
       $list_query['group_id'] = (string) $group_id;
@@ -306,7 +264,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     if ($stored_group_id > 0 && $stored_group_id !== $group_id) {
       $list_query['fallback_group_id'] = (string) $stored_group_id;
     }
-
     $list_rows_url = Url::fromRoute(
       'pds_recipe_template.list_rows',
       ['uuid' => $block_uuid],
@@ -316,7 +273,7 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     // Root container with data-* for JS.
     $form['pds_template_admin'] = [
       '#type' => 'container',
-      '#tree' => TRUE, // Keep nested values accessible on submit.
+      '#tree' => TRUE,
       '#attributes' => [
         'class' => ['pds-template-admin', 'js-pds-template-admin'],
         'data-pds-template-ensure-group-url' => $ensure_group_url,
@@ -325,17 +282,23 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'data-pds-template-update-row-url' => $update_row_url,
         'data-pds-template-list-rows-url' => $list_rows_url,
         'data-pds-template-group-id' => (string) $group_id,
-        'data-pds-template-block-uuid' => $block_uuid,
+        'data-pds-template-block-uuid' => $block_uuid,     // <-- expose UUID to JS
         'data-pds-template-recipe-type' => $recipe_type,
       ],
       '#attached' => [
-        'library' => [
-          'pds_recipe_template/pds_template.admin',
-        ],
+        'library' => ['pds_recipe_template/pds_template.admin'],
       ],
     ];
 
     // Hidden pointers and JSON state.
+    $form['pds_template_admin']['instance_uuid'] = [
+      '#type' => 'hidden',
+      '#default_value' => $block_uuid,
+      '#attributes' => [
+        'data-drupal-selector' => 'pds-template-block-uuid',
+      ],
+    ];
+
     $form['pds_template_admin']['group_id'] = [
       '#type' => 'hidden',
       '#attributes' => [
@@ -369,8 +332,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'data-pds-template-tabs' => 'nav',
       ],
     ];
-
-    // Nav buttons (submission is blocked by JS).
     $form['pds_template_admin']['tabs_nav']['tab_a'] = [
       '#type' => 'button',
       '#value' => $this->t('Tab A'),
@@ -410,7 +371,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'data-pds-template-panel-id' => 'panel-a',
       ],
     ];
-
     $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['header'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Header'),
@@ -420,7 +380,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'id' => 'pds-template-header',
       ],
     ];
-
     $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['subheader'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Subheader'),
@@ -430,7 +389,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'id' => 'pds-template-subheader',
       ],
     ];
-
     $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['description'] = [
       '#type' => 'textarea',
       '#title' => $this->t('Description'),
@@ -440,7 +398,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'id' => 'pds-template-description',
       ],
     ];
-
     $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['image'] = [
       '#type' => 'managed_file',
       '#title' => $this->t('Image'),
@@ -453,7 +410,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
         'id' => 'pds-template-image',
       ],
     ];
-
     $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['link'] = [
       '#type' => 'url',
       '#title' => $this->t('Link'),
@@ -481,8 +437,8 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     ];
 
     $loading_text = Html::escape((string) $this->t('Loading preview…'));
-    $empty_text = Html::escape((string) $this->t('No rows yet.'));
-    $error_text = Html::escape((string) $this->t('Unable to load preview.'));
+    $empty_text   = Html::escape((string) $this->t('No rows yet.'));
+    $error_text   = Html::escape((string) $this->t('Unable to load preview.'));
 
     $form['pds_template_admin']['tabs_panels_wrapper']['tabs_panels']['panel_b']['preview_list'] = [
       '#type' => 'markup',
@@ -498,19 +454,20 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
   }
 
   /**
-   * blockSubmit()
-   * PURPOSE: Read hidden JSON, normalize item payload, persist DB + config snapshot, refresh working state.
-   * INPUT: cards_state JSON, group_id
-   * SIDE EFFECTS: Promotes File entities if only fid provided.
+   * Persist UUID, group id, and rows JSON.
    */
   public function blockSubmit($form, FormStateInterface $form_state): void {
+    // Always persist the resolved instance UUID.
+    $this->configuration['instance_uuid'] = $this->getBlockInstanceUuid();
+
+    // Read JSON snapshot.
     $raw_json = $this->extractNestedFormValue($form_state, [
       ['pds_template_admin', 'cards_state'],
       ['settings', 'pds_template_admin', 'cards_state'],
       ['cards_state'],
     ], '');
 
-    // Resolve group id (unchanged)
+    // Resolve group id.
     $group_id = NULL;
     $raw_group = $this->extractNestedFormValue($form_state, [
       ['pds_template_admin', 'group_id'],
@@ -522,21 +479,16 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
     if (!$group_id) { $group_id = $this->ensureGroupAndGetId(); }
     if ($group_id) { $this->configuration['group_id'] = (int) $group_id; }
 
-    // NEW: delegate to repository
+    // Normalize and persist.
     $items  = $this->repo->decodeJsonToArray($raw_json);
     $clean  = $this->repo->normalizeSubmittedItems($items);
 
-    // Persist + refresh working state
     $this->saveItemsForBlock($clean, $group_id);
     $this->setWorkingItems($form_state, $clean);
   }
 
-
   /**
-   * ajaxResolveRow()
-   * PURPOSE: Promote a temporary upload (fid) into a permanent file and return URLs.
-   * SECURITY: Validates UUID and access via helper permission check.
-   * OUTPUT: JSON {status, image_url, image_fid, desktop_img, mobile_img}
+   * Promote a temporary upload (fid) into a permanent file and return URLs.
    */
   public static function ajaxResolveRow(Request $request, string $uuid): JsonResponse {
     if (!Uuid::isValid($uuid)) {
@@ -557,7 +509,6 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
       $payload = $payload['row'];
     }
 
-    // NEW: use the repository wrapper for promotion
     /** @var \Drupal\pds_recipe_template\TemplateRepository $repo */
     $repo = \Drupal::service('pds_recipe_template.repository');
     $result = $repo->promoteRowPayload($payload);
@@ -577,6 +528,4 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
       'mobile_img'  => $result['mobile_img']  ?? '',
     ]);
   }
-
-
 }
