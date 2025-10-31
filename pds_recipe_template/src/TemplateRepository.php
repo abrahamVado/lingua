@@ -6,26 +6,76 @@ namespace Drupal\pds_recipe_template;
 
 use Drupal\Core\Database\Connection;
 use Drupal\Component\Uuid\Uuid;
-use Drupal\Component\Uuid\UuidInterface;            // + DI
-use Drupal\Component\Datetime\TimeInterface;        // + DI
-use Psr\Log\LoggerInterface;                        // + DI
-use Drupal\pds_recipe_template\Service\RowImagePromoter; // + DI
+use Drupal\Component\Uuid\UuidInterface;
+use Drupal\Component\Datetime\TimeInterface;
+use Psr\Log\LoggerInterface;
+use Drupal\pds_recipe_template\Service\RowImagePromoter;
 use Drupal\pds_recipe_template\Service\GroupEnsurer;
+use Drupal\Core\Database\Query\SelectInterface;
 
-/**
- * TemplateRepository
- * Single source of truth for DB access and legacy-repair logic.
- */
 final class TemplateRepository {
 
   public function __construct(
     private Connection $db,
-    private UuidInterface $uuid,            // + DI
-    private TimeInterface $time,            // + DI
-    private LoggerInterface $logger,        // + DI
-    private RowImagePromoter $promoter,     // + DI
+    private UuidInterface $uuid,
+    private TimeInterface $time,
+    private LoggerInterface $logger,
+    private RowImagePromoter $promoter,
     private GroupEnsurer $ensurer,
   ) {}
+
+  /* =========================
+   * Helpers
+   * ========================= */
+
+  /** Build an "active rows" condition tolerant of legacy placeholders. */
+  private function buildActiveCondition(string $alias = 'i') {
+    $or = $this->db->orConditionGroup()
+      ->isNull("$alias.deleted_at")
+      ->condition("$alias.deleted_at", '', '=')
+      ->condition("$alias.deleted_at", '0', '=')
+      ->condition("$alias.deleted_at", 0, '=');
+    return $or;
+  }
+
+  /* =========================
+  * Helpers
+  * ========================= */
+
+  /** Attach an "active rows" condition tolerant of legacy placeholders to a query. */
+  private function addActiveCondition(SelectInterface $q, string $alias = 'i'): void {
+    $or = $q->orConditionGroup()
+      ->isNull("$alias.deleted_at")
+      ->condition("$alias.deleted_at", '', '=')
+      ->condition("$alias.deleted_at", '0', '=')
+      ->condition("$alias.deleted_at", 0, '=');
+    $q->condition($or);
+  }
+
+  /** Attach a relaxed type condition (strict type OR legacy null/empty) to a query. */
+  private function addTypeCondition(SelectInterface $q, string $alias, ?string $type): void {
+    if ($type === null || $type === '') {
+      return; // no type filtering
+    }
+    $or = $q->orConditionGroup()
+      ->condition("$alias.type", $type, '=')
+      ->isNull("$alias.type")
+      ->condition("$alias.type", '', '=');
+    $q->condition($or);
+  }
+
+
+  /** Build a relaxed type condition (strict type OR legacy null/empty). */
+  private function buildTypeCondition(string $alias, ?string $type) {
+    if ($type === null || $type === '') {
+      // No type filter at all.
+      return null;
+    }
+    return $this->db->orConditionGroup()
+      ->condition("$alias.type", $type, '=')
+      ->isNull("$alias.type")
+      ->condition("$alias.type", '', '=');
+  }
 
   /* =========================
    * UUID + GROUP RESOLUTION
@@ -43,46 +93,65 @@ final class TemplateRepository {
         return $groupUuid;
       }
       if ($groupUuid !== null) {
-        // Row exists but no/invalid uuid → repair row.
-        $replacement = $this->uuid->generate();            // CHANGED: no Drupal::service
+        $replacement = $this->uuid->generate();
         $this->setUuidForGroup($storedGroupId, $replacement);
         return $replacement;
       }
     }
-
-    // Brand-new.
-    return $this->uuid->generate();                        // CHANGED
+    return $this->uuid->generate();
   }
 
-  public function getGroupIdByUuid(string $uuid): int {
+  /**
+   * Resolve group id by UUID (optionally scoped by recipe type with legacy fallback).
+   */
+  public function getGroupIdByUuid(string $uuid, ?string $type = null): int {
     if ($uuid === '' || !Uuid::isValid($uuid)) {
       return 0;
     }
-    $id = $this->db->select('pds_template_group', 'g')
+
+    $q = $this->db->select('pds_template_group', 'g')
       ->fields('g', ['id'])
       ->condition('g.uuid', $uuid)
-      ->condition('g.deleted_at', null, 'IS NULL')
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
+      ->range(0, 1);
 
-    return is_numeric($id) ? (int) $id : 0;
+    $this->addActiveCondition($q, 'g');     // <-- changed
+    $this->addTypeCondition($q, 'g', $type);// <-- changed
+
+    $id = $q->execute()->fetchField();
+    if (is_numeric($id)) {
+      return (int) $id;
+    }
+
+    // Retry without type if strict match failed.
+    if ($type !== null && $type !== '') {
+      $q2 = $this->db->select('pds_template_group', 'g')
+        ->fields('g', ['id'])
+        ->condition('g.uuid', $uuid)
+        ->range(0, 1);
+      $this->addActiveCondition($q2, 'g');  // <-- changed
+      $id2 = $q2->execute()->fetchField();
+      return is_numeric($id2) ? (int) $id2 : 0;
+    }
+
+    return 0;
   }
+
 
   public function getUuidByGroupId(int $groupId): ?string {
-    $uuid = $this->db->select('pds_template_group', 'g')
+    $q = $this->db->select('pds_template_group', 'g')
       ->fields('g', ['uuid'])
       ->condition('g.id', $groupId)
-      ->condition('g.deleted_at', null, 'IS NULL')
-      ->range(0, 1)
-      ->execute()
-      ->fetchField();
+      ->range(0, 1);
 
+    $this->addActiveCondition($q, 'g');   // <-- changed
+
+    $uuid = $q->execute()->fetchField();
     if ($uuid === false) {
-      return null; // no row
+      return null;
     }
-    return (string) $uuid; // may be '' (legacy)
+    return (string) $uuid;
   }
+
 
   public function setUuidForGroup(int $groupId, string $uuid): void {
     if ($groupId <= 0 || $uuid === '' || !Uuid::isValid($uuid)) {
@@ -91,7 +160,6 @@ final class TemplateRepository {
     $this->db->update('pds_template_group')
       ->fields(['uuid' => $uuid])
       ->condition('id', $groupId)
-      ->condition('deleted_at', null, 'IS NULL')
       ->execute();
   }
 
@@ -100,7 +168,8 @@ final class TemplateRepository {
   }
 
   public function resolveGroupId(string $uuid, ?int $legacyGroupId): int {
-    $groupId = $this->getGroupIdByUuid($uuid);
+    // Try with the canonical type first (if ensurer knows it), but keep compatibility by calling without type.
+    $groupId = $this->getGroupIdByUuid($uuid /*, optional type could be added here */);
     if ($groupId > 0) {
       return $groupId;
     }
@@ -114,47 +183,45 @@ final class TemplateRepository {
         return $legacyGroupId;
       }
     }
-
     return 0;
   }
 
   /**
    * Soft-delete a row by (group uuid, row uuid).
-   *
-   * Ensures the row belongs to that group; sets deleted_at if not already set.
+   * Accepts legacy states (''/'0'/0) as “not deleted” and will set a timestamp.
    */
-  public function softDeleteRowByGroupAndRowUuid(string $groupUuid, string $rowUuid): bool {
-    if (!\Drupal\Component\Uuid\Uuid::isValid($groupUuid) || !\Drupal\Component\Uuid\Uuid::isValid($rowUuid)) {
-      return false;
+    public function softDeleteRowByGroupAndRowUuid(string $groupUuid, string $rowUuid): bool {
+      if (!Uuid::isValid($groupUuid) || !Uuid::isValid($rowUuid)) {
+        return false;
+      }
+
+      $q = $this->db->select('pds_template_group', 'g')
+        ->fields('g', ['id'])
+        ->condition('g.uuid', $groupUuid)
+        ->range(0, 1);
+      $this->addActiveCondition($q, 'g');   // <-- changed
+
+      $gid = $q->execute()->fetchField();
+      if (!$gid) {
+        return false;
+      }
+
+      $now = $this->time->getRequestTime();
+
+      // No IS NULL guard here — legacy placeholders are allowed to be overwritten.
+      $updated = $this->db->update('pds_template_item')
+        ->fields(['deleted_at' => $now])
+        ->condition('uuid', $rowUuid)
+        ->condition('group_id', (int) $gid)
+        ->execute();
+
+      return ((int) $updated) > 0;
     }
-
-    $gid = $this->db->select('pds_template_group', 'g')
-      ->fields('g', ['id'])
-      ->condition('g.uuid', $groupUuid)
-      ->condition('g.deleted_at', NULL, 'IS NULL')
-      ->execute()
-      ->fetchField();
-
-    if (!$gid) {
-      return false;
-    }
-
-    $now = $this->time->getRequestTime(); 
-
-    $updated = $this->db->update('pds_template_item')
-      ->fields(['deleted_at' => $now])
-      ->condition('uuid', $rowUuid)
-      ->condition('group_id', (int) $gid)
-      ->isNull('deleted_at')
-      ->execute();
-
-    return ((int) $updated) > 0;
-  }
 
 
   /* =========== ITEM LOAD =========== */
+
   public function loadItems(int $groupId): array {
-    // 1) Quick rejects.
     if ($groupId <= 0) {
       return [];
     }
@@ -162,19 +229,15 @@ final class TemplateRepository {
     $schema = $this->db->schema();
     $table  = 'pds_template_item';
 
-    // 2) If the table itself is missing, return empty (controller can decide what to do).
     if (!$schema->tableExists($table)) {
       return [];
     }
 
-    // 3) Expected fields in ideal/latest schema.
     $wanted = [
       'id','uuid','weight','header','subheader','description','url',
       'desktop_img','mobile_img','latitud','longitud',
     ];
 
-    // 4) Discover which fields actually exist *now* to avoid selecting non-existent columns.
-    //    Use a static cache per request to keep it cheap if called multiple times.
     static $presentCache = [];
     if (!isset($presentCache[$table])) {
       $present = [];
@@ -187,29 +250,25 @@ final class TemplateRepository {
     }
     $present = $presentCache[$table];
 
-    // 5) Build the base query using only present fields.
     $query = $this->db->select($table, 'i')
       ->fields('i', $present)
       ->condition('i.group_id', $groupId);
 
-    // 6) Add soft-delete filter only if the column exists in this environment.
+    // Tolerant active filter if column exists.
     if ($schema->fieldExists($table, 'deleted_at')) {
-      $query->condition('i.deleted_at', NULL, 'IS NULL');
+      $this->addActiveCondition($query, 'i');   // <-- changed
     }
 
-    // 7) Keep ordering stable if the column exists; otherwise, leave DB order.
     if ($schema->fieldExists($table, 'weight')) {
       $query->orderBy('i.weight', 'ASC');
     }
 
     $result = $query->execute();
 
-    // 8) Map DB rows → normalized payload. Provide safe defaults when fields are absent.
     $rows = [];
     foreach ($result as $r) {
-      // Defensive reads — only access properties that were selected (present in $present).
       $get = static function ($prop) use ($r, $present) {
-        return in_array($prop, $present, true) ? ($r->$prop ?? NULL) : NULL;
+        return in_array($prop, $present, true) ? ($r->$prop ?? null) : null;
       };
 
       $desktop = (string) ($get('desktop_img') ?? '');
@@ -217,7 +276,7 @@ final class TemplateRepository {
       $primary = $desktop !== '' ? $desktop : $mobile;
 
       $rawUuid = (string) ($get('uuid') ?? '');
-      $uuid    = ($rawUuid !== '' && \Drupal\Component\Uuid\Uuid::isValid($rawUuid)) ? $rawUuid : '';
+      $uuid    = ($rawUuid !== '' && Uuid::isValid($rawUuid)) ? $rawUuid : '';
 
       $weightRaw = $get('weight');
       $weight    = (is_numeric($weightRaw) ? (int) $weightRaw : 0);
@@ -234,15 +293,13 @@ final class TemplateRepository {
         'mobile_img'  => $mobile,
         'image_url'   => $primary,
         'thumbnail'   => $primary,
-        'latitud'     => ($get('latitud')  !== NULL ? (float) $get('latitud')  : NULL),
-        'longitud'    => ($get('longitud') !== NULL ? (float) $get('longitud') : NULL),
+        'latitud'     => ($get('latitud')  !== null ? (float) $get('latitud')  : null),
+        'longitud'    => ($get('longitud') !== null ? (float) $get('longitud') : null),
       ];
     }
 
     return $rows;
   }
-
-
 
   /* ============ ITEM UPSERT ============ */
 
@@ -256,7 +313,8 @@ final class TemplateRepository {
     $records = $this->db->select('pds_template_item', 'i')
       ->fields('i', ['id', 'uuid'])
       ->condition('group_id', $groupId)
-      ->condition('deleted_at', null, 'IS NULL')
+      // Only consider active rows when mapping existing → prevents reviving deleted by mistake,
+      // but we will explicitly NULL deleted_at on update below.
       ->execute();
 
     foreach ($records as $r) {
@@ -283,6 +341,7 @@ final class TemplateRepository {
       }
 
       if ($resolvedId) {
+        // Reactivate on update: always set deleted_at = NULL.
         $this->db->update('pds_template_item')
           ->fields([
             'weight'      => $delta,
@@ -294,12 +353,13 @@ final class TemplateRepository {
             'mobile_img'  => $row['mobile_img']  ?? '',
             'latitud'     => $row['latitud']     ?? null,
             'longitud'    => $row['longitud']    ?? null,
+            'deleted_at'  => null,
           ])
           ->condition('id', $resolvedId)
           ->execute();
       }
       else {
-        $uuid = $uuid !== '' ? $uuid : $this->uuid->generate();   // CHANGED
+        $uuid = $uuid !== '' ? $uuid : $this->uuid->generate();
         $resolvedId = (int) $this->db->insert('pds_template_item')
           ->fields([
             'uuid'        => $uuid,
@@ -334,10 +394,10 @@ final class TemplateRepository {
       ];
     }
 
+    // Soft-delete anything not kept (regardless of its previous placeholder value).
     $upd = $this->db->update('pds_template_item')
       ->fields(['deleted_at' => $nowUnix])
-      ->condition('group_id', $groupId)
-      ->condition('deleted_at', null, 'IS NULL');
+      ->condition('group_id', $groupId);
 
     if ($keptIds !== []) {
       $upd->condition('id', $keptIds, 'NOT IN');
@@ -382,7 +442,6 @@ final class TemplateRepository {
       if ($desktop_img === '' && $image_url !== '') { $desktop_img = $image_url; }
       if ($mobile_img  === '' && $image_url !== '') { $mobile_img  = $image_url; }
 
-      // Use the same promoter service as AJAX (no direct File API here).
       if (($desktop_img === '' || $mobile_img === '') && $fid) {
         try {
           $res = $this->promoter->promote(['image_fid' => $fid]);
@@ -421,7 +480,6 @@ final class TemplateRepository {
       if (!is_array($result)) {
         return ['status' => 'error', 'code' => 500, 'message' => 'Unexpected promoter response.'];
       }
-      // Ensure keys exist.
       return $result + [
         'status'      => $result['status'] ?? 'error',
         'code'        => $result['code']   ?? 500,
@@ -443,7 +501,6 @@ final class TemplateRepository {
       'pds_recipe_template',
       'pds_recipe_executives',
       'pds_recipe_formas_de_invertir',
-      // add more here as you clone recipes
     ];
     $type = is_string($candidate) && $candidate !== '' ? $candidate : (string) $fallback;
     return in_array($type, $allowed, true) ? $type : 'pds_recipe_template';
