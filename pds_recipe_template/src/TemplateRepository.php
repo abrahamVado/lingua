@@ -24,6 +24,9 @@ final class TemplateRepository {
     private GroupEnsurer $ensurer,
   ) {}
 
+  /** Cache whether the group table exposes the "type" column. */
+  private ?bool $groupHasTypeColumn = null;
+
   /* =========================
    * Helpers
    * ========================= */
@@ -150,6 +153,74 @@ final class TemplateRepository {
       return null;
     }
     return (string) $uuid;
+  }
+
+  /**
+   * Load an active group row by numeric id.
+   */
+  public function loadActiveGroupById(int $groupId): ?array {
+    if ($groupId <= 0) {
+      return null;
+    }
+
+    $query = $this->db->select('pds_template_group', 'g')
+      ->fields('g', ['id', 'uuid'])
+      ->condition('g.id', $groupId)
+      ->range(0, 1);
+
+    if ($this->groupTableSupportsType()) {
+      //1.- Request the recipe discriminator when available to keep editors scoped to their block.
+      $query->addField('g', 'type');
+    }
+
+    $this->addActiveCondition($query, 'g');
+
+    $record = $query->execute()->fetchAssoc();
+    if (!$record) {
+      return null;
+    }
+
+    return [
+      'id' => (int) ($record['id'] ?? 0),
+      'uuid' => is_string($record['uuid'] ?? null) ? (string) $record['uuid'] : '',
+      'type' => isset($record['type']) && is_string($record['type']) ? (string) $record['type'] : null,
+    ];
+  }
+
+  /** Ensure a group row stores the provided recipe type (when column exists). */
+  public function ensureGroupTypeValue(int $groupId, string $type): bool {
+    if ($groupId <= 0 || $type === '' || !$this->groupTableSupportsType()) {
+      return true;
+    }
+
+    $current = $this->db->select('pds_template_group', 'g')
+      ->fields('g', ['type'])
+      ->condition('g.id', $groupId)
+      ->range(0, 1)
+      ->execute()
+      ->fetchField();
+
+    $stored = is_string($current) ? trim($current) : '';
+
+    if ($stored === '') {
+      //2.- Backfill missing type values so legacy rows stay in sync with the new numeric workflow.
+      $this->db->update('pds_template_group')
+        ->fields(['type' => $type])
+        ->condition('id', $groupId)
+        ->execute();
+      return true;
+    }
+
+    if ($stored !== $type) {
+      //3.- Reject conflicting assignments but record the mismatch for troubleshooting.
+      $this->logger->warning('Group @id type mismatch: expected @expected, found @stored.', [
+        '@id' => $groupId,
+        '@expected' => $type,
+        '@stored' => $stored,
+      ]);
+      return false;
+    }
+    return true;
   }
 
 
@@ -504,5 +575,24 @@ final class TemplateRepository {
     ];
     $type = is_string($candidate) && $candidate !== '' ? $candidate : (string) $fallback;
     return in_array($type, $allowed, true) ? $type : 'pds_recipe_template';
+  }
+
+  /** Detect whether the group table contains a "type" column. */
+  public function groupTableSupportsType(): bool {
+    if ($this->groupHasTypeColumn === null) {
+      try {
+        //4.- Cache schema introspection so each request only probes the database once.
+        $this->groupHasTypeColumn = $this->db->schema()->fieldExists('pds_template_group', 'type');
+      }
+      catch (\Throwable $throwable) {
+        //5.- Degrade gracefully on broken schemas while flagging the issue for administrators.
+        $this->logger->warning('Unable to detect pds_template_group.type column: @message', [
+          '@message' => $throwable->getMessage(),
+        ]);
+        $this->groupHasTypeColumn = false;
+      }
+    }
+
+    return (bool) $this->groupHasTypeColumn;
   }
 }

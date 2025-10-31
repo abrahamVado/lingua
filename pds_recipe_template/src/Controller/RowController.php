@@ -6,7 +6,6 @@ namespace Drupal\pds_recipe_template\Controller;
 
 use Drupal\Component\Uuid\Uuid;
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\Database\Connection;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Throwable;
@@ -66,24 +65,25 @@ final class RowController extends ControllerBase {
    *   }
    * }
    */
-  public function createRow(Request $request, string $uuid): JsonResponse {
-    // 1) Validate UUID early.
-    if (!Uuid::isValid($uuid)) {
-      return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+  public function createRow(Request $request, string $group_id): JsonResponse {
+    //1.- Validate numeric group id before doing any heavy work.
+    if (!is_numeric($group_id) || (int) $group_id <= 0) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Invalid group id.'], 400);
     }
+    $groupId = (int) $group_id;
 
-    // 2) Permission gate for editors/admins.
+    //2.- Permission gate for editors/admins.
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
-    // 3) Parse JSON body safely.
+    //3.- Parse JSON body safely.
     $payload = json_decode($request->getContent() ?: '[]', TRUE);
     if (!is_array($payload)) {
       $payload = [];
     }
 
-    // 4) Resolve and whitelist the recipe type (multi-recipe friendly).
+    //4.- Resolve and whitelist the recipe type (multi-recipe friendly).
     $repo = $this->repo();
     $type_candidate = $request->query->get('type');
     if (!is_string($type_candidate) || $type_candidate === '') {
@@ -93,14 +93,23 @@ final class RowController extends ControllerBase {
     }
     $type = $repo->resolveRecipeType($type_candidate, 'pds_recipe_template');
 
-    // 5) Extract row payload & validate required fields.
+    $group = $repo->loadActiveGroupById($groupId);
+    if (!$group) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Group not found.'], 404);
+    }
+    $typeEnforced = $repo->ensureGroupTypeValue($groupId, $type);
+    if (!$typeEnforced && $repo->groupTableSupportsType()) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Group type mismatch.'], 409);
+    }
+
+    //5.- Extract row payload & validate required fields.
     $row = isset($payload['row']) && is_array($payload['row']) ? $payload['row'] : [];
     $header = isset($row['header']) && is_string($row['header']) ? trim($row['header']) : '';
     if ($header === '') {
       return new JsonResponse(['status' => 'error', 'message' => 'Missing header.'], 400);
     }
 
-    // 6) Optional fields (kept lenient to avoid user friction).
+    //6.- Optional fields (kept lenient to avoid user friction).
     $subheader   = isset($row['subheader'])   && is_string($row['subheader'])   ? $row['subheader']   : '';
     $description = isset($row['description']) && is_string($row['description']) ? $row['description'] : '';
     $link        = isset($row['link'])        && is_string($row['link'])        ? $row['link']        : '';
@@ -108,7 +117,7 @@ final class RowController extends ControllerBase {
     $mobile_img  = isset($row['mobile_img'])  && is_string($row['mobile_img'])  ? $row['mobile_img']  : '';
     $image_url   = isset($row['image_url'])   && is_string($row['image_url'])   ? $row['image_url']   : '';
 
-    // 7) Geo (nullable numeric).
+    //7.- Geo (nullable numeric).
     $latitud = NULL;
     if (array_key_exists('latitud', $row) && ($row['latitud'] === NULL || is_numeric($row['latitud']))) {
       $latitud = $row['latitud'] === NULL ? NULL : (float) $row['latitud'];
@@ -118,7 +127,7 @@ final class RowController extends ControllerBase {
       $longitud = $row['longitud'] === NULL ? NULL : (float) $row['longitud'];
     }
 
-    // 8) Weight (optional; append to end if missing).
+    //8.- Weight (optional; append to end if missing).
     $weight = NULL;
     if (isset($payload['weight']) && is_numeric($payload['weight'])) {
       $weight = (int) $payload['weight'];
@@ -128,12 +137,6 @@ final class RowController extends ControllerBase {
     }
 
     try {
-
-      // 10) Resolve numeric group id by (uuid + type).
-      $group_id = $repo->ensureGroupAndGetId($uuid, $type);
-      if (!$group_id) {
-        return new JsonResponse(['status' => 'error', 'message' => 'Unable to resolve group.'], 500);
-      }
 
       $connection = \Drupal::database();
       $now = \Drupal::time()->getRequestTime();
@@ -168,7 +171,7 @@ final class RowController extends ControllerBase {
       if ($weight === NULL) {
         $max_weight = $connection->select('pds_template_item', 'i')
           ->fields('i', ['weight'])
-          ->condition('i.group_id', $group_id)
+          ->condition('i.group_id', $groupId)
           ->condition('i.deleted_at', NULL, 'IS NULL')
           ->orderBy('i.weight', 'DESC')
           ->range(0, 1)
@@ -186,7 +189,7 @@ final class RowController extends ControllerBase {
       $insert_id = $connection->insert('pds_template_item')
         ->fields([
           'uuid'        => $row_uuid,
-          'group_id'    => (int) $group_id,
+          'group_id'    => (int) $groupId,
           'weight'      => $weight,
           'header'      => $header,
           'subheader'   => $subheader,
@@ -219,15 +222,14 @@ final class RowController extends ControllerBase {
       return new JsonResponse([
         'status' => 'ok',
         'id'     => (int) $insert_id,
-        'uuid'   => $row_uuid,
         'weight' => $weight,
         'row'    => $response_row,
       ]);
     }
     catch (Throwable $throwable) {
       // 16) Log exact reason for admins; return friendly error to UI.
-      \Drupal::logger('pds_recipe_template')->error('Row creation failed for group @group: @message', [
-        '@group' => $uuid,
+      \Drupal::logger('pds_recipe_template')->error('Row creation failed for group id @group: @message', [
+        '@group' => $groupId,
         '@message' => $throwable->getMessage(),
       ]);
       return new JsonResponse(['status' => 'error', 'message' => 'Unable to create row.'], 500);
@@ -235,68 +237,52 @@ final class RowController extends ControllerBase {
   }
 
   /**
-   * GET /pds-recipe/{uuid}/rows?type=...&group_id=...
-   * List rows for a (uuid + recipe type). No legacy regeneration/repairs.
+   * GET /pds-recipe/group/{group_id}/rows?type=...
+   * List rows for a numeric group id.
    */
-  public function list(Request $request, string $uuid): JsonResponse {
-    // 1) Validate UUID and permissions.
-    if (!\Drupal\Component\Uuid\Uuid::isValid($uuid)) {
-      return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+  public function list(Request $request, string $group_id): JsonResponse {
+    //1.- Validate numeric id and permissions.
+    if (!is_numeric($group_id) || (int) $group_id <= 0) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Invalid group id.'], 400);
     }
-    if (!\pds_recipe_template_user_can_manage_template()) {
+    if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
+    $groupId = (int) $group_id;
+
     try {
-
-
-      $connection    = \Drupal::database();
-      $supports_type = $this->groupTableSupportsType($connection);
-
-      /** @var \Drupal\pds_recipe_template\TemplateRepository $repo */
-      $repo = \Drupal::service('pds_recipe_template.repository');
-
-      // 3) Resolve/whitelist recipe type.
+      $repo = $this->repo();
       $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');
 
-      // 4) Canonical lookup by (uuid[, type]).
-      $group_query = $connection->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $uuid)
-        ->condition('g.deleted_at', NULL, 'IS NULL')
-        ->range(0, 1);
-
-      if ($supports_type) {
-        $group_query->condition('g.type', $type);
-      }
-
-      $group_id = (int) ($group_query->execute()->fetchField() ?: 0);
-
-      // 5) No group yet → empty ok response (first open / not created).
-      if ($group_id === 0) {
+      $group = $repo->loadActiveGroupById($groupId);
+      if (!$group) {
         return new JsonResponse([
           'status'   => 'ok',
-          'group_id' => 0,
+          'group_id' => $groupId,
           'type'     => $type,
           'rows'     => [],
         ]);
       }
 
-      // 6) Load rows for resolved group id (repository handles legacy deleted_at cases).
-      $rows = $repo->loadItems($group_id);
+      $typeEnforced = $repo->ensureGroupTypeValue($groupId, $type);
+      if (!$typeEnforced && $repo->groupTableSupportsType()) {
+        return new JsonResponse(['status' => 'error', 'message' => 'Group type mismatch.'], 409);
+      }
 
-      // 7) Success.
+      $rows = $repo->loadItems($groupId);
+
       return new JsonResponse([
         'status'   => 'ok',
-        'group_id' => $group_id,
+        'group_id' => $groupId,
         'type'     => $type,
         'rows'     => is_array($rows) ? $rows : [],
       ]);
     }
     catch (\Throwable $e) {
       \Drupal::logger('pds_recipe_template')->error(
-        'List rows failed for @uuid: @message',
-        ['@uuid' => $uuid, '@message' => $e->getMessage()]
+        'List rows failed for group id @id: @message',
+        ['@id' => $groupId, '@message' => $e->getMessage()]
       );
       return new JsonResponse(['status' => 'error', 'message' => 'Unable to load rows.'], 500);
     }
@@ -304,19 +290,22 @@ final class RowController extends ControllerBase {
 
 
   /**
-   * GET/PUT /pds-recipe/{uuid}/row/{row_uuid}
-   * Update an existing row (scoped to the group resolved by uuid + type).
+   * PATCH /pds-recipe/group/{group_id}/row/{row_id}
+   * Update an existing row using numeric identifiers.
    */
-  public function update(Request $request, string $uuid, string $row_uuid): JsonResponse {
-    // 1) Validate UUIDs and permissions.
-    if (!Uuid::isValid($uuid) || !Uuid::isValid($row_uuid)) {
-      return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+  public function update(Request $request, string $group_id, string $row_id): JsonResponse {
+    //1.- Validate numeric identifiers and permissions.
+    if (!is_numeric($group_id) || (int) $group_id <= 0 || !is_numeric($row_id) || (int) $row_id <= 0) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Invalid identifiers.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
-    // 2) Parse payload and resolve recipe type.
+    $groupId = (int) $group_id;
+    $rowId = (int) $row_id;
+
+    //2.- Parse payload and resolve recipe type.
     $payload = json_decode($request->getContent() ?: '[]', TRUE);
     if (!is_array($payload)) {
       $payload = [];
@@ -330,6 +319,15 @@ final class RowController extends ControllerBase {
         : null;
     }
     $type = $repo->resolveRecipeType($type_candidate, 'pds_recipe_template');
+
+    $group = $repo->loadActiveGroupById($groupId);
+    if (!$group) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Group not found.'], 404);
+    }
+    $typeEnforced = $repo->ensureGroupTypeValue($groupId, $type);
+    if (!$typeEnforced && $repo->groupTableSupportsType()) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Group type mismatch.'], 409);
+    }
 
     // 3) Extract and validate row fields.
     $row = isset($payload['row']) && is_array($payload['row']) ? $payload['row'] : [];
@@ -366,17 +364,11 @@ final class RowController extends ControllerBase {
     try {
 
 
-      // 5) Resolve group id (uuid + type) and verify ownership.
-      $group_id = $repo->ensureGroupAndGetId($uuid, $type);
-      if (!$group_id) {
-        return new JsonResponse(['status' => 'error', 'message' => 'Unable to resolve group.'], 500);
-      }
-
       $connection = \Drupal::database();
 
       $existing = $connection->select('pds_template_item', 'i')
         ->fields('i', ['id', 'group_id', 'weight'])
-        ->condition('i.uuid', $row_uuid)
+        ->condition('i.id', $rowId)
         ->condition('i.deleted_at', NULL, 'IS NULL')
         ->execute()
         ->fetchAssoc();
@@ -384,7 +376,7 @@ final class RowController extends ControllerBase {
       if (!$existing) {
         return new JsonResponse(['status' => 'error', 'message' => 'Row not found.'], 404);
       }
-      if ((int) $existing['group_id'] !== (int) $group_id) {
+      if ((int) $existing['group_id'] !== $groupId) {
         return new JsonResponse(['status' => 'error', 'message' => 'Row does not belong to this block.'], 403);
       }
 
@@ -430,7 +422,7 @@ final class RowController extends ControllerBase {
 
       $connection->update('pds_template_item')
         ->fields($fields)
-        ->condition('uuid', $row_uuid)
+        ->condition('id', $rowId)
         ->execute();
 
       // 8) Echo stored values for UI state refresh.
@@ -457,18 +449,17 @@ final class RowController extends ControllerBase {
       return new JsonResponse([
         'status' => 'ok',
         'id'     => (int) $existing['id'],
-        'uuid'   => $row_uuid,
         'weight' => $response_row['weight'] ?? NULL,
         'row'    => $response_row,
       ]);
     }
     catch (Throwable $throwable) {
       //7.- Persist the failure so the operations dashboard can highlight which (uuid,row_uuid) update failed and why.
-      \Drupal::logger('pds_recipe_template')->error('Row update failed for @uuid/@row: @message', [
-        '@uuid' => $uuid,
-        '@row' => $row_uuid,
+      \Drupal::logger('pds_recipe_template')->error('Row update failed for group id @group / row id @row: @message', [
+        '@group' => $groupId,
+        '@row' => $rowId,
         '@message' => $throwable->getMessage(),
-      ]);      
+      ]);
       return new JsonResponse(['status' => 'error', 'message' => 'Unable to update row.'], 500);
     }
   }
@@ -481,75 +472,38 @@ final class RowController extends ControllerBase {
     // 1) Delegate to procedural helper to be robust during container rebuilds.
     return \pds_recipe_template_resolve_schema_repairer();
   }
-
-  /**
-   * Detect whether the group table already exposes the "type" column.
-   */
-  private function groupTableSupportsType(Connection $connection): bool {
-    static $has_type = NULL;
-
-    if ($has_type === NULL) {
-      try {
-        //5.- Cache the lookup per-request so repeated checks stay inexpensive during multi-call flows.
-        $has_type = $connection->schema()->fieldExists('pds_template_group', 'type');
-      }
-      catch (Throwable $throwable) {
-        //6.- Log once per request and gracefully degrade to UUID-only behavior when introspection fails.
-        \Drupal::logger('pds_recipe_template')->warning('Unable to detect pds_template_group.type column: @message', [
-          '@message' => $throwable->getMessage(),
-        ]);
-        $has_type = FALSE;
-      }
-    }
-
-    return (bool) $has_type;
-  }
-
-// src/Controller/RowController.php (add this method)
-
-  public function delete(Request $request, string $uuid, string $row_uuid): JsonResponse {
-    // 1) Validate inputs + permission.
-    if (!Uuid::isValid($uuid) || !Uuid::isValid($row_uuid)) {
-      return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+  public function delete(Request $request, string $group_id, string $row_id): JsonResponse {
+    //1.- Validate identifiers + permission.
+    if (!is_numeric($group_id) || (int) $group_id <= 0 || !is_numeric($row_id) || (int) $row_id <= 0) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Invalid identifiers.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
     }
 
+    $groupId = (int) $group_id;
+    $rowId = (int) $row_id;
+
     try {
-
-
       $repo = $this->repo();
       $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');
 
-      $db = \Drupal::database();
-      $supports_type = $this->groupTableSupportsType($db);
-
-      // 3) Find group by (uuid,type). If not present yet, treat as no-op.
-      $group_query = $db->select('pds_template_group', 'g')
-        ->fields('g', ['id'])
-        ->condition('g.uuid', $uuid)
-        ->condition('g.deleted_at', NULL, 'IS NULL')
-        ->range(0, 1);
-      if ($supports_type) {
-        //4.- Honor the recipe discriminator when the schema supports it to avoid cross-recipe deletions.
-        $group_query->condition('g.type', $type);
-      }
-      $gid = (int) $group_query
-        ->execute()
-        ->fetchField();
-
-      if ($gid <= 0) {
-        // No group → nothing to delete.
+      $group = $repo->loadActiveGroupById($groupId);
+      if (!$group) {
         return new JsonResponse(['status' => 'ok', 'deleted' => 0]);
       }
+      $typeEnforced = $repo->ensureGroupTypeValue($groupId, $type);
+      if (!$typeEnforced && $repo->groupTableSupportsType()) {
+        return new JsonResponse(['status' => 'error', 'message' => 'Group type mismatch.'], 409);
+      }
 
-      // 4) Soft-delete the row by UUID within that group.
+      $db = \Drupal::database();
+
       $now = \Drupal::time()->getRequestTime();
       $affected = $db->update('pds_template_item')
         ->fields(['deleted_at' => $now])
-        ->condition('group_id', $gid)
-        ->condition('uuid', $row_uuid)
+        ->condition('group_id', $groupId)
+        ->condition('id', $rowId)
         ->isNull('deleted_at')
         ->execute();
 
@@ -557,26 +511,26 @@ final class RowController extends ControllerBase {
         return new JsonResponse(['status' => 'ok', 'deleted' => $affected]);
       }
 
-      // 5) If nothing updated, check if it was already deleted or never existed → still OK.
       $exists = (bool) $db->select('pds_template_item', 'i')
         ->fields('i', ['id'])
-        ->condition('group_id', $gid)
-        ->condition('uuid', $row_uuid)
+        ->condition('group_id', $groupId)
+        ->condition('id', $rowId)
         ->range(0, 1)
         ->execute()
         ->fetchField();
 
       if ($exists) {
-        // Already soft-deleted; treat as success.
         return new JsonResponse(['status' => 'ok', 'deleted' => 0]);
       }
 
-      // Not found at all (maybe a stale client). Return ok to keep UI consistent.
       return new JsonResponse(['status' => 'ok', 'deleted' => 0]);
     }
     catch (\Throwable $e) {
-      // Minimal instrumentation so you can see why it fails (watchdog).
-      \Drupal::logger('pds_recipe_template')->error('Delete failed: @msg', ['@msg' => $e->getMessage()]);
+      \Drupal::logger('pds_recipe_template')->error('Delete failed for group id @group / row id @row: @msg', [
+        '@group' => $groupId,
+        '@row' => $rowId,
+        '@msg' => $e->getMessage(),
+      ]);
       return new JsonResponse(['status' => 'error', 'message' => 'Unable to delete row.'], 500);
     }
   }
