@@ -398,11 +398,26 @@ final class RowController extends ControllerBase {
     foreach ($result as $record) {
       $desktop = (string) $record->desktop_img;
       $mobile = (string) $record->mobile_img;
+      $resolved_id = (int) $record->id;
 
-      //2.- Normalize the database record into the structure expected by the admin preview table.
+      $raw_uuid = isset($record->uuid) ? (string) $record->uuid : '';
+      $resolved_uuid = '';
+      if ($raw_uuid !== '' && Uuid::isValid($raw_uuid)) {
+        //1.- Accept modern UUIDs immediately so freshly created rows retain their identifier.
+        $resolved_uuid = $raw_uuid;
+      }
+      elseif ($resolved_id > 0) {
+        //2.- Repair historical rows that never stored a UUID by using the numeric id as the lookup key.
+        $repaired = \pds_recipe_timeline_repair_item_uuid($connection, $resolved_id, $raw_uuid);
+        if ($repaired !== '' && Uuid::isValid($repaired)) {
+          $resolved_uuid = $repaired;
+        }
+      }
+
+      //3.- Normalize the database record into the structure expected by the admin preview table.
       $rows[] = [
-        'id' => (int) $record->id,
-        'uuid' => (string) $record->uuid,
+        'id' => $resolved_id,
+        'uuid' => $resolved_uuid,
         'header' => (string) $record->header,
         'subheader' => (string) $record->subheader,
         'description' => (string) $record->description,
