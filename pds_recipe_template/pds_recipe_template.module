@@ -4,7 +4,37 @@
  * @file
  * Hooks for pds_recipe_template.
  */
+use Drupal\Core\Session\AccountInterface;
 
+if (!function_exists('pds_recipe_template_user_can_manage_template')) {
+  /**
+   * Gate for template admin actions (create/update/list/ensure-group).
+   *
+   * Keep permissive to match LB editors; tighten later with a custom permission.
+   */
+  function pds_recipe_template_user_can_manage_template(?AccountInterface $account = NULL): bool {
+    $account = $account ?: \Drupal::currentUser();
+    if (!$account) {
+      return FALSE;
+    }
+
+    // Mirror typical LB/blocks editor capabilities.
+    $perms = [
+      'administer blocks',
+      'administer layout builder',
+      'configure any layout',
+      'configure own layout',
+      'configure all layout overrides',
+      'configure editable layout overrides',
+    ];
+    foreach ($perms as $perm) {
+      if ($account->hasPermission($perm)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+}
 /**
  * Implements hook_theme().
  */
