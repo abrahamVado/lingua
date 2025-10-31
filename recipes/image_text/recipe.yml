@@ -1,0 +1,7 @@
+name: 'Recipe: Image Text'
+type: 'Site'
+install:
+  - pds_recipe_image_text
+  - block
+  - layout_builder
+  - layout_discovery

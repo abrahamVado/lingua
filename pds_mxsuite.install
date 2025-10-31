@@ -292,7 +292,7 @@ function _pds_mxsuite_build_schema_repairer(?LoggerChannelInterface $logger = NU
  *
  * This is your existing update 8013.
  */
-function pds_mxsuite_update_8014(): void {
+function pds_mxsuite_update_10004(): void {
   $dups = ['pds_recipe_fondos_mutuos.settings']; // la que choca
   foreach ($dups as $name) {
     $conf = \Drupal::config($name);

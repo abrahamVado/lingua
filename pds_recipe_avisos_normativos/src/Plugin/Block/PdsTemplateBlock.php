@@ -16,7 +16,7 @@ use Symfony\Component\HttpFoundation\Request;
 
 /**
  * @Block(
- *   id = "pds_template_block",
+ *   id = "pds_recipe_avisos_normativos",
  *   admin_label = @Translation("PDS Avisos normativos"),
  *   category = @Translation("PDS Recipes")
  * )

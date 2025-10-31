@@ -128,14 +128,6 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      // 9) Defensive: ensure schema is up to date (avoids drift during deploys).
-      $schema_repairer = $this->resolveSchemaRepairer();
-      if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
-        return new JsonResponse([
-          'status' => 'error',
-          'message' => 'Template storage needs attention. Re-run database updates and try again.',
-        ], 500);
-      }
 
       // 10) Resolve numeric group id by (uuid + type).
       $group_id = $repo->ensureGroupAndGetId($uuid, $type);
@@ -243,168 +235,73 @@ final class RowController extends ControllerBase {
   }
 
   /**
-   * GET /pds-recipe/{uuid}/rows?type=...&group_id=...&fallback_group_id=...
-   * List rows for a (uuid + recipe type), with legacy fallbacks:
-   * - First tries (uuid, type).
-   * - If not found, tries provided fallback group ids.
-   * - Repairs legacy groups by setting uuid and type when needed.
+   * GET /pds-recipe/{uuid}/rows?type=...&group_id=...
+   * List rows for a (uuid + recipe type). No legacy regeneration/repairs.
    */
-    public function list(Request $request, string $uuid): JsonResponse {
-      // 1) Validate UUID and permissions.
-      if (!\Drupal\Component\Uuid\Uuid::isValid($uuid)) {
-        return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+  public function list(Request $request, string $uuid): JsonResponse {
+    // 1) Validate UUID and permissions.
+    if (!\Drupal\Component\Uuid\Uuid::isValid($uuid)) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+    }
+    if (!\pds_recipe_template_user_can_manage_template()) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
+    }
+
+    try {
+
+
+      $connection    = \Drupal::database();
+      $supports_type = $this->groupTableSupportsType($connection);
+
+      /** @var \Drupal\pds_recipe_template\TemplateRepository $repo */
+      $repo = \Drupal::service('pds_recipe_template.repository');
+
+      // 3) Resolve/whitelist recipe type.
+      $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');
+
+      // 4) Canonical lookup by (uuid[, type]).
+      $group_query = $connection->select('pds_template_group', 'g')
+        ->fields('g', ['id'])
+        ->condition('g.uuid', $uuid)
+        ->condition('g.deleted_at', NULL, 'IS NULL')
+        ->range(0, 1);
+
+      if ($supports_type) {
+        $group_query->condition('g.type', $type);
       }
-      if (!\pds_recipe_template_user_can_manage_template()) {
-        return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
-      }
 
-      try {
-        // 2) Soft schema check: log if broken, but don't block the UI preview.
-        $schema_repairer = $this->resolveSchemaRepairer();
-        if ($schema_repairer && !$schema_repairer->ensureItemTableUpToDate()) {
-          \Drupal::logger('pds_recipe_template')->warning('Schema not up-to-date during list() for {uuid}. Proceeding with empty set.', ['uuid' => $uuid]);
-          // Do NOT return error here; continue so the preview shows "No rows yet".
-        }
+      $group_id = (int) ($group_query->execute()->fetchField() ?: 0);
 
-        $connection = \Drupal::database();
-        $supports_type = $this->groupTableSupportsType($connection);
-
-        // 3) Fallback candidate ids (legacy flow).
-        $fallback_candidates = [];
-        $raw_fallback = $request->query->get('fallback_group_id');
-        if (is_scalar($raw_fallback) && $raw_fallback !== '' && (int) $raw_fallback > 0) {
-          $fallback_candidates[] = (int) $raw_fallback; // prioritize historical id first
-        }
-        $raw_group = $request->query->get('group_id');
-        if (is_scalar($raw_group) && $raw_group !== '' && (int) $raw_group > 0) {
-          $gid = (int) $raw_group;
-          if (!in_array($gid, $fallback_candidates, TRUE)) {
-            $fallback_candidates[] = $gid;
-          }
-        }
-
-        // 4) Resolve/whitelist recipe type.
-        /** @var \Drupal\pds_recipe_template\TemplateRepository $repo */
-        $repo = \Drupal::service('pds_recipe_template.repository');
-        $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');
-
-        // 5) Canonical lookup by (uuid,type).
-        $group_query = $connection->select('pds_template_group', 'g')
-          ->fields('g', ['id', 'uuid'])
-          ->condition('g.uuid', $uuid)
-          ->condition('g.deleted_at', NULL, 'IS NULL');
-        if ($supports_type) {
-          //1.- Narrow down the lookup by recipe type only when the column exists so legacy schemas keep working.
-          $group_query->condition('g.type', $type);
-        }
-        $group_row = $group_query
-          ->execute()
-          ->fetchAssoc();
-
-        $group_id = $group_row && !empty($group_row['id']) ? (int) $group_row['id'] : 0;
-
-        // 6) Not found? Try legacy ids and repair uuid/type.
-        if (!$group_id) {
-          foreach ($fallback_candidates as $candidate_id) {
-            $legacy_row = $connection->select('pds_template_group', 'g')
-              ->fields('g', ['id', 'uuid'])
-              ->condition('g.id', $candidate_id)
-              ->condition('g.deleted_at', NULL, 'IS NULL')
-              ->range(0, 1)
-              ->execute()
-              ->fetchAssoc();
-
-            if (!$legacy_row) {
-              continue;
-            }
-
-            $group_id = (int) $legacy_row['id'];
-            $stored_uuid = is_string($legacy_row['uuid'] ?? NULL) ? (string) $legacy_row['uuid'] : '';
-
-            if ($uuid !== '' && (!\Drupal\Component\Uuid\Uuid::isValid($stored_uuid) || $stored_uuid !== $uuid)) {
-              // Repair row to the current (uuid,type) so future lookups are direct.
-              $fields = ['uuid' => $uuid];
-              if ($supports_type) {
-                //2.- Persist the recipe discriminator only in schemas that already provide the column.
-                $fields['type'] = $type;
-              }
-              $connection->update('pds_template_group')
-                ->fields($fields)
-                ->condition('id', $group_id)
-                ->condition('deleted_at', NULL, 'IS NULL')
-                ->execute();
-            }
-            break; // picked a legacy group
-          }
-        }
-
-        // 7) No group yet? Return ok + empty rows (important for first open).
-        if (!$group_id) {
-          return new JsonResponse([
-            'status'   => 'ok',
-            'group_id' => 0,
-            'type'     => $type,
-            'rows'     => [],
-          ]);
-        }
-
-        // 8) Load rows for resolved group id (use repository for consistency).
-        $rows = $repo->loadItems((int) $group_id);
-
-        // 9) If empty but we have other fallbacks, try them and repair.
-        if ($rows === [] && $fallback_candidates !== []) {
-          foreach ($fallback_candidates as $candidate_id) {
-            if ($candidate_id === (int) $group_id) {
-              continue;
-            }
-            $candidate_rows = $repo->loadItems((int) $candidate_id);
-            if ($candidate_rows === []) {
-              continue;
-            }
-
-            $legacy_uuid = $connection->select('pds_template_group', 'g')
-              ->fields('g', ['uuid'])
-              ->condition('g.id', $candidate_id)
-              ->condition('g.deleted_at', NULL, 'IS NULL')
-              ->range(0, 1)
-              ->execute()
-              ->fetchField();
-
-            if ($uuid !== '' && (!is_string($legacy_uuid) || !\Drupal\Component\Uuid\Uuid::isValid((string) $legacy_uuid) || (string) $legacy_uuid !== $uuid)) {
-              $fields = ['uuid' => $uuid];
-              if ($supports_type) {
-                //3.- Mirror the active recipe type when the column is available to keep future lookups scoped.
-                $fields['type'] = $type;
-              }
-              $connection->update('pds_template_group')
-                ->fields($fields)
-                ->condition('id', $candidate_id)
-                ->condition('deleted_at', NULL, 'IS NULL')
-                ->execute();
-            }
-
-            $group_id = $candidate_id;
-            $rows = $candidate_rows;
-            break;
-          }
-        }
-
-        // 10) Success – always ok.
+      // 5) No group yet → empty ok response (first open / not created).
+      if ($group_id === 0) {
         return new JsonResponse([
           'status'   => 'ok',
-          'group_id' => (int) $group_id,
+          'group_id' => 0,
           'type'     => $type,
-          'rows'     => is_array($rows) ? $rows : [],
+          'rows'     => [],
         ]);
       }
-      catch (\Throwable $e) { // <- fully qualified to ensure it catches
-        \Drupal::logger('pds_recipe_template')->error('List rows failed for {uuid}: {m}', [
-          'uuid' => $uuid,
-          'm'    => $e->getMessage(),
-        ]);
-        return new JsonResponse(['status' => 'error', 'message' => 'Unable to load rows.'], 500);
-      }
+
+      // 6) Load rows for resolved group id (repository handles legacy deleted_at cases).
+      $rows = $repo->loadItems($group_id);
+
+      // 7) Success.
+      return new JsonResponse([
+        'status'   => 'ok',
+        'group_id' => $group_id,
+        'type'     => $type,
+        'rows'     => is_array($rows) ? $rows : [],
+      ]);
     }
+    catch (\Throwable $e) {
+      \Drupal::logger('pds_recipe_template')->error(
+        'List rows failed for @uuid: @message',
+        ['@uuid' => $uuid, '@message' => $e->getMessage()]
+      );
+      return new JsonResponse(['status' => 'error', 'message' => 'Unable to load rows.'], 500);
+    }
+  }
+
 
   /**
    * GET/PUT /pds-recipe/{uuid}/row/{row_uuid}
@@ -467,14 +364,7 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      // 4) Defensive schema check.
-      $schema_repairer = $this->resolveSchemaRepairer();
-      if (!$schema_repairer || !$schema_repairer->ensureItemTableUpToDate()) {
-        return new JsonResponse([
-          'status' => 'error',
-          'message' => 'Template storage needs attention. Re-run database updates and try again.',
-        ], 500);
-      }
+
 
       // 5) Resolve group id (uuid + type) and verify ownership.
       $group_id = $repo->ensureGroupAndGetId($uuid, $type);
@@ -573,6 +463,12 @@ final class RowController extends ControllerBase {
       ]);
     }
     catch (Throwable $throwable) {
+      //7.- Persist the failure so the operations dashboard can highlight which (uuid,row_uuid) update failed and why.
+      \Drupal::logger('pds_recipe_template')->error('Row update failed for @uuid/@row: @message', [
+        '@uuid' => $uuid,
+        '@row' => $row_uuid,
+        '@message' => $throwable->getMessage(),
+      ]);      
       return new JsonResponse(['status' => 'error', 'message' => 'Unable to update row.'], 500);
     }
   }
@@ -621,14 +517,7 @@ final class RowController extends ControllerBase {
     }
 
     try {
-      // 2) Ensure schema exists (defensive).
-      $repairer = $this->resolveSchemaRepairer();
-      if (!$repairer || !$repairer->ensureItemTableUpToDate()) {
-        return new JsonResponse([
-          'status' => 'error',
-          'message' => 'Template storage needs attention. Re-run database updates and try again.',
-        ], 500);
-      }
+
 
       $repo = $this->repo();
       $type = $repo->resolveRecipeType($request->query->get('type') ?: null, 'pds_recipe_template');

@@ -1,0 +1,7 @@
+name: 'Recipe: Avisos Normativos'
+type: 'Site'
+install:
+  - pds_recipe_avisos_normativos
+  - block
+  - layout_builder
+  - layout_discovery
