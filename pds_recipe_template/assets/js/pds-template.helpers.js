@@ -10,6 +10,95 @@
   var __pdsCsrfTokenPromise = null;
   var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
+  function resolveNumericId(candidate) {
+    //1.- Accept numbers that are already valid identifiers.
+    if (typeof candidate === 'number' && !isNaN(candidate)) {
+      return candidate;
+    }
+    //2.- Attempt to parse string representations into integers.
+    if (typeof candidate === 'string') {
+      var trimmed = candidate.trim();
+      if (trimmed === '') return null;
+      var parsed = parseInt(trimmed, 10);
+      if (!isNaN(parsed)) {
+        return parsed;
+      }
+    }
+    //3.- Fallback to null when the input cannot be coerced.
+    return null;
+  }
+
+  function normalizeRowIdentifiers(row) {
+    //1.- Ensure we always work with an object clone to avoid side effects.
+    if (!row || typeof row !== 'object') {
+      return {};
+    }
+    var normalized = Object.assign({}, row);
+    //2.- Normalize the primary id to a numeric value when available.
+    var numericId = resolveNumericId(normalized.id);
+    if (numericId !== null) {
+      normalized.id = numericId;
+    } else if (typeof normalized.id === 'string') {
+      var trimmedId = normalized.id.trim();
+      if (trimmedId) {
+        normalized.id = trimmedId;
+      } else {
+        delete normalized.id;
+      }
+    } else if (normalized.id !== undefined) {
+      delete normalized.id;
+    }
+    //3.- Trim uuid fallbacks so stale whitespace does not leak through.
+    if (typeof normalized.uuid === 'string') {
+      var trimmedUuid = normalized.uuid.trim();
+      if (trimmedUuid) {
+        normalized.uuid = trimmedUuid;
+      } else {
+        delete normalized.uuid;
+      }
+    } else if (normalized.uuid !== undefined) {
+      delete normalized.uuid;
+    }
+    //4.- Return the sanitized snapshot for downstream consumers.
+    return normalized;
+  }
+
+  function resolveRowIdentifier(row) {
+    //1.- Normalize the row payload before attempting any resolution.
+    var normalized = normalizeRowIdentifiers(row);
+    //2.- Prefer numeric identifiers whenever possible.
+    if (typeof normalized.id === 'number') {
+      return { type: 'id', value: normalized.id, key: 'id:' + normalized.id, row: normalized };
+    }
+    //3.- Fall back to UUIDs only when an id is completely unavailable.
+    if (typeof normalized.uuid === 'string' && normalized.uuid !== '') {
+      return { type: 'uuid', value: normalized.uuid, key: 'uuid:' + normalized.uuid, row: normalized };
+    }
+    //4.- Provide the normalized row even if no identifier was resolved.
+    return { type: null, value: null, key: '', row: normalized };
+  }
+
+  function buildRowActionUrl(template, identifier) {
+    //1.- Guard against missing templates so callers can short-circuit gracefully.
+    if (!template || typeof template !== 'string') {
+      return '';
+    }
+    //2.- Convert the identifier into a string representation for transport.
+    var idString = identifier === 0 || identifier ? String(identifier) : '';
+    if (!idString) {
+      return template;
+    }
+    //3.- Replace placeholders when the backend provided a template stub.
+    if (template.indexOf(UPDATE_PLACEHOLDER) !== -1) {
+      return template.replace(UPDATE_PLACEHOLDER, idString);
+    }
+    //4.- Fallback by rewriting the trailing segment with the identifier.
+    var parts = template.split('?');
+    var base = parts[0].replace(/\/[^\/]*$/, '');
+    var query = parts.length > 1 ? '?' + parts.slice(1).join('?') : '';
+    return base + '/' + encodeURIComponent(idString) + query;
+  }
+
   function getCsrfToken() {
     if (!__pdsCsrfTokenPromise) {
       __pdsCsrfTokenPromise = fetch(Drupal.url('session/token'), {
@@ -48,16 +137,12 @@
   }
 
   function deleteRowViaAjax(root, row) {
-    //1.- Resolve the numeric identifier that the backend expects.
-    var rowId = null;
-    if (row && typeof row.id === 'number') rowId = row.id;
-    else if (row && typeof row.id === 'string' && row.id.trim() !== '') {
-      var parsed = parseInt(row.id, 10);
-      if (!isNaN(parsed)) rowId = parsed;
-    }
-    if (rowId === null) {
+    //1.- Resolve the preferred identifier, defaulting to numeric ids.
+    var resolution = resolveRowIdentifier(row);
+    if (!resolution.value && resolution.value !== 0) {
       return Promise.resolve({ success: false, message: 'Missing row identifier.' });
     }
+    //2.- Continue using the resolved identifier when rewriting the endpoint URL.
     if (typeof window.fetch !== 'function') {
       // Legacy browsers → treat as success (or customize)
       return Promise.resolve({ success: true });
@@ -69,16 +154,8 @@
       return Promise.resolve({ success: true });
     }
 
-    //2.- Replace placeholder or fall back to trimming the last path segment.
-    var rowIdString = String(rowId);
-    var url = template.indexOf(UPDATE_PLACEHOLDER) !== -1
-      ? template.replace(UPDATE_PLACEHOLDER, rowIdString)
-      : (function () {
-        var pieces = template.split('?');
-        var base = pieces[0].replace(/\/[^\/]*$/, '');
-        var query = pieces.length > 1 ? '?' + pieces.slice(1).join('?') : '';
-        return base + '/' + encodeURIComponent(rowIdString) + query;
-      })();
+    //3.- Replace placeholder or fall back to trimming the last path segment.
+    var url = buildRowActionUrl(template, resolution.value);
 
     // Carry recipe type so backend can resolve group reliably.
     var recipeType = root.getAttribute('data-pds-template-recipe-type');
@@ -284,7 +361,13 @@
     resetFileWidgetToPristine: resetFileWidgetToPristine,
     getImageFid: getImageFid,
 
-    normalizeTimelineEntries: normalizeTimelineEntries
+    normalizeTimelineEntries: normalizeTimelineEntries,
+
+    // Identifier helpers shared across admin bundles.
+    resolveNumericId: resolveNumericId,
+    normalizeRowIdentifiers: normalizeRowIdentifiers,
+    resolveRowIdentifier: resolveRowIdentifier,
+    buildRowActionUrl: buildRowActionUrl
   };
 
 })(window, Drupal);

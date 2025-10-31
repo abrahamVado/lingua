@@ -3,8 +3,6 @@
 
   /* global drupalSettings */
 
-  var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
-
   //
   // Error helpers (from helper)
   //
@@ -22,11 +20,14 @@
   //
   // State helpers (from helper)
   //
-  var readState         = PDSTemplate.readState;
-  var writeState        = PDSTemplate.writeState;
-  var readEditIndex     = PDSTemplate.readEditIndex;
-  var writeEditIndex    = PDSTemplate.writeEditIndex;
-  var applyGroupIdToDom = PDSTemplate.applyGroupIdToDom;
+  var readState              = PDSTemplate.readState;
+  var writeState             = PDSTemplate.writeState;
+  var readEditIndex          = PDSTemplate.readEditIndex;
+  var writeEditIndex         = PDSTemplate.writeEditIndex;
+  var applyGroupIdToDom      = PDSTemplate.applyGroupIdToDom;
+  var normalizeRowIdentifiers = PDSTemplate.normalizeRowIdentifiers;
+  var resolveRowIdentifier    = PDSTemplate.resolveRowIdentifier;
+  var buildRowActionUrl       = PDSTemplate.buildRowActionUrl;
 
   //
   // Managed file helpers (from helper)
@@ -69,8 +70,27 @@
     f = sel(root, 'pds-template-link', 'pds-template-link');                if (f) f.value = row.link || '';
   }
 
+  function readRowsNormalized(root) {
+    //1.- Pull the persisted state snapshot from the hidden field.
+    var rows = readState(root);
+    //2.- Guarantee we always operate on an array.
+    if (!Array.isArray(rows)) rows = [];
+    //3.- Normalize each row so numeric ids become the primary identifiers.
+    return rows.map(function (row) { return normalizeRowIdentifiers(row); });
+  }
+
+  function writeRowsNormalized(root, rows) {
+    //1.- Normalize every row before persisting them back into the hidden field.
+    var normalizedRows = Array.isArray(rows)
+      ? rows.map(function (row) { return normalizeRowIdentifiers(row); })
+      : [];
+    //2.- Store the sanitized payload via the shared helper.
+    writeState(root, normalizedRows);
+  }
+
   function buildRowFromInputs(root, existingRow) {
     existingRow = existingRow || {};
+    var normalizedExisting = normalizeRowIdentifiers(existingRow);
     var headerEl = sel(root, 'pds-template-header', 'pds-template-header');
     var subEl    = sel(root, 'pds-template-subheader', 'pds-template-subheader');
     var descEl   = sel(root, 'pds-template-description', 'pds-template-description');
@@ -104,17 +124,17 @@
       baseRow.mobile_img = '';
     }
 
-    if (typeof existingRow.id === 'number' || (typeof existingRow.id === 'string' && existingRow.id !== '')) {
-      baseRow.id = existingRow.id;
+    if (typeof normalizedExisting.id !== 'undefined') {
+      baseRow.id = normalizedExisting.id;
     }
-    if (typeof existingRow.uuid === 'string' && existingRow.uuid !== '') {
-      baseRow.uuid = existingRow.uuid;
+    if (typeof normalizedExisting.uuid === 'string' && normalizedExisting.uuid !== '') {
+      baseRow.uuid = normalizedExisting.uuid;
     }
-    if (typeof existingRow.weight === 'number') {
-      baseRow.weight = existingRow.weight;
+    if (typeof normalizedExisting.weight === 'number') {
+      baseRow.weight = normalizedExisting.weight;
     }
 
-    return baseRow;
+    return normalizeRowIdentifiers(baseRow);
   }
 
   //
@@ -181,7 +201,7 @@
     var url = root.getAttribute('data-pds-template-create-row-url');
     if (!url) return Promise.resolve({ success: true, row: row });
 
-    var payload = { row: row, weight: readState(root).length };
+    var payload = { row: row, weight: readRowsNormalized(root).length };
     var recipeType = root.getAttribute('data-pds-template-recipe-type');
     if (recipeType) payload.recipe_type = recipeType;
 
@@ -204,7 +224,7 @@
         }
         if (json.uuid) finalRow.uuid = json.uuid;
         if (typeof json.weight === 'number') finalRow.weight = json.weight;
-        return { success: true, row: finalRow };
+        return { success: true, row: normalizeRowIdentifiers(finalRow) };
       })
       .catch(function () {
         return { success: false, row: row, message: 'Unable to create row. Please try again.' };
@@ -212,36 +232,29 @@
   }
 
   function updateRowViaAjax(root, row, idx) {
-    //1.- Normalize the numeric identifier required by the endpoint.
-    var rowId = null;
-    if (row && typeof row.id === 'number') rowId = row.id;
-    else if (row && typeof row.id === 'string' && row.id.trim() !== '') {
-      var parsedId = parseInt(row.id, 10);
-      if (!isNaN(parsedId)) rowId = parsedId;
-    }
-    if (rowId === null) {
+    //1.- Resolve the preferred identifier, prioritising numeric ids.
+    var resolution = resolveRowIdentifier(row);
+    if (!resolution.value && resolution.value !== 0) {
       return Promise.resolve({ success: false, row: row, message: 'Missing row identifier.' });
     }
-    row.id = rowId;
-    if (typeof window.fetch !== 'function') return Promise.resolve({ success: true, row: row });
+    var normalizedRow = resolution.row;
+    if (resolution.type === 'id') {
+      normalizedRow.id = resolution.value;
+    } else {
+      delete normalizedRow.id;
+      normalizedRow.uuid = resolution.value;
+    }
+    if (typeof window.fetch !== 'function') return Promise.resolve({ success: true, row: normalizedRow });
 
     var template = root.getAttribute('data-pds-template-update-row-url');
-    if (!template) return Promise.resolve({ success: true, row: row });
+    if (!template) return Promise.resolve({ success: true, row: normalizedRow });
 
-    //2.- Swap the placeholder or rebuild the tail segment with the numeric id.
-    var rowIdString = String(rowId);
-    var url = template.indexOf(UPDATE_PLACEHOLDER) !== -1
-      ? template.replace(UPDATE_PLACEHOLDER, rowIdString)
-      : (function () {
-        var parts = template.split('?');
-        var base = parts[0].replace(/\/[^\/]*$/, '');
-        var query = parts.length > 1 ? '?' + parts.slice(1).join('?') : '';
-        return base + '/' + encodeURIComponent(rowIdString) + query;
-      })();
+    //2.- Swap the placeholder or rebuild the tail segment with the resolved identifier.
+    var url = buildRowActionUrl(template, resolution.value);
 
-    var payload = { row: row };
+    var payload = { row: normalizedRow };
     if (typeof idx === 'number' && idx >= 0) payload.weight = idx;
-    else if (typeof row.weight === 'number') payload.weight = row.weight;
+    else if (typeof normalizedRow.weight === 'number') payload.weight = normalizedRow.weight;
 
     var recipeType = root.getAttribute('data-pds-template-recipe-type');
     if (recipeType) payload.recipe_type = recipeType;
@@ -256,7 +269,7 @@
         if (!json || json.status !== 'ok') {
           return { success: false, row: row, message: (json && json.message) ? json.message : 'Unable to update row.' };
         }
-        var finalRow = Object.assign({}, row);
+        var finalRow = Object.assign({}, normalizedRow);
         if (typeof json.id === 'number') finalRow.id = json.id;
         else if (typeof json.id === 'string' && json.id.trim() !== '') {
           var parsedJsonId = parseInt(json.id, 10);
@@ -265,7 +278,7 @@
         if (json.uuid) finalRow.uuid = json.uuid;
         if (typeof json.weight === 'number') finalRow.weight = json.weight;
         if (json.row && typeof json.row === 'object') finalRow = Object.assign(finalRow, json.row);
-        return { success: true, row: finalRow };
+        return { success: true, row: normalizeRowIdentifiers(finalRow) };
       })
       .catch(function () {
         return { success: false, row: row, message: 'Unable to update row. Please try again.' };
@@ -329,8 +342,7 @@
     var content = hasStates ? wrapper.querySelector('[data-pds-template-preview-state="content"]') : wrapper;
     if (!content) return;
 
-    var rows = readState(root);
-    if (!Array.isArray(rows)) rows = [];
+    var rows = readRowsNormalized(root);
 
     if (!rows.length) {
       if (!root._pdsPreviewAutoLoaded) {
@@ -379,9 +391,11 @@
       var r = rows[i] || {};
       var thumb = r.desktop_img || r.thumbnail || r.image_url || r.mobile_img || '';
       var identifier = '';
-      if (typeof r.id === 'number') identifier = String(r.id);
-      else if (r.id && typeof r.id !== 'object') identifier = String(r.id);
-      else if (typeof r.uuid === 'string') identifier = r.uuid;
+      var resolution = resolveRowIdentifier(r);
+      if (resolution.value || resolution.value === 0) {
+        identifier = resolution.type === 'id' ? String(resolution.value) : resolution.value;
+        r = resolution.row;
+      }
 
       html += '<tr data-row-index="' + i + '">';
       html +=   '<td>' + escapeHtml(identifier) + '</td>';
@@ -424,16 +438,16 @@
     rows.forEach(function (row) {
       if (!row || typeof row !== 'object') return;
 
-      var key = '';
-      if (typeof row.id === 'number') key = 'id:' + row.id;
-      else if (typeof row.id === 'string' && row.id.trim() !== '') key = 'id:' + row.id.trim();
-      else if (typeof row.uuid === 'string' && row.uuid.trim() !== '') key = 'uuid:' + row.uuid.trim();
-      if (!key) return;
+      var resolution = resolveRowIdentifier(row);
+      if (!resolution.value && resolution.value !== 0) return;
+
+      var normalized = resolution.row;
+      var key = resolution.key || (resolution.type === 'id' ? 'id:' + resolution.value : 'uuid:' + resolution.value);
 
       master.datasets.timeline[key] = {
-        id: (typeof row.id === 'number' ? row.id : (typeof row.id === 'string' && row.id.trim() !== '' ? row.id.trim() : null)),
-        uuid: typeof row.uuid === 'string' ? row.uuid : '',
-        timeline: Array.isArray(row.timeline) ? row.timeline : []
+        id: resolution.type === 'id' ? normalized.id : null,
+        uuid: typeof normalized.uuid === 'string' ? normalized.uuid : '',
+        timeline: Array.isArray(normalized.timeline) ? normalized.timeline : []
       };
     });
   }
@@ -511,10 +525,10 @@
           var normalizedTimeline = normalizeTimelineEntries(safeRow.timeline);
           normalizedRow.timeline = normalizedTimeline;
 
-          return normalizedRow;
+          return normalizeRowIdentifiers(normalizedRow);
         });
 
-        writeState(root, normalized);
+        writeRowsNormalized(root, normalized);
         updateTimelineDatasetSnapshot(root, normalized);
         renderPreviewTable(root);
       })
@@ -548,7 +562,7 @@
   }
 
   function startEditRow(root, idx) {
-    var rows = readState(root);
+    var rows = readRowsNormalized(root);
     if (idx < 0 || idx >= rows.length) return;
 
     loadInputsFromRow(root, rows[idx]);
@@ -561,24 +575,25 @@
   }
 
   function deleteRow(root, idx) {
-    var rows = readState(root);
+    var rows = readRowsNormalized(root);
     if (idx < 0 || idx >= rows.length) return;
 
     var row = rows[idx] || {};
-    //1.- Normalize the row id before issuing the request.
-    var rowId = null;
-    if (row && typeof row.id === 'number') rowId = row.id;
-    else if (row && typeof row.id === 'string' && row.id.trim() !== '') {
-      var parsedDeleteId = parseInt(row.id, 10);
-      if (!isNaN(parsedDeleteId)) rowId = parsedDeleteId;
-    }
-    if (rowId === null) {
-      showError(root, 'This row cannot be deleted because it has no numeric id.');
+    //1.- Resolve the identifier, preferring numeric ids but falling back to UUIDs when necessary.
+    var resolution = resolveRowIdentifier(row);
+    if (!resolution.value && resolution.value !== 0) {
+      showError(root, 'This row cannot be deleted because it has no identifier.');
       return;
     }
-    row.id = rowId;
+    var requestRow = resolution.row;
+    if (resolution.type === 'id') {
+      requestRow.id = resolution.value;
+    } else {
+      delete requestRow.id;
+      requestRow.uuid = resolution.value;
+    }
 
-    var rowKey = String(rowId);
+    var rowKey = resolution.key || (resolution.type === 'id' ? 'id:' + resolution.value : 'uuid:' + resolution.value);
 
     // Debounce: ignore if a delete is already in flight for this id.
     root._pdsDeleting = root._pdsDeleting || {};
@@ -598,7 +613,7 @@
     if (delBtn) delBtn.disabled = true;
 
     // use helper alias
-    deleteRowViaAjax(root, row)
+    deleteRowViaAjax(root, requestRow)
       .then(function (result) {
         // Normalize result; treat 404/410 style replies as success.
         var ok = !!(result && (result.success || result.status === 404 || result.status === 410));
@@ -610,7 +625,7 @@
 
         // Only now mutate local state.
         rows.splice(idx, 1);
-        writeState(root, rows);
+        writeRowsNormalized(root, rows);
 
         // Exit edit mode if we were editing that row.
         var active = readEditIndex(root);
@@ -637,7 +652,7 @@
   }
 
   function persistRow(root, idx) {
-    var rows = readState(root);
+    var rows = readRowsNormalized(root);
     var existingRow = idx >= 0 && idx < rows.length ? rows[idx] : null;
     var newRow = buildRowFromInputs(root, existingRow);
 
@@ -649,8 +664,8 @@
 
     return resolveRowViaAjax(root, newRow)
       .then(function (resolvedRow) {
-        latestResolvedRow = resolvedRow;
-        return persistRowViaAjax(root, resolvedRow, idx);
+        latestResolvedRow = normalizeRowIdentifiers(resolvedRow);
+        return persistRowViaAjax(root, latestResolvedRow, idx);
       })
       .then(function (result) {
         if (!result || !result.success) {
@@ -659,12 +674,12 @@
           return false;
         }
 
-        var finalRow = result.row || latestResolvedRow;
-        var currentRows = readState(root);
+        var finalRow = normalizeRowIdentifiers(result.row || latestResolvedRow);
+        var currentRows = readRowsNormalized(root);
         if (idx >= 0 && idx < currentRows.length) currentRows[idx] = finalRow;
         else currentRows.push(finalRow);
 
-        writeState(root, currentRows);
+        writeRowsNormalized(root, currentRows);
         writeEditIndex(root, -1);
 
         var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
@@ -702,10 +717,10 @@
   }
 
   function commitPendingEditsBeforeSubmit(root) {
-    var beforeCount = readState(root).length;
+    var beforeCount = readRowsNormalized(root).length;
     return persistRow(root, readEditIndex(root)).then(function (didCommit) {
       if (!didCommit) return false;
-      var afterCount = readState(root).length;
+      var afterCount = readRowsNormalized(root).length;
       if (beforeCount === 0 && afterCount > 0) {
         return ensureGroupExists(root).then(function () { return true; });
       }
@@ -714,10 +729,10 @@
   }
 
   function handleAddOrUpdateRow(root) {
-    var beforeCount = readState(root).length;
+    var beforeCount = readRowsNormalized(root).length;
     persistRow(root, readEditIndex(root)).then(function (didCommit) {
       if (!didCommit) return;
-      var afterCount = readState(root).length;
+      var afterCount = readRowsNormalized(root).length;
       if (beforeCount === 0 && afterCount > 0) {
         ensureGroupExists(root);
       }
@@ -750,7 +765,7 @@
         renderPreviewTable(root);
 
         // First-load hydration if textarea is empty
-        var initialRows = readState(root);
+        var initialRows = readRowsNormalized(root);
         var hasInitialRows = Array.isArray(initialRows) && initialRows.length > 0;
         if (!hasInitialRows && root.getAttribute('data-pds-template-list-rows-url')) {
           if (!root._pdsPreviewAutoHydrated) {
