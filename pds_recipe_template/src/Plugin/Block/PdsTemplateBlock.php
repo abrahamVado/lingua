@@ -50,6 +50,8 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPluginInterface {
 
+  private const ROW_ID_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+
   use PdsTemplateBlockStateTrait;         // working_items, group id in FormState
   use PdsTemplateRenderContextTrait;      // buildMasterMetadata(), buildExtendedDatasets()
 
@@ -255,6 +257,15 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
       ['group_id' => $group_id ?: 0, 'row_id' => 0],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
+    if (is_string($update_row_url)) {
+      //1.- Provide a stable token so the browser can inject the numeric row id on demand.
+      $update_row_url = preg_replace(
+        '/\/0(\?|$)/',
+        '/' . self::ROW_ID_PLACEHOLDER . '$1',
+        $update_row_url,
+        1,
+      ) ?? $update_row_url;
+    }
 
     $delete_row_url = Url::fromRoute(
       'pds_recipe_template.delete_row',
@@ -265,6 +276,15 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
       ],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
+    if (is_string($delete_row_url)) {
+      //1.- Mirror the placeholder swap so DELETE endpoints receive numeric identifiers too.
+      $delete_row_url = preg_replace(
+        '/\/0(\?|$)/',
+        '/' . self::ROW_ID_PLACEHOLDER . '$1',
+        $delete_row_url,
+        1,
+      ) ?? $delete_row_url;
+    }
 
     // Listing supports legacy fallback ids for hydration.
     $list_query = ['type' => $recipe_type];

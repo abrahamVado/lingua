@@ -48,7 +48,14 @@
   }
 
   function deleteRowViaAjax(root, row) {
-    if (!row || !row.uuid) {
+    //1.- Resolve the numeric identifier that the backend expects.
+    var rowId = null;
+    if (row && typeof row.id === 'number') rowId = row.id;
+    else if (row && typeof row.id === 'string' && row.id.trim() !== '') {
+      var parsed = parseInt(row.id, 10);
+      if (!isNaN(parsed)) rowId = parsed;
+    }
+    if (rowId === null) {
       return Promise.resolve({ success: false, message: 'Missing row identifier.' });
     }
     if (typeof window.fetch !== 'function') {
@@ -62,14 +69,20 @@
       return Promise.resolve({ success: true });
     }
 
-    // Replace placeholder or append UUID.
+    //2.- Replace placeholder or fall back to trimming the last path segment.
+    var rowIdString = String(rowId);
     var url = template.indexOf(UPDATE_PLACEHOLDER) !== -1
-      ? template.replace(UPDATE_PLACEHOLDER, row.uuid)
-      : (template.replace(/\/$/, '') + '/' + row.uuid);
+      ? template.replace(UPDATE_PLACEHOLDER, rowIdString)
+      : (function () {
+        var pieces = template.split('?');
+        var base = pieces[0].replace(/\/[^\/]*$/, '');
+        var query = pieces.length > 1 ? '?' + pieces.slice(1).join('?') : '';
+        return base + '/' + encodeURIComponent(rowIdString) + query;
+      })();
 
     // Carry recipe type so backend can resolve group reliably.
     var recipeType = root.getAttribute('data-pds-template-recipe-type');
-    if (recipeType) {
+    if (recipeType && url.indexOf('type=') === -1) {
       url += (url.indexOf('?') === -1 ? '?' : '&') + 'type=' + encodeURIComponent(recipeType);
     }
 

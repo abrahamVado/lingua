@@ -9,9 +9,7 @@
 
 <div
   class="pds-template-display-wrapper"
-  {% if master_metadata.group_id is defined and master_metadata.group_id != 0 %}
-    data-pds-template-master-id="{{ master_metadata.group_id }}"
-  {% endif %}
+  data-pds-template-master-id="{{ master_metadata.group_id|default(0) }}"
   {% if master_metadata.instance_uuid is defined and master_metadata.instance_uuid %}
     data-pds-template-master-uuid="{{ master_metadata.instance_uuid|e }}"
   {% endif %}

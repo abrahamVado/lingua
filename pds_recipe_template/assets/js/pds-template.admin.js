@@ -198,6 +198,10 @@
         var finalRow = Object.assign({}, row);
         if (json.row && typeof json.row === 'object') finalRow = Object.assign(finalRow, json.row);
         if (typeof json.id === 'number') finalRow.id = json.id;
+        else if (typeof json.id === 'string' && json.id.trim() !== '') {
+          var parsedCreateId = parseInt(json.id, 10);
+          if (!isNaN(parsedCreateId)) finalRow.id = parsedCreateId;
+        }
         if (json.uuid) finalRow.uuid = json.uuid;
         if (typeof json.weight === 'number') finalRow.weight = json.weight;
         return { success: true, row: finalRow };
@@ -208,15 +212,32 @@
   }
 
   function updateRowViaAjax(root, row, idx) {
-    if (!row || !row.uuid) return Promise.resolve({ success: false, row: row, message: 'Missing row identifier.' });
+    //1.- Normalize the numeric identifier required by the endpoint.
+    var rowId = null;
+    if (row && typeof row.id === 'number') rowId = row.id;
+    else if (row && typeof row.id === 'string' && row.id.trim() !== '') {
+      var parsedId = parseInt(row.id, 10);
+      if (!isNaN(parsedId)) rowId = parsedId;
+    }
+    if (rowId === null) {
+      return Promise.resolve({ success: false, row: row, message: 'Missing row identifier.' });
+    }
+    row.id = rowId;
     if (typeof window.fetch !== 'function') return Promise.resolve({ success: true, row: row });
 
     var template = root.getAttribute('data-pds-template-update-row-url');
     if (!template) return Promise.resolve({ success: true, row: row });
 
+    //2.- Swap the placeholder or rebuild the tail segment with the numeric id.
+    var rowIdString = String(rowId);
     var url = template.indexOf(UPDATE_PLACEHOLDER) !== -1
-      ? template.replace(UPDATE_PLACEHOLDER, row.uuid)
-      : template.replace(/\/$/, '') + '/' + row.uuid;
+      ? template.replace(UPDATE_PLACEHOLDER, rowIdString)
+      : (function () {
+        var parts = template.split('?');
+        var base = parts[0].replace(/\/[^\/]*$/, '');
+        var query = parts.length > 1 ? '?' + parts.slice(1).join('?') : '';
+        return base + '/' + encodeURIComponent(rowIdString) + query;
+      })();
 
     var payload = { row: row };
     if (typeof idx === 'number' && idx >= 0) payload.weight = idx;
@@ -237,6 +258,10 @@
         }
         var finalRow = Object.assign({}, row);
         if (typeof json.id === 'number') finalRow.id = json.id;
+        else if (typeof json.id === 'string' && json.id.trim() !== '') {
+          var parsedJsonId = parseInt(json.id, 10);
+          if (!isNaN(parsedJsonId)) finalRow.id = parsedJsonId;
+        }
         if (json.uuid) finalRow.uuid = json.uuid;
         if (typeof json.weight === 'number') finalRow.weight = json.weight;
         if (json.row && typeof json.row === 'object') finalRow = Object.assign(finalRow, json.row);
@@ -400,13 +425,13 @@
       if (!row || typeof row !== 'object') return;
 
       var key = '';
-      if (typeof row.uuid === 'string' && row.uuid) key = row.uuid;
-      else if (typeof row.id === 'number') key = 'id:' + row.id;
+      if (typeof row.id === 'number') key = 'id:' + row.id;
       else if (typeof row.id === 'string' && row.id.trim() !== '') key = 'id:' + row.id.trim();
+      else if (typeof row.uuid === 'string' && row.uuid.trim() !== '') key = 'uuid:' + row.uuid.trim();
       if (!key) return;
 
       master.datasets.timeline[key] = {
-        id: (typeof row.id === 'number' ? row.id : (typeof row.id === 'string' && row.id.trim() !== '' ? row.id : null)),
+        id: (typeof row.id === 'number' ? row.id : (typeof row.id === 'string' && row.id.trim() !== '' ? row.id.trim() : null)),
         uuid: typeof row.uuid === 'string' ? row.uuid : '',
         timeline: Array.isArray(row.timeline) ? row.timeline : []
       };
@@ -540,15 +565,25 @@
     if (idx < 0 || idx >= rows.length) return;
 
     var row = rows[idx] || {};
-    if (!row.uuid) {
-      showError(root, 'This row cannot be deleted because it has no UUID.');
+    //1.- Normalize the row id before issuing the request.
+    var rowId = null;
+    if (row && typeof row.id === 'number') rowId = row.id;
+    else if (row && typeof row.id === 'string' && row.id.trim() !== '') {
+      var parsedDeleteId = parseInt(row.id, 10);
+      if (!isNaN(parsedDeleteId)) rowId = parsedDeleteId;
+    }
+    if (rowId === null) {
+      showError(root, 'This row cannot be deleted because it has no numeric id.');
       return;
     }
+    row.id = rowId;
 
-    // Debounce: ignore if a delete is already in flight for this UUID.
+    var rowKey = String(rowId);
+
+    // Debounce: ignore if a delete is already in flight for this id.
     root._pdsDeleting = root._pdsDeleting || {};
-    if (root._pdsDeleting[row.uuid]) return;
-    root._pdsDeleting[row.uuid] = true;
+    if (root._pdsDeleting[rowKey]) return;
+    root._pdsDeleting[rowKey] = true;
 
     clearError(root);
 
@@ -597,7 +632,7 @@
       .finally(function () {
         // Re-enable UI & clear in-flight flag.
         if (delBtn) delBtn.disabled = false;
-        delete root._pdsDeleting[row.uuid];
+        delete root._pdsDeleting[rowKey];
       });
   }
 
