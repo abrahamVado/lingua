@@ -13,7 +13,7 @@ use Drupal\Core\Url;
 use Drupal\file\Entity\File;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
-
+use Drupal\Core\Render\Markup;
 /**
  * @Block(
  *   id = "pds_timeline_block",
@@ -34,7 +34,7 @@ final class PdsTimelineBlock extends BlockBase {
       'items' => [],
       //2.- Persist the numeric group id so front-end renderers can reference it.
       'group_id' => 0,
-      //3.- Store the stable UUID that ties this block instance to rows in pds_template_group.
+      //3.- Store the stable UUID that ties this block instance to rows in pds_timeline_group.
       'instance_uuid' => '',
       //4.- Keep track of the logical recipe type so derivatives can specialize behavior.
       'recipe_type' => 'pds_recipe_timeline',
@@ -398,44 +398,175 @@ final class PdsTimelineBlock extends BlockBase {
   }
 
   /**
-   * {@inheritdoc}
-   * Render block on frontend.
+   * Convert one item's description JSON into ordered milestone pairs.
+   * Accepts {"1991":"...", "98":"..."} and returns [['year'=>'91','text'=>'...'], ...].
    */
+  private function parseMilestones(string $json): array {
+    $out = [];
+    if ($json === '') {
+      return $out;
+    }
+    $decoded = json_decode($json, TRUE);
+    if (!is_array($decoded)) {
+      return $out;
+    }
+
+    foreach ($decoded as $k => $v) {
+      // Normalize year labels to 2 digits for display, keep numeric sort.
+      $year_num = NULL;
+      if (is_numeric($k)) {
+        $n = (int) $k;
+        // Heuristic: 4-digit year → take last 2; 2-digit keep as-is.
+        if ($n >= 1900 && $n <= 2099) {
+          $label = substr((string) $n, -2);
+          $year_num = $n;
+        } else {
+          // Treat 2-digit as 1900s/2000s unknown; still sort by the two digits.
+          $label = str_pad((string) ($n % 100), 2, '0', STR_PAD_LEFT);
+          $year_num = $n;
+        }
+      } else {
+        // Non-numeric keys: keep as label, push to end by using large sort key.
+        $label = trim((string) $k);
+        $year_num = PHP_INT_MAX;
+      }
+
+      $out[] = [
+        'sort' => $year_num,
+        'label' => $label,
+        'text' => trim(is_scalar($v) ? (string) $v : json_encode($v)),
+      ];
+    }
+
+    // Sort by numeric key, then by label.
+    usort($out, static function ($a, $b) {
+      if ($a['sort'] === $b['sort']) {
+        return strcmp($a['label'], $b['label']);
+      }
+      return $a['sort'] <=> $b['sort'];
+    });
+
+    return $out;
+  }
+
+  /**
+   * Map DB "items" to Twig rows and collect the union of year labels.
+   */
+  private function mapItemsToTwig(array $items): array {
+    $years_union = [];
+    $rows = [];
+
+    foreach ($items as $item) {
+      $name = trim((string) ($item['header'] ?? ''));
+      $role = trim((string) ($item['subheader'] ?? ''));
+      $desc_json = (string) ($item['description'] ?? '');
+      $img_src = (string) ($item['desktop_img'] ?? ($item['image_url'] ?? ''));
+      $milestones = $this->parseMilestones($desc_json);
+
+      // Build segments from milestones. Evenly distribute width.
+      $count = max(1, count($milestones));
+      $segment_width = 100 / $count;
+      $segments = [];
+
+      foreach ($milestones as $idx => $m) {
+        $years_union[$m['label']] = TRUE;
+
+        $info_html = '<strong>' . Html::escape($m['label']) . '</strong>: ' . Html::escape($m['text']);
+        $segments[] = [
+          'width' => $segment_width,
+          'first' => $idx === 0,
+          // Mark as "principal" if milestone text mentions it.
+          'principal' => (bool) preg_match('/principal/i', $m['text']),
+          'info' => $info_html,              // Twig will render with |raw
+          'img_src' => $img_src ?: NULL,     // allow null
+          'img_alt' => $img_src ? $name : NULL,
+        ];
+      }
+
+      // Fallback when no milestones: single 100% empty segment.
+      if ($segments === []) {
+        $segments[] = [
+          'width' => 100,
+          'first' => TRUE,
+          'principal' => FALSE,
+          'info' => Html::escape($role ?: $name),
+          'img_src' => $img_src ?: NULL,
+          'img_alt' => $img_src ? $name : NULL,
+        ];
+      }
+
+      $rows[] = [
+        'person' => [
+          'name' => $name,
+          'role' => $role,
+        ],
+        'segments' => $segments,
+      ];
+    }
+
+    // Final years array in display order.
+    $years = array_keys($years_union);
+    // Sort as numbers when possible, keep strings at end.
+    usort($years, static function ($a, $b) {
+      $an = is_numeric($a) ? (int) $a : PHP_INT_MAX;
+      $bn = is_numeric($b) ? (int) $b : PHP_INT_MAX;
+      if ($an === $bn) {
+        return strcmp($a, $b);
+      }
+      return $an <=> $bn;
+    });
+
+    return [$rows, $years];
+  }
+
+
   public function build(): array {
     $items = $this->loadItemsForBlock();
+
     $group_id = (int) ($this->configuration['group_id'] ?? 0);
     if ($group_id === 0) {
-      //1.- Guarantee a persisted identifier exists even on early renders.
       $group_id = $this->ensureGroupAndGetId();
       if ($group_id) {
-        //2.- Cache the freshly resolved id so subsequent renders reuse it.
-        $this->configuration['group_id'] = $group_id;
+        $this->configuration['group_id'] = $group_id; // note: not persisted until config save
       }
     }
 
     $instance_uuid = $this->getBlockInstanceUuid();
-    //1.- Precompute master metadata so the template and JS share a single source of truth.
+
+    // Optional: if you already have these helpers, keep them.
     $master_metadata = $this->buildMasterMetadata($group_id, $instance_uuid);
-    //2.- Produce derivative datasets that the public template can expose for consumers.
     $extended_datasets = $this->buildExtendedDatasets($items);
+
+    // Map DB items → Twig rows/years.
+    [$rows, $years] = $this->mapItemsToTwig($items);
+
+    // Title heuristic: prefer admin header+subheader stored in master metadata.
+    $title_parts = [];
+    if (!empty($master_metadata['header'])) {
+      $title_parts[] = (string) $master_metadata['header'];
+    }
+    if (!empty($master_metadata['subheader'])) {
+      $title_parts[] = (string) $master_metadata['subheader'];
+    }
+    $title = trim(implode(' ', $title_parts)) ?: (string) $this->t('Timeline');
+
+    $timeline_id = 'principal-timeline-' . $instance_uuid;
 
     return [
       '#theme' => 'pds_timeline_block',
-      '#items' => $items,
-      '#group_id' => $group_id,
-      '#instance_uuid' => $instance_uuid,
-      '#master_metadata' => $master_metadata,
-      '#extended_datasets' => $extended_datasets,
+      '#title' => $title,
+      '#years' => $years,
+      '#rows' => $rows,
+      '#timeline_id' => $timeline_id,
+
       '#attached' => [
         'library' => [
           'pds_recipe_timeline/pds_timeline.public',
         ],
         'drupalSettings' => [
-          //1.- Provide a keyed registry so multiple instances on the same page stay isolated.
           'pdsRecipeTimeline' => [
             'masters' => [
               $instance_uuid => [
-                //2.- Expose identifiers and derivative collections to front-end scripts.
                 'metadata' => $master_metadata,
                 'datasets' => $extended_datasets,
               ],
@@ -443,16 +574,26 @@ final class PdsTimelineBlock extends BlockBase {
           ],
         ],
       ],
+
+      // Tune cache once real contexts/tags are known.
       '#cache' => [
-        'tags' => [],
         'contexts' => ['route'],
+        'tags' => [],
         'max-age' => -1,
       ],
     ];
   }
 
+
   public function blockForm($form, FormStateInterface $form_state) {
     $working_items = $this->getWorkingItems($form_state);
+    if ($working_items === []) {
+      // Pull live rows or config snapshot for the very first render.
+      $working_items = $this->loadItemsForBlock();
+      if ($working_items === [] && !empty($this->configuration['items'])) {
+        $working_items = $this->configuration['items'];
+      }
+    }
     $group_id = $this->getGroupIdFromFormState($form_state);
     $stored_group_id = 0;
     $raw_stored_group_id = $this->configuration['group_id'] ?? 0;
@@ -471,11 +612,8 @@ final class PdsTimelineBlock extends BlockBase {
       !$form_state->has('working_items')
       && !$form_state->hasTemporaryValue('working_items')
     ) {
-      //1.- Seed the form state snapshot when the modal opens for the first time.
-      $this->setWorkingItems($form_state, $working_items);
-
+      $this->setWorkingItems($form_state, $working_items);   // use the seed above
       if (!$group_id) {
-        //2.- Force the DB group row to exist as soon as the first modal render happens.
         $group_id = $this->ensureGroupAndGetId();
       }
     }
@@ -581,12 +719,10 @@ final class PdsTimelineBlock extends BlockBase {
     //2.- Hidden JSON state keeps the serialized rows synchronized with PHP submissions.
     $form['pds_timeline_admin']['cards_state'] = [
       '#type' => 'hidden',
-      //3.- Use data-drupal-selector because Drupal does not preserve raw #id attributes on hidden elements.
       '#attributes' => [
         'data-drupal-selector' => 'pds-timeline-cards-state',
       ],
-      //4.- Expose the serialized rows via a default value so runtime edits reach PHP on submit.
-      '#default_value' => json_encode($working_items),
+      '#default_value' => json_encode($working_items, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
     ];
 
     //5.- Hidden edit index tracks which card is being edited for JS interactions.
@@ -684,36 +820,48 @@ final class PdsTimelineBlock extends BlockBase {
     ],
   ];
 
+  //1.- Replace the legacy description textarea with a hidden JSON store and a custom metadata widget.
   $form['pds_timeline_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['description'] = [
-    '#type' => 'textarea',
-    '#title' => $this->t('Description'),
-    '#rows' => 3,
+    '#type' => 'container',
     '#attributes' => [
-      'data-drupal-selector' => 'pds-timeline-description',
-      'id' => 'pds-timeline-description',
+      'id' => 'pds-timeline-meta-wrapper',
+      'class' => ['pds-timeline-meta-wrapper'],
+      'data-drupal-selector' => 'pds-timeline-meta-wrapper',
     ],
-  ];
-
-  $form['pds_timeline_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['image'] = [
-    '#type' => 'managed_file',
-    '#title' => $this->t('Image'),
-    '#upload_location' => 'public://pds_timeline/',
-    '#default_value' => [],
-    '#upload_validators' => [
-      'file_validate_extensions' => ['png jpg jpeg webp'],
+    'store' => [
+      '#type' => 'textarea',
+      '#title' => $this->t('Metadata'),
+      '#title_display' => 'invisible',
+      '#rows' => 1,
+      '#attributes' => [
+        'data-drupal-selector' => 'pds-timeline-description',
+        'id' => 'pds-timeline-description',
+        'hidden' => 'hidden',
+        'data-pds-timeline-meta-store' => '1',
+      ],
     ],
-    '#attributes' => [
-      'id' => 'pds-timeline-image',
-    ],
-  ];
-
-  $form['pds_timeline_admin']['tabs_panels_wrapper']['tabs_panels']['panel_a']['link'] = [
-    '#type' => 'url',
-    '#title' => $this->t('Link'),
-    '#maxlength' => 512,
-    '#attributes' => [
-      'data-drupal-selector' => 'pds-timeline-link',
-      'id' => 'pds-timeline-link',
+    'widget' => [
+      '#type' => 'markup',
+      '#markup' => Markup::create(
+        '<div class="pds-timeline-meta" data-pds-timeline-meta-root="1">'
+        . '<fieldset class="pds-timeline-meta__fieldset">'
+        . '  <legend>' . Html::escape((string) $this->t('Add item')) . '</legend>'
+        . '  <label class="pds-timeline-meta__label">'
+        . '    ' . Html::escape((string) $this->t('Name'))
+        . '    <input type="text" data-pds-timeline-meta-name="1" required />'
+        . '  </label>'
+        . '  <label class="pds-timeline-meta__label">'
+        . '    ' . Html::escape((string) $this->t('Value'))
+        . '    <input type="text" data-pds-timeline-meta-value="1" required />'
+        . '  </label>'
+        . '  <button type="button" class="pds-timeline-meta__add" data-pds-timeline-meta-add="1">'
+        . Html::escape((string) $this->t('Add / Update'))
+        . '  </button>'
+        . '</fieldset>'
+        . '<h4 class="pds-timeline-meta__heading">' . Html::escape((string) $this->t('Items')) . '</h4>'
+        . '<ul class="pds-timeline-meta__list" data-pds-timeline-meta-list="1" aria-live="polite"></ul>'
+        . '</div>'
+      ),
     ],
   ];
 

@@ -1,103 +1,71 @@
 {#
-  Variables:
-  - items: array of rows saved in block config
-  - group_id: numeric identifier of the master record
-  - instance_uuid: UUID used as the stable key for API access
-  - master_metadata: associative array with group_id, instance_uuid, recipe_type, items_count
-  - extended_datasets: derivative datasets built for public consumers
+  Variables expected:
+  - title: string
+  - years: array of strings, e.g. ['91','92',...,'25']
+  - rows: array of:
+      {
+        person: { name: string, role: string },
+        segments: [
+          {
+            width: number (percentage 0–100),
+            first: bool,
+            principal: bool,
+            info: string (HTML-safe),
+            img_src: string|null,
+            img_alt: string|null
+          },
+          ...
+        ]
+      }
+  - timeline_id: optional string id, default "principal-timeline"
 #}
 
-<div
-  class="pds-timeline-display-wrapper"
-  {% if master_metadata.group_id is defined and master_metadata.group_id != 0 %}
-    data-pds-timeline-master-id="{{ master_metadata.group_id }}"
-  {% endif %}
-  {% if master_metadata.instance_uuid is defined and master_metadata.instance_uuid %}
-    data-pds-timeline-master-uuid="{{ master_metadata.instance_uuid|e }}"
-  {% endif %}
-  {% if master_metadata.recipe_type is defined and master_metadata.recipe_type %}
-    data-pds-timeline-recipe-type="{{ master_metadata.recipe_type|e }}"
-  {% endif %}
-  {% if master_metadata.items_count is defined %}
-    data-pds-timeline-items-count="{{ master_metadata.items_count }}"
-  {% endif %}
->
-  {% if items is iterable and items|length > 0 %}
-    <table class="pds-timeline-display-table">
-      <thead>
-        <tr>
-          <th>Header</th>
-          <th>Subheader</th>
-          <th>Description</th>
-          <th>Link</th>
-          <th>Image</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in items %}
-          <tr>
-            <td>{{ row.header|e }}</td>
-            <td>{{ row.subheader|e }}</td>
-            <td>{{ row.description|e }}</td>
-            <td>
-              {% if row.link %}
-                <a href="{{ row.link|e }}" rel="noopener noreferrer">{{ row.link|e }}</a>
-              {% else %}
-                —
-              {% endif %}
-            </td>
-            <td>
-              {% if row.image_url %}
-                <img
-                  src="{{ row.image_url|e }}"
-                  alt="{{ row.header|e }}"
-                  class="pds-timeline-display-thumb" />
-              {% else %}
-                —
-              {% endif %}
-            </td>
-          </tr>
+<section id="{{ timeline_id|default('principal-timeline') }}" class="principal-timeline">
+  <div class="principal-timeline__container">
+    <h2 class="principal-timeline__title">{{ title }}</h2>
+
+    <div class="principal-timeline__viewport">
+      <div class="principal-timeline__track">
+        {% if years is not empty %}
+          <div class="principal-timeline__years" aria-hidden="true">
+            {% for y in years %}
+              <span class="principal-timeline__year">{{ y }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% for row in rows %}
+          <div class="principal-timeline__row">
+            <div class="principal-timeline__person">
+              <span class="principal-timeline__person-name">{{ row.person.name }}</span>
+              <span class="principal-timeline__person-role">{{ row.person.role }}</span>
+            </div>
+
+            <div class="principal-timeline__jobs">
+              {% for seg in row.segments %}
+                {# classes #}
+                {% set seg_classes = [
+                  'principal-timeline__job-segment',
+                  seg.first ? 'principal-timeline__job-segment--first' : '',
+                  seg.principal ? 'principal-timeline__job-segment--principal' : ''
+                ] %}
+
+                <div class="{{ seg_classes|join(' ')|trim }}" style="width:{{ seg.width }}%">
+                  <span class="principal-timeline__job-info">
+                    {{- seg.info|raw -}}
+                    {% if seg.img_src %}
+                      <img src="{{ seg.img_src }}" alt="{{ seg.img_alt|default('') }}">
+                    {% endif %}
+                  </span>
+                  <div class="principal-timeline__job-segment-line"></div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
         {% endfor %}
-      </tbody>
-    </table>
-    {% if extended_datasets.media is defined %}
-      <div class="pds-timeline-display-media">
-        {% if extended_datasets.media.desktop is defined and extended_datasets.media.desktop|length > 0 %}
-          <ul class="pds-timeline-display-media__desktop" data-pds-timeline-media="desktop">
-            {% for image in extended_datasets.media.desktop %}
-              <li data-pds-timeline-media-index="{{ image.index }}">
-                <span class="pds-timeline-display-media__label">{{ image.label|default('')|e }}</span>
-                <span class="pds-timeline-display-media__url">{{ image.url|e }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
-        {% if extended_datasets.media.mobile is defined and extended_datasets.media.mobile|length > 0 %}
-          <ul class="pds-timeline-display-media__mobile" data-pds-timeline-media="mobile">
-            {% for image in extended_datasets.media.mobile %}
-              <li data-pds-timeline-media-index="{{ image.index }}">
-                <span class="pds-timeline-display-media__label">{{ image.label|default('')|e }}</span>
-                <span class="pds-timeline-display-media__url">{{ image.url|e }}</span>
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
       </div>
-    {% endif %}
-    {% if extended_datasets.geo is defined and extended_datasets.geo|length > 0 %}
-      <div class="pds-timeline-display-geo" data-pds-timeline-geo="1">
-        <ul class="pds-timeline-display-geo__list">
-          {% for point in extended_datasets.geo %}
-            <li data-pds-timeline-media-index="{{ point.index }}">
-              <span class="pds-timeline-display-geo__label">{{ point.label|default('')|e }}</span>
-              <span class="pds-timeline-display-geo__lat">{{ point.latitude }}</span>
-              <span class="pds-timeline-display-geo__lng">{{ point.longitude }}</span>
-            </li>
-          {% endfor %}
-        </ul>
-      </div>
-    {% endif %}
-  {% else %}
-    <div>No rows available.</div>
-  {% endif %}
-</div>
+
+      <div class="principal-timeline__tooltip" id="{{ timeline_id|default('principal-timeline') }}-tooltip" role="tooltip" hidden></div>
+    </div>
+  </div>
+</section>

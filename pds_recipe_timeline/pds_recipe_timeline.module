@@ -94,9 +94,10 @@ function pds_recipe_timeline_theme($existing, $type, $theme, $path) {
       'template' => 'pds-timeline', // looks for pds-timeline-block.html.twig
       'path' => $path . '/templates',
       'variables' => [
-        'items' => [],
-        'group_id' => NULL,
-        'instance_uuid' => '',
+        'title' => NULL,
+        'years' => [],
+        'rows' => [],
+        'timeline_id' => NULL,
       ],
     ],
   ];

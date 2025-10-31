@@ -6,7 +6,316 @@
   //
   // DOM helpers
   //
+ function sanitizeMetaObject(source) {
+    //1.- Normalise incoming payloads to a plain object with string values.
+    var cleaned = {};
+    if (!source) {
+      return cleaned;
+    }
 
+    if (Array.isArray(source)) {
+      //2.- Accept array formats like [{ name, value }] by converting them to key/value pairs.
+      source.forEach(function (entry) {
+        if (!entry || typeof entry !== 'object') {
+          return;
+        }
+        var rawName = '';
+        if (typeof entry.name === 'string') {
+          rawName = entry.name;
+        } else if (typeof entry.name !== 'undefined') {
+          rawName = String(entry.name || '');
+        }
+        var name = rawName.trim();
+        if (!name) {
+          return;
+        }
+
+        var value = entry.value;
+        if (typeof value === 'undefined' || value === null) {
+          value = '';
+        }
+        cleaned[name] = String(value);
+      });
+      return cleaned;
+    }
+
+    if (typeof source === 'object') {
+      //3.- Copy enumerable keys to avoid mutating the original reference.
+      Object.keys(source).forEach(function (key) {
+        var safeName = String(key || '').trim();
+        if (!safeName) {
+          return;
+        }
+        var value = source[key];
+        if (typeof value === 'undefined' || value === null) {
+          value = '';
+        }
+        cleaned[safeName] = String(value);
+      });
+      return cleaned;
+    }
+
+    return cleaned;
+  }
+
+  function decodeMetaString(raw) {
+    //1.- Attempt to parse JSON strings while tolerating malformed legacy content.
+    if (typeof raw !== 'string') {
+      return {};
+    }
+
+    var trimmed = raw.trim();
+    if (!trimmed) {
+      return {};
+    }
+
+    try {
+      return sanitizeMetaObject(JSON.parse(trimmed));
+    } catch (err) {
+      //2.- Preserve unexpected text by storing it under a fallback key for manual review.
+      return { description: trimmed };
+    }
+  }
+
+  function toMetaObject(source) {
+    //1.- Accept strings, arrays, and plain objects for maximum compatibility.
+    if (typeof source === 'string') {
+      return decodeMetaString(source);
+    }
+    return sanitizeMetaObject(source);
+  }
+
+  function metaPairsFromObject(obj) {
+    //1.- Return a sorted array so UI output remains stable across renders.
+    var pairs = [];
+    if (!obj || typeof obj !== 'object') {
+      return pairs;
+    }
+
+    Object.keys(obj).sort(function (a, b) {
+      return a.localeCompare(b);
+    }).forEach(function (key) {
+      pairs.push({ name: key, value: obj[key] });
+    });
+    return pairs;
+  }
+
+  function metaSummaryFromObject(obj) {
+    //1.- Build a short comma-separated summary for preview tables.
+    var pairs = metaPairsFromObject(obj);
+    if (!pairs.length) {
+      return '';
+    }
+    return pairs.map(function (pair) {
+      return pair.name + ': ' + pair.value;
+    }).join(', ');
+  }
+
+  function attachDerivedMetadata(row) {
+    //1.- Guarantee each row exposes a metadata object and human summary.
+    if (!row || typeof row !== 'object') {
+      return row;
+    }
+
+    var baseMeta = {};
+    if (row.metadata && typeof row.metadata === 'object') {
+      baseMeta = toMetaObject(row.metadata);
+    } else if (typeof row.description === 'string') {
+      baseMeta = toMetaObject(row.description);
+    }
+
+    row.metadata = baseMeta;
+    row.metaSummary = metaSummaryFromObject(baseMeta);
+    return row;
+  }
+
+  function getMetaWidget(root) {
+    //1.- Resolve the metadata widget wrapper so event listeners share a stable reference.
+    var widget = root.querySelector('[data-pds-timeline-meta-root]');
+    if (!widget) {
+      return null;
+    }
+
+    if (!widget._pdsMetaStore) {
+      widget._pdsMetaStore = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+    }
+
+    if (!widget._pdsMetaItems) {
+      var initial = {};
+      if (widget._pdsMetaStore && typeof widget._pdsMetaStore.value === 'string') {
+        initial = toMetaObject(widget._pdsMetaStore.value);
+      }
+      widget._pdsMetaItems = initial;
+    }
+
+    return widget;
+  }
+
+  function syncMetaStore(widget) {
+    //1.- Keep the hidden textarea in sync with the current in-memory object.
+    if (!widget || !widget._pdsMetaStore) {
+      return;
+    }
+    widget._pdsMetaStore.value = JSON.stringify(widget._pdsMetaItems || {});
+  }
+
+  function renderMetaList(widget) {
+    //1.- Rebuild the items list so edits show up immediately.
+    if (!widget) {
+      return;
+    }
+
+    var list = widget.querySelector('[data-pds-timeline-meta-list]');
+    if (!list) {
+      return;
+    }
+
+    list.innerHTML = '';
+
+    var pairs = metaPairsFromObject(widget._pdsMetaItems || {});
+    if (!pairs.length) {
+      var emptyLi = document.createElement('li');
+      emptyLi.textContent = 'No items yet';
+      emptyLi.style.opacity = '0.7';
+      list.appendChild(emptyLi);
+      return;
+    }
+
+    pairs.forEach(function (pair) {
+      var li = document.createElement('li');
+      li.className = 'pds-timeline-meta__list-item';
+
+      var label = document.createElement('span');
+      label.className = 'pds-timeline-meta__list-label';
+      label.textContent = pair.name + ': ' + pair.value;
+      li.appendChild(label);
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'pds-timeline-meta__list-remove';
+      del.setAttribute('aria-label', 'Delete ' + pair.name);
+      del.textContent = 'Delete';
+      del.addEventListener('click', function () {
+        if (!widget._pdsMetaItems) {
+          widget._pdsMetaItems = {};
+        }
+        delete widget._pdsMetaItems[pair.name];
+        syncMetaStore(widget);
+        renderMetaList(widget);
+        var nameInput = widget.querySelector('[data-pds-timeline-meta-name]');
+        if (nameInput) {
+          nameInput.focus();
+        }
+      });
+      li.appendChild(del);
+
+      list.appendChild(li);
+    });
+  }
+
+  function setMetaItems(root, source) {
+    //1.- Update the widget and hidden store with a fresh object snapshot.
+    var widget = getMetaWidget(root);
+    var normalized = toMetaObject(source);
+
+    if (widget) {
+      widget._pdsMetaItems = normalized;
+      syncMetaStore(widget);
+      renderMetaList(widget);
+      var nameInput = widget.querySelector('[data-pds-timeline-meta-name]');
+      if (nameInput) {
+        nameInput.value = '';
+      }
+      var valueInput = widget.querySelector('[data-pds-timeline-meta-value]');
+      if (valueInput) {
+        valueInput.value = '';
+      }
+    } else {
+      var store = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+      if (store) {
+        store.value = JSON.stringify(normalized);
+      }
+    }
+  }
+
+  function getMetaItems(root) {
+    //1.- Return the cached metadata object so callers can compute summaries or persistence payloads.
+    var widget = getMetaWidget(root);
+    if (widget) {
+      return widget._pdsMetaItems || {};
+    }
+
+    var store = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+    if (store && typeof store.value === 'string') {
+      return toMetaObject(store.value);
+    }
+
+    return {};
+  }
+
+  function getMetaJson(root) {
+    //1.- Produce the serialized JSON string expected by the backend.
+    var widget = getMetaWidget(root);
+    if (widget) {
+      syncMetaStore(widget);
+      return widget._pdsMetaStore ? widget._pdsMetaStore.value : '';
+    }
+
+    var store = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+    return store && typeof store.value === 'string' ? store.value : '';
+  }
+
+  function metaHasItems(root) {
+    //1.- Detect whether the metadata collection contains at least one entry.
+    var meta = getMetaItems(root);
+    return Object.keys(meta).length > 0;
+  }
+
+  function initMetaWidget(root) {
+    //1.- Attach event listeners once per widget instance.
+    var widget = getMetaWidget(root);
+    if (!widget || widget._pdsMetaReady) {
+      return;
+    }
+    widget._pdsMetaReady = true;
+
+    syncMetaStore(widget);
+    renderMetaList(widget);
+
+    var addBtn = widget.querySelector('[data-pds-timeline-meta-add]');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        var nameInput = widget.querySelector('[data-pds-timeline-meta-name]');
+        var valueInput = widget.querySelector('[data-pds-timeline-meta-value]');
+
+        var name = nameInput ? nameInput.value.trim() : '';
+        var value = valueInput ? valueInput.value : '';
+        if (!name) {
+          if (nameInput) {
+            nameInput.focus();
+          }
+          return;
+        }
+
+        if (!widget._pdsMetaItems) {
+          widget._pdsMetaItems = {};
+        }
+        widget._pdsMetaItems[name] = value;
+        syncMetaStore(widget);
+        renderMetaList(widget);
+
+        if (nameInput) {
+          nameInput.value = '';
+        }
+        if (valueInput) {
+          valueInput.value = '';
+        }
+        if (nameInput) {
+          nameInput.focus();
+        }
+      });
+    }
+  }
   // Generic finder for problem Drupal markup.
   // Tries data-drupal-selector, then id, then name suffix.
   function findField(root, opts) {
@@ -316,20 +625,14 @@ function clearInputs(root) {
   if (f) {
     f.value = '';
   }
-  f = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-  if (f) {
-    f.value = '';
-  }
-  f = sel(root, 'pds-timeline-link', 'pds-timeline-link');
-  if (f) {
-    f.value = '';
-  }
+  setMetaItems(root, {});
 }
 
 
 
   function loadInputsFromRow(root, row) {
     //1.- Populate the modal inputs from the provided row object.
+    row = row || {};
     var f;
     f = sel(root, 'pds-timeline-header', 'pds-timeline-header');
     if (f) {
@@ -339,14 +642,8 @@ function clearInputs(root) {
     if (f) {
       f.value = row.subheader || '';
     }
-    f = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-    if (f) {
-      f.value = row.description || '';
-    }
-    f = sel(root, 'pds-timeline-link', 'pds-timeline-link');
-    if (f) {
-      f.value = row.link || '';
-    }
+    var hydratedRow = attachDerivedMetadata(row);
+    setMetaItems(root, hydratedRow.metadata || {});
   }
 
   function buildRowFromInputs(root, existingRow) {
@@ -355,14 +652,14 @@ function clearInputs(root) {
 
     var headerEl = sel(root, 'pds-timeline-header', 'pds-timeline-header');
     var subEl    = sel(root, 'pds-timeline-subheader', 'pds-timeline-subheader');
-    var descEl   = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-    var linkEl   = sel(root, 'pds-timeline-link', 'pds-timeline-link');
+    // var descEl   = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+    // var linkEl   = sel(root, 'pds-timeline-link', 'pds-timeline-link');
 
     //2.- Read each field while falling back to empty strings for optional values.
     var header      = headerEl ? headerEl.value : '';
     var subheader   = subEl ? subEl.value : '';
-    var description = descEl ? descEl.value : '';
-    var link        = linkEl ? linkEl.value : '';
+    var metadata    = getMetaItems(root);
+    var description = getMetaJson(root);
     var fid         = getImageFid(root);
 
     //3.- Preserve geolocation coordinates supplied by the caller even if the modal hides them.
@@ -374,7 +671,7 @@ function clearInputs(root) {
       header: header,
       subheader: subheader,
       description: description,
-      link: link,
+      metadata: metadata,
       image_fid: fid || existingRow.image_fid || null,
       image_url: existingRow.image_url || existingRow.desktop_img || existingRow.mobile_img || '',
       desktop_img: existingRow.desktop_img || existingRow.image_url || '',
@@ -744,10 +1041,10 @@ function clearInputs(root) {
           '<table class="pds-timeline-table">' +
             '<thead>' +
               '<tr>' +
-                '<th class="pds-timeline-table__col-thumb">Image</th>' +
+                '<th>ID</th>' +
                 '<th>Header</th>' +
                 '<th>Subheader</th>' +
-                '<th>Link</th>' +
+                '<th>Metadata</th>' +
                 '<th>Actions</th>' +
               '</tr>' +
             '</thead>' +
@@ -766,10 +1063,9 @@ function clearInputs(root) {
     html +=   '<thead>';
     html +=     '<tr>';
     html +=       '<th>ID</th>';
-    html +=       '<th class="pds-timeline-table__col-thumb">Image</th>';
     html +=       '<th>Header</th>';
     html +=       '<th>Subheader</th>';
-    html +=       '<th>Link</th>';
+    html +=       '<th>Metadata</th>';
     html +=       '<th>Actions</th>';
     html +=     '</tr>';
     html +=   '</thead>';
@@ -778,7 +1074,7 @@ function clearInputs(root) {
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i] || {};
       //1.- Resolve the thumbnail URL while respecting both upload and remote sources.
-      var thumb = r.desktop_img || r.thumbnail || r.image_url || r.mobile_img || '';
+    
       var identifier = '';
       if (typeof r.id === 'number') {
         identifier = String(r.id);
@@ -790,12 +1086,19 @@ function clearInputs(root) {
 
       html += '<tr data-row-index="' + i + '">';
       html +=   '<td>' + escapeHtml(identifier) + '</td>';
-      html +=   '<td class="pds-timeline-table__thumb">' +
-        (thumb ? '<img src="' + escapeHtml(thumb) + '" alt="" />' : '') +
-      '</td>';
       html +=   '<td>' + escapeHtml(r.header || '') + '</td>';
       html +=   '<td>' + escapeHtml(r.subheader || '') + '</td>';
-      html +=   '<td>' + escapeHtml(r.link || '') + '</td>';
+      var metaPairs = metaPairsFromObject(r.metadata || {});
+      if (!metaPairs.length) {
+        html += '<td><em>No items yet</em></td>';
+      } else {
+        var metaHtml = '<ul class="pds-timeline-table__meta-list">';
+        metaPairs.forEach(function (pair) {
+          metaHtml += '<li>' + escapeHtml(pair.name) + ': ' + escapeHtml(pair.value) + '</li>';
+        });
+        metaHtml += '</ul>';
+        html += '<td>' + metaHtml + '</td>';
+      }      
       html +=   '<td>';
       html +=     '<button type="button" class="pds-timeline-row-edit">Edit</button> ';
       html +=     '<button type="button" class="pds-timeline-row-del">Delete</button>';
@@ -986,7 +1289,7 @@ function clearInputs(root) {
             header: typeof safeRow.header === 'string' ? safeRow.header : '',
             subheader: typeof safeRow.subheader === 'string' ? safeRow.subheader : '',
             description: typeof safeRow.description === 'string' ? safeRow.description : '',
-            link: typeof safeRow.link === 'string' ? safeRow.link : '',
+            // link: typeof safeRow.link === 'string' ? safeRow.link : '',
             desktop_img: desktop || imageUrl || '',
             mobile_img: mobile,
             image_url: imageUrl || desktop || mobile || '',
@@ -995,6 +1298,7 @@ function clearInputs(root) {
             weight: typeof safeRow.weight === 'number' ? safeRow.weight : null,
             thumbnail: resolvedThumb,
           };
+          attachDerivedMetadata(normalizedRow);
 
           if (typeof safeRow.id === 'number') {
             normalizedRow.id = safeRow.id;
@@ -1105,7 +1409,7 @@ function clearInputs(root) {
     var idx = readEditIndex(root);
     var existingRow = idx >= 0 && idx < rows.length ? rows[idx] : null;
     var newRow = buildRowFromInputs(root, existingRow);
-
+    attachDerivedMetadata(newRow);
     //1.- Require header to avoid empty rows.
     if (!newRow.header || !newRow.header.trim()) {
       return Promise.resolve(false);
@@ -1128,6 +1432,7 @@ function clearInputs(root) {
         }
 
         var finalRow = result.row || latestResolvedRow;
+        finalRow = attachDerivedMetadata(finalRow);
         var currentRows = readState(root);
         if (idx >= 0 && idx < currentRows.length) {
           currentRows[idx] = finalRow;
@@ -1170,16 +1475,17 @@ function clearInputs(root) {
 
     var headerEl = sel(root, 'pds-timeline-header', 'pds-timeline-header');
     var subEl = sel(root, 'pds-timeline-subheader', 'pds-timeline-subheader');
-    var descEl = sel(root, 'pds-timeline-description', 'pds-timeline-description');
-    var linkEl = sel(root, 'pds-timeline-link', 'pds-timeline-link');
+    // var descEl = sel(root, 'pds-timeline-description', 'pds-timeline-description');
+    // var linkEl = sel(root, 'pds-timeline-link', 'pds-timeline-link');
 
     var headerVal = headerEl && typeof headerEl.value === 'string' ? headerEl.value.trim() : '';
     var subVal = subEl && typeof subEl.value === 'string' ? subEl.value.trim() : '';
-    var descVal = descEl && typeof descEl.value === 'string' ? descEl.value.trim() : '';
-    var linkVal = linkEl && typeof linkEl.value === 'string' ? linkEl.value.trim() : '';
+    // var descVal = descEl && typeof descEl.value === 'string' ? descEl.value.trim() : '';
+    // var linkVal = linkEl && typeof linkEl.value === 'string' ? linkEl.value.trim() : '';
+    var hasMeta = metaHasItems(root);
 
     //2.- Treat any filled field or uploaded file as pending edits that need committing.
-    if (headerVal !== '' || subVal !== '' || descVal !== '' || linkVal !== '') {
+    if (headerVal !== '' || subVal !== '' || hasMeta) {
       return true;
     }
 
@@ -1505,7 +1811,8 @@ function rebuildManagedFileEmpty(root) {
         //1.- Initialize tab controls so the modal navigation is ready before other actions.
         initTabs(root);
 
-        //2.- Render the preview immediately using any serialized configuration snapshot.
+        //2.- Hydrate the metadata widget so editors can manage key/value pairs immediately.
+        initMetaWidget(root);
         renderPreviewTable(root);
 
         //1.- Auto-request preview rows when no local snapshot exists so Tab B hydrates legacy saves instantly.
