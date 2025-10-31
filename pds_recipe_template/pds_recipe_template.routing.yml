@@ -28,26 +28,26 @@ pds_recipe_template.debug_table:
     _admin_route: true  
 
 pds_recipe_template.resolve_row:
-  path: '/pds-template/resolve-row/{uuid}'
+  path: '/pds-template/resolve-row/{group_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Plugin\Block\PdsTemplateBlock::ajaxResolveRow'
     _title: 'Resolve PDS Template row'
     _format: 'json'
   requirements:
     _permission: 'access content'
-    uuid: '[0-9a-fA-F-]{36}'
+    group_id: '\d+'
     _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.delete_row:
-  path: '/pds-template/delete-row/{uuid}/{row_uuid}'
+  path: '/pds-template/delete-row/{group_id}/{row_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::delete'
     _title: 'Delete PDS Template row'
   requirements:
     _permission: 'access content'   # or your custom permission if you added one
-    uuid: '[0-9a-fA-F-]+'
-    row_uuid: '[0-9a-fA-F-]+'
+    group_id: '\d+'
+    row_id: '\d+'
   methods: ['DELETE','POST']
   # If you later enforce CSRF header, add:
   # options:
@@ -55,33 +55,33 @@ pds_recipe_template.delete_row:
 
 
 pds_recipe_template.create_row:
-  path: '/pds-template/create-row/{uuid}'
+  path: '/pds-template/create-row/{group_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::createRow'
     _title: 'Create PDS Template row'
     _format: 'json'
   requirements:
     _permission: 'access content'
-    uuid: '[0-9a-fA-F-]{36}'
+    group_id: '\d+'
     _csrf_token: 'TRUE'
   methods: ['POST']
 
 pds_recipe_template.update_row:
-  path: '/pds-template/update-row/{uuid}/{row_uuid}'
+  path: '/pds-template/update-row/{group_id}/{row_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::update'
     _title: 'Update PDS Template row'
     _format: 'json'
   requirements:
     _permission: 'access content'
-    uuid: '[0-9a-fA-F-]{36}'
-    row_uuid: '[0-9a-fA-F-]{36}'
+    group_id: '\d+'
+    row_id: '\d+'
     _csrf_token: 'TRUE'
   # PATCH is ideal; POST kept for environments with limited verb support.
   methods: ['PATCH', 'POST']
 
 pds_recipe_template.list_rows:
-  path: '/pds-template/list-rows/{uuid}'
+  path: '/pds-template/list-rows/{group_id}'
   defaults:
     _controller: '\Drupal\pds_recipe_template\Controller\RowController::list'
     _title: 'List PDS Template rows'
@@ -89,5 +89,5 @@ pds_recipe_template.list_rows:
   requirements:
     # Listing is still privileged because it reveals editor-previews.
     _permission: 'access content'
-    uuid: '[0-9a-fA-F-]{36}'
+    group_id: '\d+'
   methods: ['GET']

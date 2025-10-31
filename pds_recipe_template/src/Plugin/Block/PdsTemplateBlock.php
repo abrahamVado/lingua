@@ -240,43 +240,40 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
 
     $resolve_row_url = Url::fromRoute(
       'pds_recipe_template.resolve_row',
-      ['uuid' => $block_uuid],
+      ['group_id' => $group_id ?: 0],
       ['absolute' => TRUE],
     )->toString();
 
     $create_row_url = Url::fromRoute(
       'pds_recipe_template.create_row',
-      ['uuid' => $block_uuid],
+      ['group_id' => $group_id ?: 0],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
 
     $update_row_url = Url::fromRoute(
       'pds_recipe_template.update_row',
-      ['uuid' => $block_uuid, 'row_uuid' => '00000000-0000-0000-0000-000000000000'],
+      ['group_id' => $group_id ?: 0, 'row_id' => 0],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
     )->toString();
 
     $delete_row_url = Url::fromRoute(
       'pds_recipe_template.delete_row',
       [
-        'uuid' => $block_uuid,
-        // Temporary placeholder—JS will replace with actual row UUID.
-        'row_uuid' => '00000000-0000-0000-0000-000000000000',
+        'group_id' => $group_id ?: 0,
+        // Temporary placeholder—JS will replace with actual row id.
+        'row_id' => 0,
       ],
       ['absolute' => TRUE, 'query' => ['type' => $recipe_type]],
-    )->toString();    
+    )->toString();
 
     // Listing supports legacy fallback ids for hydration.
     $list_query = ['type' => $recipe_type];
-    if ($group_id > 0) {
-      $list_query['group_id'] = (string) $group_id;
-    }
     if ($stored_group_id > 0 && $stored_group_id !== $group_id) {
       $list_query['fallback_group_id'] = (string) $stored_group_id;
     }
     $list_rows_url = Url::fromRoute(
       'pds_recipe_template.list_rows',
-      ['uuid' => $block_uuid],
+      ['group_id' => $group_id ?: 0],
       ['absolute' => TRUE, 'query' => $list_query],
     )->toString();
 
@@ -501,9 +498,9 @@ final class PdsTemplateBlock extends BlockBase implements ContainerFactoryPlugin
   /**
    * Promote a temporary upload (fid) into a permanent file and return URLs.
    */
-  public static function ajaxResolveRow(Request $request, string $uuid): JsonResponse {
-    if (!Uuid::isValid($uuid)) {
-      return new JsonResponse(['status' => 'error', 'message' => 'Invalid UUID.'], 400);
+  public static function ajaxResolveRow(Request $request, string $group_id): JsonResponse {
+    if (!is_numeric($group_id) || (int) $group_id < 0) {
+      return new JsonResponse(['status' => 'error', 'message' => 'Invalid group id.'], 400);
     }
     if (!pds_recipe_template_user_can_manage_template()) {
       return new JsonResponse(['status' => 'error', 'message' => 'Access denied.'], 403);
