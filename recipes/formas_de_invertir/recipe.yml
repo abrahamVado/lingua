@@ -1,7 +1,0 @@
-name: 'Recipe: Formas de Invertir'
-type: 'Site'
-install:
-  - pds_recipe_formas_de_invertir
-  - block
-  - layout_builder
-  - layout_discovery
