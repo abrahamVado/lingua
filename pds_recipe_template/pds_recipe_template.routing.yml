@@ -30,6 +30,21 @@ pds_recipe_template.resolve_row:
     _csrf_token: 'TRUE'
   methods: ['POST']
 
+pds_recipe_template.delete_row:
+  path: '/pds-template/delete-row/{uuid}/{row_uuid}'
+  defaults:
+    _controller: '\Drupal\pds_recipe_template\Controller\RowController::delete'
+    _title: 'Delete PDS Template row'
+  requirements:
+    _permission: 'access content'   # or your custom permission if you added one
+    uuid: '[0-9a-fA-F-]+'
+    row_uuid: '[0-9a-fA-F-]+'
+  methods: ['DELETE','POST']
+  # If you later enforce CSRF header, add:
+  # options:
+  #   _csrf_token: TRUE
+
+
 pds_recipe_template.create_row:
   path: '/pds-template/create-row/{uuid}'
   defaults:

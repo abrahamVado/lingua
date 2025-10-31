@@ -534,15 +534,68 @@
     var rows = readState(root);
     if (idx < 0 || idx >= rows.length) return;
 
-    rows.splice(idx, 1);
-    writeState(root, rows);
-    writeEditIndex(root, -1);
+    var row = rows[idx] || {};
+    if (!row.uuid) {
+      showError(root, 'This row cannot be deleted because it has no UUID.');
+      return;
+    }
 
-    var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
-    if (btn) btn.textContent = 'Add row';
+    // Debounce: ignore if a delete is already in flight for this UUID.
+    root._pdsDeleting = root._pdsDeleting || {};
+    if (root._pdsDeleting[row.uuid]) return;
+    root._pdsDeleting[row.uuid] = true;
 
-    renderPreviewTable(root);
+    clearError(root);
+
+    // Cache wrapper/state once.
+    var wrapper = getPreviewWrapper(root);
+    var hasStates = !!(wrapper && wrapper.hasAttribute && wrapper.hasAttribute('data-pds-template-preview-root'));
+    if (hasStates) setPreviewState(wrapper, 'loading');
+
+    // Optionally disable the clicked button so users see immediate feedback.
+    var tr = root.querySelector('tr[data-row-index="' + idx + '"]');
+    var delBtn = tr ? tr.querySelector('.pds-template-row-del') : null;
+    if (delBtn) delBtn.disabled = true;
+
+    deleteRowViaAjax(root, row)
+      .then(function (result) {
+        // Normalize result; treat 404/410 style replies as success.
+        var ok = !!(result && (result.success || result.status === 404 || result.status === 410));
+        if (!ok) {
+          if (hasStates) setPreviewState(wrapper, 'content');
+          showError(root, (result && result.message) || 'Unable to delete row.');
+          return;
+        }
+
+        // Only now mutate local state.
+        rows.splice(idx, 1);
+        writeState(root, rows);
+
+        // Exit edit mode if we were editing that row.
+        var active = readEditIndex(root);
+        if (active === idx) {
+          writeEditIndex(root, -1);
+          var btn = sel(root, 'pds-template-add-card', 'pds-template-add-card');
+          if (btn) btn.textContent = 'Add row';
+          clearInputs(root);
+          resetFileWidgetToPristine(root);
+        }
+
+        renderPreviewTable(root);
+        if (hasStates) setPreviewState(wrapper, 'content');
+      })
+      .catch(function () {
+        if (hasStates) setPreviewState(wrapper, 'content');
+        showError(root, 'Unable to delete row.');
+      })
+      .finally(function () {
+        // Re-enable UI & clear in-flight flag.
+        if (delBtn) delBtn.disabled = false;
+        delete root._pdsDeleting[row.uuid];
+      });
   }
+
+
 
   function persistRow(root, idx) {
     var rows = readState(root);

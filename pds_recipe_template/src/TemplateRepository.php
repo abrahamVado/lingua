@@ -118,6 +118,40 @@ final class TemplateRepository {
     return 0;
   }
 
+  /**
+   * Soft-delete a row by (group uuid, row uuid).
+   *
+   * Ensures the row belongs to that group; sets deleted_at if not already set.
+   */
+  public function softDeleteRowByGroupAndRowUuid(string $groupUuid, string $rowUuid): bool {
+    if (!\Drupal\Component\Uuid\Uuid::isValid($groupUuid) || !\Drupal\Component\Uuid\Uuid::isValid($rowUuid)) {
+      return false;
+    }
+
+    $gid = $this->connection->select('pds_template_group', 'g')
+      ->fields('g', ['id'])
+      ->condition('g.uuid', $groupUuid)
+      ->condition('g.deleted_at', NULL, 'IS NULL')
+      ->execute()
+      ->fetchField();
+
+    if (!$gid) {
+      return false;
+    }
+
+    $now = $this->time->getRequestTime();
+
+    $updated = $this->connection->update('pds_template_item')
+      ->fields(['deleted_at' => $now])
+      ->condition('uuid', $rowUuid)
+      ->condition('group_id', (int) $gid)
+      ->isNull('deleted_at')
+      ->execute();
+
+    return ((int) $updated) > 0;
+  }
+
+
   /* =========== ITEM LOAD =========== */
 
   public function loadItems(int $groupId): array {

@@ -8,6 +8,7 @@
   'use strict';
 
   var __pdsCsrfTokenPromise = null;
+  var UPDATE_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
 
   function getCsrfToken() {
     if (!__pdsCsrfTokenPromise) {
@@ -44,6 +45,56 @@
     }
     options.headers = headers;
     return fetch(url, options);
+  }
+
+  function deleteRowViaAjax(root, row) {
+    if (!row || !row.uuid) {
+      return Promise.resolve({ success: false, message: 'Missing row identifier.' });
+    }
+    if (typeof window.fetch !== 'function') {
+      // Legacy browsers → treat as success (or customize)
+      return Promise.resolve({ success: true });
+    }
+
+    var template = root.getAttribute('data-pds-template-delete-row-url');
+    if (!template) {
+      // No endpoint attached → back-compat no-op
+      return Promise.resolve({ success: true });
+    }
+
+    // Replace placeholder or append UUID.
+    var url = template.indexOf(UPDATE_PLACEHOLDER) !== -1
+      ? template.replace(UPDATE_PLACEHOLDER, row.uuid)
+      : (template.replace(/\/$/, '') + '/' + row.uuid);
+
+    // Carry recipe type so backend can resolve group reliably.
+    var recipeType = root.getAttribute('data-pds-template-recipe-type');
+    if (recipeType) {
+      url += (url.indexOf('?') === -1 ? '?' : '&') + 'type=' + encodeURIComponent(recipeType);
+    }
+
+    // First try DELETE (with CSRF), then transparently fall back to POST if blocked by proxy/WAF.
+    return fetchJSON(url, { method: 'DELETE' })
+      .then(function (res) {
+        if (!res.ok && (res.status === 405 || res.status === 403)) {
+          // Retry once with POST for environments that disallow DELETE.
+          return fetchJSON(url, { method: 'POST' });
+        }
+        return res;
+      })
+      .then(function (res) {
+        if (!res || !res.ok) throw new Error('Request failed');
+        return res.json();
+      })
+      .then(function (json) {
+        if (json && json.status === 'ok') {
+          return { success: true, deleted: json.deleted || 0 };
+        }
+        return { success: false, message: (json && json.message) || 'Unable to delete row.' };
+      })
+      .catch(function () {
+        return { success: false, message: 'Unable to delete row. Please try again.' };
+      });
   }
 
   // ---- DOM helpers ----
@@ -191,6 +242,8 @@
   window.PDSTemplate = {
     getCsrfToken: getCsrfToken,
     fetchJSON: fetchJSON,
+
+    deleteRowViaAjax: deleteRowViaAjax,
 
     findField: findField,
     sel: sel,
