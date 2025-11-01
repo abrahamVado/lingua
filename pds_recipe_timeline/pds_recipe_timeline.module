@@ -431,13 +431,39 @@ function pds_recipe_timeline_edit_person_prepare_submit(array &$form, FormStateI
     $parent_state->setValue(array_merge($base_key, ['milestones_json']), $milestones_json);
   }
 
-  //6.- Clear any leftover sanitized payload to avoid stale data.
+  //6.- Mirror the populated values in the raw user input so the rebuild respects them.
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  $input_map = [
+    'person_name' => $name,
+    'person_role' => $role,
+    'milestones_json' => $milestones_json,
+  ];
+  foreach ($input_map as $input_key => $input_value) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), $input_value);
+  }
+  $form_state->setUserInput($user_input);
+
+  if ($parent_state) {
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    foreach ($input_map as $input_key => $input_value) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), $input_value);
+    }
+    $parent_state->setUserInput($parent_input);
+  }
+
+  //7.- Clear any leftover sanitized payload to avoid stale data.
   $form_state->set('pds_recipe_timeline_edit_person_payload', NULL);
   if ($parent_state) {
     $parent_state->set('pds_recipe_timeline_edit_person_payload', NULL);
   }
 
-  //7.- Trigger a rebuild so the edit details section becomes visible.
+  //8.- Trigger a rebuild so the edit details section becomes visible.
   $form_state->setRebuild(TRUE);
   pds_recipe_timeline_set_active_tab($form_state, 'edit');
 }
@@ -511,7 +537,28 @@ function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface
     $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
   }
 
-  //6.- Keep the remove checkboxes aligned with the refreshed list.
+  //6.- Blank the raw user input to prevent stale values from overriding future edits.
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), '');
+  }
+  $form_state->setUserInput($user_input);
+
+  if ($parent_state) {
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), '');
+    }
+    $parent_state->setUserInput($parent_input);
+  }
+
+  //7.- Keep the remove checkboxes aligned with the refreshed list.
   $table_key = isset($form['settings'])
     ? ['settings', 'timeline_ui', 'panes', 'people_list', 'people']
     : ['timeline_ui', 'panes', 'people_list', 'people'];
@@ -524,7 +571,7 @@ function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface
     $parent_state->setValue($table_key, $checkbox_rows);
   }
 
-  //7.- Ask for a rebuild so the table reflects the updated information immediately.
+  //8.- Ask for a rebuild so the table reflects the updated information immediately.
   $form_state->setRebuild(TRUE);
   pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
@@ -558,7 +605,28 @@ function pds_recipe_timeline_edit_person_cancel_submit(array &$form, FormStateIn
     $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
   }
 
-  //4.- Trigger a rebuild so the collapsed state is reflected.
+  //4.- Remove any stale user input so subsequent edits load the freshly selected person.
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), '');
+  }
+  $form_state->setUserInput($user_input);
+
+  if ($parent_state) {
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), '');
+    }
+    $parent_state->setUserInput($parent_input);
+  }
+
+  //5.- Trigger a rebuild so the collapsed state is reflected.
   $form_state->setRebuild(TRUE);
   pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
