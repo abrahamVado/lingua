@@ -53,6 +53,26 @@ function pds_recipe_timeline_set_active_tab(FormStateInterface $form_state, stri
       $parent_state->set('pds_recipe_timeline_active_tab', $tab);
     }
   }
+
+  //3.- Synchronize the hidden form value so the next rebuild honors the tab choice.
+  $form_state->setValue(['timeline_ui_active_tab'], $tab);
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  $user_input['timeline_ui_active_tab'] = $tab;
+  $form_state->setUserInput($user_input);
+
+  //4.- Ensure nested form states reuse the same hidden value and user input override.
+  if (isset($parent_state) && $parent_state) {
+    $parent_state->setValue(['timeline_ui_active_tab'], $tab);
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    $parent_input['timeline_ui_active_tab'] = $tab;
+    $parent_state->setUserInput($parent_input);
+  }
 }
 
 /**
@@ -135,7 +155,7 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
   //8.- Clear the temporary storage and force a rebuild to refresh the UI.
   $form_state->set('pds_recipe_timeline_add_person_new_person', NULL);
   $form_state->setRebuild(TRUE);
-  pds_recipe_timeline_set_active_tab($form_state, 'add');
+  pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
 
 /**
