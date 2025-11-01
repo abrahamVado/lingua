@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\pds_recipe_timeline\Plugin\Block;
 
 use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\Xss;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
@@ -88,61 +89,58 @@ final class PdsTimelineBlock extends BlockBase {
 
       $person_name = trim((string) ($person_cfg['name'] ?? ''));
       $person_role = trim((string) ($person_cfg['role'] ?? ''));
-      $milestones = [];
+      $raw_milestones = [];
 
       if (is_array($person_cfg['milestones'] ?? NULL)) {
         foreach ($person_cfg['milestones'] as $milestone_cfg) {
-          if (!is_array($milestone_cfg)) {
-            continue;
+          if (is_array($milestone_cfg)) {
+            $raw_milestones[] = $milestone_cfg;
           }
-
-          $raw_year = trim((string) ($milestone_cfg['year'] ?? ''));
-          $normalized_year = $this->normalizeYear($raw_year);
-          $milestone_text = trim((string) ($milestone_cfg['text'] ?? ''));
-
-          if ($normalized_year !== '') {
-            $years[$normalized_year] = TRUE;
-          }
-
-          if ($raw_year === '' && $milestone_text === '') {
-            continue;
-          }
-
-          $milestones[] = [
-            'year_raw' => $raw_year !== '' ? $raw_year : $normalized_year,
-            'year_norm' => $normalized_year,
-            'text' => $milestone_text,
-          ];
         }
       }
 
-      if ($milestones === []) {
+      if ($raw_milestones === []) {
         continue;
       }
 
-      $segment_count = count($milestones);
-      $segment_width = $segment_count > 0 ? 100 / $segment_count : 100;
       $segments = [];
+      $has_custom_width = FALSE;
 
       //2.- Transform milestones into visual timeline segments for Twig.
-      foreach ($milestones as $milestone_index => $milestone) {
-        $segment_info = '';
-        if ($milestone['year_raw'] !== '') {
-          $segment_info .= '<strong>' . Html::escape($milestone['year_raw']) . '</strong>';
-        }
-        if ($milestone['text'] !== '') {
-          $segment_info .= ($segment_info === '' ? '' : ': ') . Html::escape($milestone['text']);
+      foreach ($raw_milestones as $milestone_index => $milestone_cfg) {
+        $segment = $this->buildSegment($milestone_cfg, $milestone_index);
+        if ($segment === NULL) {
+          continue;
         }
 
-        $segments[] = [
-          'width' => $segment_width,
-          'first' => $milestone_index === 0,
-          'principal' => $milestone_index === 0,
-          'info' => $segment_info,
-          'img_src' => NULL,
-          'img_alt' => NULL,
-        ];
+        if ($segment['year_norm'] !== '') {
+          $years[$segment['year_norm']] = TRUE;
+        }
+
+        if ($segment['width'] !== NULL) {
+          $has_custom_width = TRUE;
+        }
+
+        $segments[] = $segment;
       }
+
+      if ($segments === []) {
+        continue;
+      }
+
+      $segment_count = count($segments);
+      $fallback_width = $segment_count > 0 ? (100 / $segment_count) : 100;
+
+      foreach ($segments as &$segment) {
+        $width_value = $segment['width'];
+        if (!$has_custom_width || $width_value === NULL || $width_value <= 0) {
+          $width_value = $fallback_width;
+        }
+
+        $segment['width'] = $this->formatWidth($width_value);
+        unset($segment['year_norm']);
+      }
+      unset($segment);
 
       $rows[] = [
         'person' => [
@@ -277,12 +275,47 @@ final class PdsTimelineBlock extends BlockBase {
           }
           $year_label = trim((string) ($milestone['year'] ?? ''));
           $text_label = trim((string) ($milestone['text'] ?? ''));
-          if ($year_label === '' && $text_label === '') {
+          $info_label = trim((string) ($milestone['info'] ?? ''));
+          $info_html_label = trim((string) ($milestone['info_html'] ?? ''));
+          $img_label = trim((string) ($milestone['img_src'] ?? $milestone['image'] ?? ''));
+          $width_value = $milestone['width'] ?? NULL;
+          $principal_flag = !empty($milestone['principal']);
+          $first_flag = !empty($milestone['first']);
+
+          $parts = [];
+
+          if ($year_label !== '') {
+            $parts[] = $year_label;
+          }
+
+          $primary_text = $text_label !== ''
+            ? $text_label
+            : ($info_label !== '' ? $info_label : ($info_html_label !== '' ? Html::decodeEntities(strip_tags($info_html_label)) : ''));
+          if ($primary_text !== '') {
+            $parts[] = $primary_text;
+          }
+
+          if ($width_value !== NULL && $width_value !== '') {
+            $parts[] = $this->t('@width%', ['@width' => $this->formatWidth((float) $width_value)]);
+          }
+
+          if ($principal_flag) {
+            $parts[] = (string) $this->t('Principal segment');
+          }
+
+          if ($first_flag) {
+            $parts[] = (string) $this->t('First segment');
+          }
+
+          if ($img_label !== '') {
+            $parts[] = $img_label;
+          }
+
+          if ($parts === []) {
             continue;
           }
-          $milestone_items[] = $year_label === ''
-            ? $text_label
-            : $this->t('@year: @text', ['@year' => $year_label, '@text' => $text_label]);
+
+          $milestone_items[] = implode(' • ', $parts);
         }
       }
 
@@ -354,17 +387,10 @@ final class PdsTimelineBlock extends BlockBase {
           if (!is_array($milestone)) {
             continue;
           }
-          $year = trim((string) ($milestone['year'] ?? ''));
-          $text = trim((string) ($milestone['text'] ?? ''));
-
-          if ($year === '' && $text === '') {
-            continue;
+          $clean_milestone = $this->cleanMilestoneConfig($milestone);
+          if ($clean_milestone !== NULL) {
+            $milestones_clean[] = $clean_milestone;
           }
-
-          $milestones_clean[] = [
-            'year' => $year,
-            'text' => $text,
-          ];
         }
       }
 
@@ -382,6 +408,56 @@ final class PdsTimelineBlock extends BlockBase {
     $this->configuration['people'] = array_values($clean_people);
 
     $form_state->set('working_people', $this->configuration['people']);
+  }
+
+  /**
+   * Normalize a milestone array before storing it in configuration.
+   */
+  private function cleanMilestoneConfig(array $milestone): ?array {
+    $year = trim((string) ($milestone['year'] ?? ''));
+    $text = trim((string) ($milestone['text'] ?? ''));
+    $info = trim((string) ($milestone['info'] ?? ''));
+    $info_html = trim((string) ($milestone['info_html'] ?? ''));
+    $width = $this->parseNumeric($milestone['width'] ?? ($milestone['width_percent'] ?? $milestone['width_pct'] ?? NULL));
+    $principal = array_key_exists('principal', $milestone) ? $this->toBool($milestone['principal']) : FALSE;
+    $first = array_key_exists('first', $milestone) ? $this->toBool($milestone['first']) : FALSE;
+    $img_src = trim((string) ($milestone['img_src'] ?? $milestone['image'] ?? ''));
+    $img_alt = trim((string) ($milestone['img_alt'] ?? $milestone['image_alt'] ?? ''));
+
+    if ($year === '' && $text === '' && $info === '' && $info_html === '' && $img_src === '' && $img_alt === '' && !$principal && !$first && ($width === NULL || $width <= 0)) {
+      return NULL;
+    }
+
+    $clean = [];
+    if ($year !== '') {
+      $clean['year'] = $year;
+    }
+    if ($text !== '') {
+      $clean['text'] = $text;
+    }
+    if ($info !== '') {
+      $clean['info'] = $info;
+    }
+    if ($info_html !== '') {
+      $clean['info_html'] = $info_html;
+    }
+    if ($width !== NULL && $width > 0) {
+      $clean['width'] = $width;
+    }
+    if ($principal) {
+      $clean['principal'] = TRUE;
+    }
+    if ($first) {
+      $clean['first'] = TRUE;
+    }
+    if ($img_src !== '') {
+      $clean['img_src'] = $img_src;
+    }
+    if ($img_alt !== '') {
+      $clean['img_alt'] = $img_alt;
+    }
+
+    return $clean === [] ? NULL : $clean;
   }
 
   /**
@@ -437,5 +513,123 @@ final class PdsTimelineBlock extends BlockBase {
       return str_pad($y, 2, '0', STR_PAD_LEFT);
     }
     return '';
+  }
+
+  /**
+   * Convert a milestone array into a renderable segment.
+   */
+  private function buildSegment(array $milestone_cfg, int $index): ?array {
+    $year_raw = trim((string) ($milestone_cfg['year'] ?? ''));
+    $year_norm = $this->normalizeYear($year_raw);
+    $text = trim((string) ($milestone_cfg['text'] ?? ''));
+    $info_text = trim((string) ($milestone_cfg['info'] ?? ''));
+    $info_html = trim((string) ($milestone_cfg['info_html'] ?? ''));
+    $img_src = trim((string) ($milestone_cfg['img_src'] ?? $milestone_cfg['image'] ?? ''));
+    $img_alt = trim((string) ($milestone_cfg['img_alt'] ?? $milestone_cfg['image_alt'] ?? ''));
+    $width = $this->parseNumeric($milestone_cfg['width'] ?? ($milestone_cfg['width_percent'] ?? $milestone_cfg['width_pct'] ?? NULL));
+
+    $principal_value = $milestone_cfg['principal'] ?? ($milestone_cfg['is_principal'] ?? ($milestone_cfg['type'] ?? NULL));
+    $principal = $this->toBool($principal_value);
+    if (!$principal) {
+      $principal = stripos($text, 'principal asset management') !== FALSE
+        || stripos($info_text, 'principal asset management') !== FALSE
+        || stripos($info_html, 'principal asset management') !== FALSE;
+    }
+
+    $first_value = $milestone_cfg['first'] ?? ($milestone_cfg['is_first'] ?? NULL);
+    $first = $this->toBool($first_value, $index === 0);
+    if ($first_value === NULL) {
+      $first = $index === 0;
+    }
+
+    $info_markup = '';
+    if ($info_html !== '') {
+      $info_markup = Xss::filter($info_html, ['br', 'strong', 'em', 'span', 'b', 'i', 'u']);
+    }
+    elseif ($info_text !== '') {
+      $info_markup = Html::escape($info_text);
+    }
+    else {
+      if ($year_raw !== '') {
+        $info_markup .= '<strong>' . Html::escape($year_raw) . '</strong>';
+      }
+      if ($text !== '') {
+        $info_markup .= ($info_markup === '' ? '' : ': ') . Html::escape($text);
+      }
+    }
+
+    if ($info_markup === '' && $text !== '') {
+      $info_markup = Html::escape($text);
+    }
+
+    if ($info_markup === '' && $img_src === '' && $width === NULL && $year_raw === '' && $text === '') {
+      return NULL;
+    }
+
+    return [
+      'year_norm' => $year_norm,
+      'width' => $width,
+      'first' => $first,
+      'principal' => $principal,
+      'info' => $info_markup,
+      'img_src' => $img_src !== '' ? $img_src : NULL,
+      'img_alt' => $img_alt !== '' ? $img_alt : NULL,
+    ];
+  }
+
+  /**
+   * Turn various numeric formats into float percentages.
+   */
+  private function parseNumeric($value): ?float {
+    if ($value === NULL || $value === '') {
+      return NULL;
+    }
+    if (is_numeric($value)) {
+      return (float) $value;
+    }
+    if (is_string($value)) {
+      $normalized = str_replace(',', '.', trim($value));
+      if ($normalized === '') {
+        return NULL;
+      }
+      if (is_numeric($normalized)) {
+        return (float) $normalized;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Format widths to a compact percentage string.
+   */
+  private function formatWidth(float $width): string {
+    $width = max(0, $width);
+    $formatted = sprintf('%.6F', $width);
+    return rtrim(rtrim($formatted, '0'), '.');
+  }
+
+  /**
+   * Interpret booleans coming from mixed user input.
+   */
+  private function toBool($value, bool $default = FALSE): bool {
+    if (is_bool($value)) {
+      return $value;
+    }
+    if (is_numeric($value)) {
+      return ((int) $value) !== 0;
+    }
+    if (is_string($value)) {
+      $value = strtolower(trim($value));
+      if ($value === '') {
+        return $default;
+      }
+      if (in_array($value, ['1', 'true', 'yes', 'y', 'on', 'principal'], TRUE)) {
+        return TRUE;
+      }
+      if (in_array($value, ['0', 'false', 'no', 'n', 'off'], TRUE)) {
+        return FALSE;
+      }
+    }
+    return $default;
   }
 }

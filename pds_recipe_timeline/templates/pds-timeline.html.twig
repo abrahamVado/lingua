@@ -50,7 +50,7 @@
                   seg.principal ? 'principal-timeline__job-segment--principal' : ''
                 ] %}
 
-                <div class="{{ seg_classes|join(' ')|trim }}" style="width:{{ seg.width }}%">
+                <div class="{{ seg_classes|join(' ')|trim }}" style="width:{{ seg.width|default(0) }}%">
                   <span class="principal-timeline__job-info">
                     {{- seg.info|raw -}}
                     {% if seg.img_src %}
