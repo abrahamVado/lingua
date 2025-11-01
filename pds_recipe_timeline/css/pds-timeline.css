@@ -1,0 +1,281 @@
+/* Fonts: adjust paths or move to your global font stack */
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProThin.otf') format('opentype');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProThinItalic.otf') format('opentype');
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProLight.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProLightItalic.otf') format('opentype');
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProRegular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProItalic.otf') format('opentype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProBold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProBoldItalic.otf') format('opentype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProHeavy.otf') format('opentype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'FS Eliot Pro';
+  src: url('../fonts/FS Eliot ProHeavyItalic.otf') format('opentype');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+.principal-timeline {
+  max-width: var(--principal-container, 1140px);
+  margin-inline: auto;
+  padding: 54px 0 56px;
+  font-family: 'FS Eliot Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+.principal-timeline__container { padding: 0 45px; }
+
+.principal-timeline__title {
+  text-align: center;
+  margin: 0 0 26px;
+  color: var(--principal-title, #2a2e33);
+  font-weight: 300;
+  font-size: clamp(26px, 3.1vw, 44px);
+}
+
+.principal-timeline__years {
+  display: grid;
+  grid-template-columns: repeat(35, 1fr);
+  gap: 0;
+  color: #6b7179;
+  font-size: .92rem;
+  user-select: none;
+  margin-bottom: 10px;
+  padding-left: calc(var(--principal-left-col, 140px) + 26px);
+}
+
+.principal-timeline__year { text-align: center; }
+
+.principal-timeline__row {
+  display: grid;
+  grid-template-columns: var(--principal-left-col, 140px) 1fr;
+  align-items: center;
+  min-height: var(--principal-row-h, 69px);
+}
+
+.principal-timeline__person { padding: 8px; }
+
+.principal-timeline__person-name {
+  display: block;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--principal-name, #616267);
+}
+
+.principal-timeline__person-role {
+  display: block;
+  color: var(--principal-role, #616267);
+  font-size: 11px;
+  line-height: 13px;
+}
+
+.principal-timeline__jobs {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.principal-timeline__job-segment {
+  position: relative;
+  height: 42px;
+  display: flex;
+  cursor: pointer;
+  align-items: center;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.principal-timeline__job-segment-line {
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 2px;
+  background: var(--principal-gray, #5b6168);
+}
+
+.principal-timeline__job-segment--principal .principal-timeline__job-segment-line {
+  background: var(--principal-blue, #0f6ad9);
+}
+
+.principal-timeline__job-segment-line::before {
+  content:"";
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translate(-6px, -50%);
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  background: var(--principal-gray, #5b6168);
+}
+
+.principal-timeline__job-segment--principal .principal-timeline__job-segment-line::before {
+  background: var(--principal-blue, #0f6ad9);
+}
+
+.principal-timeline__job-segment--first { pointer-events: none; }
+.principal-timeline__job-segment--first .principal-timeline__job-segment-line { background: #c7ccd2; }
+.principal-timeline__job-segment--first .principal-timeline__job-segment-line::before { background: #8a9097; }
+
+.principal-timeline__job-info {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 16px);
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  border: 1px solid #cfd3d8;
+  background: #fff;
+  color: #2c3136;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .15s ease, visibility .15s ease, transform .15s ease;
+  z-index: 10;
+}
+
+.principal-timeline__job-segment.is-open .principal-timeline__job-info {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%) scale(1.0);
+}
+
+.principal-timeline__job-info img {
+  max-width: 100px;
+  height: auto;
+  display: block;
+  margin: 6px auto 0;
+}
+
+.principal-timeline__job-segment--principal .principal-timeline__job-info {
+  background-color: #e1f3ff;
+  color: #0076CF;
+  border-color: #0076CF;
+}
+.principal-timeline__job-segment:not(.principal-timeline__job-segment--principal) .principal-timeline__job-info {
+  background-color: #f4f4f4;
+  color: #2c3136;
+  border-color: #555;
+}
+
+@media (pointer: fine) {
+  .principal-timeline__job-segment:hover .principal-timeline__job-info {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, -50%) scale(1.0);
+  }
+}
+
+/* Scrolling and responsiveness */
+.principal-timeline__viewport { overflow: visible; position: relative; }
+.principal-timeline__track { width: 100%; }
+
+@media (max-width: 900px) {
+  .principal-timeline__years { padding-left: calc(var(--principal-left-col, 140px) + 18px); }
+}
+@media (max-width: 640px) {
+  .principal-timeline__years { font-size: .86rem; }
+}
+@media (max-width: 1024px) {
+  .principal-timeline__container { padding: 0 20px; }
+  .principal-timeline__viewport {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    position: relative;
+  }
+  .principal-timeline__track {
+    min-width: 980px;
+    padding-bottom: 4px;
+  }
+  .principal-timeline__years {
+    grid-template-columns: repeat(35, minmax(22px, 1fr));
+    margin-bottom: 8px;
+    font-size: .86rem;
+  }
+  .principal-timeline__viewport::before,
+  .principal-timeline__viewport::after {
+    content: "";
+    position: sticky;
+    top: 0;
+    width: 24px;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .principal-timeline__viewport::before {
+    left: 0;
+    background: linear-gradient(to right, rgba(255,255,255,.9), rgba(255,255,255,0));
+  }
+  .principal-timeline__viewport::after {
+    float: right;
+    right: 0;
+    background: linear-gradient(to left, rgba(255,255,255,.9), rgba(255,255,255,0));
+  }
+  .principal-timeline__viewport::-webkit-scrollbar { height: 8px; }
+  .principal-timeline__viewport::-webkit-scrollbar-thumb { background: #003865; border-radius: 999px; }
+  .principal-timeline__viewport::-webkit-scrollbar-track { background: transparent; }
+}

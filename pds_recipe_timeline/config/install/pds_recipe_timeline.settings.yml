@@ -1,0 +1,9 @@
+# //1.- Encabezados por defecto mostrados sobre la línea de tiempo.
+header: 'Nossa história'
+header_accent: 'Principais marcos'
+aria_label: 'Linha do tempo corporativa'
+prev_label: 'Anterior'
+next_label: 'Próximo'
+
+# //2.- events_json se puede usar para seeds iniciales si el bloque lo requiere.
+events_json:
