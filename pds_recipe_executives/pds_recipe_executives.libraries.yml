@@ -7,14 +7,13 @@ pds_executives.admin:
       assets/css/pds-executives.admin.css: {}
   # Load only in admin routes. You attach this manually in hook_form_alter on the block config form.
 
-pds_executives.public:
+executives:
   version: 1.x
   js:
-    assets/js/pds-executives.public.js: {}
+    js/pds-executives.js: {}
   css:
     theme:
-      assets/css/pds-executives.public.css: {}
-  # Attached in the block build() so it shows on the front.
+      css/pds-executives.css: {}
   dependencies:
     - core/drupal
     - core/once

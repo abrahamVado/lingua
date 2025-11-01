@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\pds_recipe_executives\Plugin\Block;
 
 use Drupal\Component\Utility\Html;
+use Drupal\Component\Utility\UrlHelper;
 use Drupal\Component\Utility\Xss;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
@@ -24,163 +25,75 @@ final class PdsExecutivesBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
-   *
-   * Stored per event:
-   * [
-   *   'year'      => string (e.g. "1991", "91", "2025", "25"),
-   *   'headline'  => string,
-   *   'summary'   => string (HTML),
-   *   'cta_label' => string,
-   *   'cta_url'   => string,
-   * ]
    */
   public function defaultConfiguration(): array {
     return [
       'title' => '',
-      'executives_id' => 'principal-executives',
-      'events' => [],
-      'people' => [],
+      'section_id' => 'principal-executives',
+      'executives' => [],
     ];
   }
 
   /**
-   * Build exactly what the Twig expects.
+   * {@inheritdoc}
    */
   public function build(): array {
     $cfg = $this->getConfiguration();
-    $people_cfg = is_array($cfg['people'] ?? NULL) ? $cfg['people'] : [];
-    if ($people_cfg === [] && is_array($cfg['events'] ?? NULL) && $cfg['events'] !== []) {
-      //1.- Backwards compatibility: convert legacy events into a person per event.
-      foreach ($cfg['events'] as $legacy_event) {
-        if (!is_array($legacy_event)) {
-          continue;
-        }
+    $executives_cfg = is_array($cfg['executives'] ?? NULL) ? $cfg['executives'] : [];
 
-        $legacy_year = trim((string) ($legacy_event['year'] ?? ''));
-        $legacy_summary = trim((string) ($legacy_event['summary'] ?? ''));
-        $legacy_cta_label = trim((string) ($legacy_event['cta_label'] ?? ''));
-        $legacy_cta_url = trim((string) ($legacy_event['cta_url'] ?? ''));
-        $legacy_info = $legacy_summary;
+    $executives = [];
 
-        if ($legacy_cta_label !== '' && $legacy_cta_url !== '') {
-          $legacy_info .= ($legacy_info === '' ? '' : ' ') . $legacy_cta_label . ' (' . $legacy_cta_url . ')';
-        }
-
-        $people_cfg[] = [
-          'name' => trim((string) ($legacy_event['headline'] ?? '')),
-          'role' => '',
-          'milestones' => [
-            [
-              'year' => $legacy_year,
-              'text' => $legacy_info,
-            ],
-          ],
-        ];
-      }
-    }
-
-    $rows = [];
-    $years = [];
-
-    //1.- Iterate over every configured person to prepare executives rows.
-    foreach ($people_cfg as $person_index => $person_cfg) {
-      if (!is_array($person_cfg)) {
+    //1.- Sanitize every configured executive before passing the data to Twig.
+    foreach ($executives_cfg as $index => $item) {
+      if (!is_array($item)) {
         continue;
       }
 
-      $person_name = trim((string) ($person_cfg['name'] ?? ''));
-      $person_role = trim((string) ($person_cfg['role'] ?? ''));
-      $raw_milestones = [];
+      $name = trim((string) ($item['name'] ?? ''));
+      $title = trim((string) ($item['title'] ?? ''));
+      $photo = $this->sanitizeUrl($item['photo'] ?? '');
+      $linkedin = $this->sanitizeUrl($item['linkedin'] ?? '');
+      $cv_raw = (string) ($item['cv_html'] ?? '');
+      $cv_html = $this->sanitizeCv($cv_raw);
 
-      if (is_array($person_cfg['milestones'] ?? NULL)) {
-        foreach ($person_cfg['milestones'] as $milestone_cfg) {
-          if (is_array($milestone_cfg)) {
-            $raw_milestones[] = $milestone_cfg;
-          }
-        }
-      }
-
-      if ($raw_milestones === []) {
+      if ($name === '' && $title === '' && $photo === '' && $linkedin === '' && $cv_html === '') {
         continue;
       }
 
-      $segments = [];
-      $has_custom_width = FALSE;
-
-      //2.- Transform milestones into visual executives segments for Twig.
-      foreach ($raw_milestones as $milestone_index => $milestone_cfg) {
-        $segment = $this->buildSegment($milestone_cfg, $milestone_index);
-        if ($segment === NULL) {
-          continue;
-        }
-
-        if ($segment['year_norm'] !== '') {
-          $years[$segment['year_norm']] = TRUE;
-        }
-
-        if ($segment['width'] !== NULL) {
-          $has_custom_width = TRUE;
-        }
-
-        $segments[] = $segment;
-      }
-
-      if ($segments === []) {
-        continue;
-      }
-
-      $segment_count = count($segments);
-      $fallback_width = $segment_count > 0 ? (100 / $segment_count) : 100;
-
-      foreach ($segments as &$segment) {
-        $width_value = $segment['width'];
-        if (!$has_custom_width || $width_value === NULL || $width_value <= 0) {
-          $width_value = $fallback_width;
-        }
-
-        $segment['width'] = $this->formatWidth($width_value);
-        unset($segment['year_norm']);
-      }
-      unset($segment);
-
-      $rows[] = [
-        'person' => [
-          'name' => $person_name !== '' ? $person_name : (string) $this->t('Person @number', ['@number' => $person_index + 1]),
-          'role' => $person_role,
-        ],
-        'segments' => $segments,
+      $executives[] = [
+        'name' => $name,
+        'title' => $title,
+        'photo' => $photo,
+        'linkedin' => $linkedin,
+        'cv_html' => $cv_html,
       ];
     }
 
-    $year_list = array_keys($years);
-    usort($year_list, static fn($a, $b) => ((int) $a) <=> ((int) $b));
-
-    $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? 'Executives');
-    $executives_id = trim((string) ($cfg['executives_id'] ?? '')) ?: 'principal-executives';
+    $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
+    $section_id = trim((string) ($cfg['section_id'] ?? '')) ?: 'principal-executives';
 
     return [
       '#theme' => 'pds_executives',
       '#title' => $title,
-      '#years' => $year_list,
-      '#rows' => $rows,
-      '#executives_id' => $executives_id,
+      '#section_id' => $section_id,
+      '#executives' => $executives,
       '#attached' => [
         'library' => [
-          'pds_recipe_executives/pds_executives.public',
+          'pds_recipe_executives/executives',
         ],
       ],
     ];
   }
 
   /**
-   * Admin form: title/id + events table with AJAX add/remove.
+   * {@inheritdoc}
    */
   public function blockForm($form, FormStateInterface $form_state) {
     $cfg = $this->getConfiguration();
-    $people_working = self::getWorkingPeople($form_state, $cfg['people'] ?? []);
+    $working = self::getWorkingExecutives($form_state, $cfg['executives'] ?? []);
     $editing_index = self::getEditingIndex($form_state);
 
-    //1.- Persist the currently active tab across AJAX rebuilds.
+    //1.- Track which tab is active so AJAX rebuilds preserve the author context.
     $input = $form_state->getUserInput();
     $submitted_tab = is_array($input) && isset($input['executives_ui_active_tab'])
       ? trim((string) $input['executives_ui_active_tab'])
@@ -197,12 +110,11 @@ final class PdsExecutivesBlock extends BlockBase {
     $form_state->set('pds_recipe_executives_active_tab', $active_tab);
 
     if (!$form_state->has('working_people')) {
-      $form_state->set('working_people', $people_working);
+      $form_state->set('working_people', $working);
     }
 
     $form['#attached']['library'][] = 'pds_recipe_executives/admin.vertical_tabs';
 
-    //2.- Prepare metadata for the Claro-style vertical tabs menu.
     $tabs = [
       'general' => [
         'label' => (string) $this->t('General'),
@@ -219,14 +131,14 @@ final class PdsExecutivesBlock extends BlockBase {
         'access' => TRUE,
       ],
       'people' => [
-        'label' => (string) $this->t('People'),
+        'label' => (string) $this->t('Executives'),
         'pane_key' => 'people',
         'tab_id' => 'tab-people',
         'pane_id' => 'pane-people',
         'access' => TRUE,
       ],
       'edit' => [
-        'label' => (string) $this->t('Edición'),
+        'label' => (string) $this->t('Edit'),
         'pane_key' => 'edit',
         'tab_id' => 'tab-edit',
         'pane_id' => 'pane-edit',
@@ -240,7 +152,7 @@ final class PdsExecutivesBlock extends BlockBase {
       $form_state->set('pds_recipe_executives_active_tab', $active_tab);
     }
 
-    //3.- Render the static menu markup expected by the admin design.
+    //2.- Render the Claro-inspired vertical tabs navigation used by other recipes.
     $menu_markup = '<ul class="pds-vertical-tabs__menu" role="tablist" aria-orientation="vertical" data-pds-vertical-tabs-menu="true">';
     foreach ($available_tabs as $machine_name => $tab) {
       $is_selected = $machine_name === $active_tab;
@@ -288,80 +200,82 @@ final class PdsExecutivesBlock extends BlockBase {
       ],
     ];
 
-    //4.- Build the "General" pane with overall configuration fields.
+    //3.- General pane exposes overall section settings.
     $form['executives_ui']['panes']['general'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('general', 'tab-general', $active_tab),
     ];
-
     $form['executives_ui']['panes']['general']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
       '#value' => $this->t('General'),
     ];
-
     $form['executives_ui']['panes']['general']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Site title, tagline, and language.'),
+      '#value' => $this->t('Configure the section heading and optional HTML id.'),
     ];
-
     $form['executives_ui']['panes']['general']['title'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
       '#default_value' => $cfg['title'] ?? '',
       '#parents' => ['title'],
     ];
-
-    $form['executives_ui']['panes']['general']['executives_id'] = [
+    $form['executives_ui']['panes']['general']['section_id'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Executives ID'),
-      '#default_value' => $cfg['executives_id'] ?? 'principal-executives',
+      '#title' => $this->t('Section ID'),
+      '#default_value' => $cfg['section_id'] ?? 'principal-executives',
       '#description' => $this->t('DOM id attribute. Must be unique on the page.'),
-      '#parents' => ['executives_id'],
+      '#parents' => ['section_id'],
     ];
 
-    //5.- Pane dedicated to creating new people entries via JSON payloads.
+    //4.- Add pane lets authors create a new executive entry.
     $form['executives_ui']['panes']['add_person'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('add', 'tab-add', $active_tab),
     ];
-
     $form['executives_ui']['panes']['add_person']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
       '#value' => $this->t('Add New'),
     ];
-
     $form['executives_ui']['panes']['add_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Create people with JSON milestones in one step.'),
+      '#value' => $this->t('Provide the public information for a new executive card.'),
     ];
 
     $form['executives_ui']['panes']['add_person']['person_name'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Header'),
-      '#required' => FALSE,
+      '#title' => $this->t('Name'),
+      '#required' => TRUE,
     ];
-
-    $form['executives_ui']['panes']['add_person']['person_role'] = [
+    $form['executives_ui']['panes']['add_person']['person_title'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Subheader'),
-      '#required' => FALSE,
+      '#title' => $this->t('Title'),
+      '#required' => TRUE,
     ];
-
-    $form['executives_ui']['panes']['add_person']['milestones_json'] = [
+    $form['executives_ui']['panes']['add_person']['person_photo'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Photo URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+    ];
+    $form['executives_ui']['panes']['add_person']['person_linkedin'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('LinkedIn URL'),
+      '#description' => $this->t('Optional link for the modal action button.'),
+    ];
+    $form['executives_ui']['panes']['add_person']['person_cv'] = [
       '#type' => 'textarea',
-      '#title' => $this->t('Milestones JSON'),
-      '#description' => $this->t('Provide milestones in JSON format, for example {"1990":"Started program","1995":"Promoted"}.'),
-      '#rows' => 5,
+      '#title' => $this->t('Curriculum (HTML)'),
+      '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
+      '#rows' => 6,
     ];
 
     $form['executives_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
     $form['executives_ui']['panes']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Add person'),
+      '#value' => $this->t('Add executive'),
       '#name' => 'pds_recipe_executives_add_person',
       '#validate' => ['pds_recipe_executives_add_person_validate'],
       '#submit' => ['pds_recipe_executives_add_person_submit'],
@@ -374,107 +288,52 @@ final class PdsExecutivesBlock extends BlockBase {
       ],
     ];
 
-    //6.- Pane displaying the table with all configured people.
+    //5.- People pane lists existing executives and exposes edit/remove actions.
     $form['executives_ui']['panes']['people_list'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('people', 'tab-people', $active_tab),
     ];
-
     $form['executives_ui']['panes']['people_list']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
-      '#value' => $this->t('People'),
+      '#value' => $this->t('Executives'),
     ];
-
     $form['executives_ui']['panes']['people_list']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Manage existing people and their milestones.'),
+      '#value' => $this->t('Review, edit or remove existing cards.'),
     ];
 
     $form['executives_ui']['panes']['people_list']['people'] = [
       '#type' => 'table',
       '#tree' => TRUE,
       '#header' => [
-        $this->t('Header'),
-        $this->t('Subheader'),
-        $this->t('Milestones'),
+        $this->t('Name'),
+        $this->t('Title'),
+        $this->t('LinkedIn'),
         $this->t('Edit'),
         $this->t('Remove'),
       ],
-      '#empty' => $this->t('No people yet. Add a person using the New People tab.'),
+      '#empty' => $this->t('No executives yet. Add one using the Add New tab.'),
     ];
 
-    foreach ($people_working as $index => $person) {
-      $milestone_items = [];
-      if (is_array($person['milestones'] ?? NULL)) {
-        foreach ($person['milestones'] as $milestone) {
-          if (!is_array($milestone)) {
-            continue;
-          }
-          $year_label = trim((string) ($milestone['year'] ?? ''));
-          $text_label = trim((string) ($milestone['text'] ?? ''));
-          $info_label = trim((string) ($milestone['info'] ?? ''));
-          $info_html_label = trim((string) ($milestone['info_html'] ?? ''));
-          $img_label = trim((string) ($milestone['img_src'] ?? $milestone['image'] ?? ''));
-          $width_value = $milestone['width'] ?? NULL;
-          $principal_flag = !empty($milestone['principal']);
-          $first_flag = !empty($milestone['first']);
-
-          $parts = [];
-
-          if ($year_label !== '') {
-            $parts[] = $year_label;
-          }
-
-          $primary_text = $text_label !== ''
-            ? $text_label
-            : ($info_label !== '' ? $info_label : ($info_html_label !== '' ? Html::decodeEntities(strip_tags($info_html_label)) : ''));
-          if ($primary_text !== '') {
-            $parts[] = $primary_text;
-          }
-
-          if ($width_value !== NULL && $width_value !== '') {
-            $parts[] = $this->t('@width%', ['@width' => $this->formatWidth((float) $width_value)]);
-          }
-
-          if ($principal_flag) {
-            $parts[] = (string) $this->t('Principal segment');
-          }
-
-          if ($first_flag) {
-            $parts[] = (string) $this->t('First segment');
-          }
-
-          if ($img_label !== '') {
-            $parts[] = $img_label;
-          }
-
-          if ($parts === []) {
-            continue;
-          }
-
-          $milestone_items[] = implode(' • ', $parts);
-        }
+    foreach ($working as $index => $person) {
+      if (!is_array($person)) {
+        continue;
       }
+      $name = trim((string) ($person['name'] ?? ''));
+      $title_value = trim((string) ($person['title'] ?? ''));
+      $linkedin_value = trim((string) ($person['linkedin'] ?? ''));
 
       $form['executives_ui']['panes']['people_list']['people'][$index]['name'] = [
-        '#type' => 'item',
-        '#plain_text' => (string) ($person['name'] ?? ''),
+        '#plain_text' => $name === '' ? $this->t('Unnamed @number', ['@number' => $index + 1]) : $name,
       ];
-      $form['executives_ui']['panes']['people_list']['people'][$index]['role'] = [
-        '#type' => 'item',
-        '#plain_text' => (string) ($person['role'] ?? ''),
+      $form['executives_ui']['panes']['people_list']['people'][$index]['title'] = [
+        '#plain_text' => $title_value,
       ];
-      $form['executives_ui']['panes']['people_list']['people'][$index]['milestones'] = $milestone_items === []
-        ? [
-          '#type' => 'item',
-          '#plain_text' => (string) $this->t('No milestones provided'),
-        ]
-        : [
-          '#theme' => 'item_list',
-          '#items' => $milestone_items,
-        ];
+      $form['executives_ui']['panes']['people_list']['people'][$index]['linkedin'] = [
+        '#plain_text' => $linkedin_value,
+      ];
       $form['executives_ui']['panes']['people_list']['people'][$index]['edit'] = [
         '#type' => 'submit',
         '#value' => $this->t('Edit'),
@@ -491,7 +350,6 @@ final class PdsExecutivesBlock extends BlockBase {
       $form['executives_ui']['panes']['people_list']['people'][$index]['remove'] = [
         '#type' => 'checkbox',
         '#title' => $this->t('Remove'),
-        '#title_display' => 'invisible',
       ];
     }
 
@@ -510,52 +368,56 @@ final class PdsExecutivesBlock extends BlockBase {
       ],
     ];
 
+    //6.- Edit pane mirrors the Add pane but pre-fills the selected executive.
     $form['executives_ui']['panes']['edit_person'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('edit', 'tab-edit', $active_tab),
-      '#access' => $editing_index !== NULL,
     ];
-
-    $editing_person = ($editing_index !== NULL && isset($people_working[$editing_index])) ? $people_working[$editing_index] : NULL;
-
     $form['executives_ui']['panes']['edit_person']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
-      '#value' => $this->t('Edición'),
+      '#value' => $this->t('Edit'),
     ];
-
     $form['executives_ui']['panes']['edit_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Update the selected person and milestones.'),
+      '#value' => $this->t('Update the selected executive card.'),
     ];
+
+    $editing_person = $editing_index !== NULL && isset($working[$editing_index]) && is_array($working[$editing_index])
+      ? $working[$editing_index]
+      : NULL;
 
     $form['executives_ui']['panes']['edit_person']['person_name'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Header'),
-      '#required' => FALSE,
+      '#title' => $this->t('Name'),
+      '#required' => TRUE,
       '#default_value' => is_array($editing_person) ? (string) ($editing_person['name'] ?? '') : '',
     ];
-
-    $form['executives_ui']['panes']['edit_person']['person_role'] = [
+    $form['executives_ui']['panes']['edit_person']['person_title'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Subheader'),
-      '#required' => FALSE,
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['role'] ?? '') : '',
+      '#title' => $this->t('Title'),
+      '#required' => TRUE,
+      '#default_value' => is_array($editing_person) ? (string) ($editing_person['title'] ?? '') : '',
     ];
-
-    $edit_milestones = NULL;
-    if (is_array($editing_person)) {
-      $encoded = json_encode($editing_person['milestones'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-      $edit_milestones = is_string($encoded) ? $encoded : '[]';
-    }
-
-    $form['executives_ui']['panes']['edit_person']['milestones_json'] = [
+    $form['executives_ui']['panes']['edit_person']['person_photo'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Photo URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#default_value' => is_array($editing_person) ? (string) ($editing_person['photo'] ?? '') : '',
+    ];
+    $form['executives_ui']['panes']['edit_person']['person_linkedin'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('LinkedIn URL'),
+      '#description' => $this->t('Optional link for the modal action button.'),
+      '#default_value' => is_array($editing_person) ? (string) ($editing_person['linkedin'] ?? '') : '',
+    ];
+    $form['executives_ui']['panes']['edit_person']['person_cv'] = [
       '#type' => 'textarea',
-      '#title' => $this->t('Milestones JSON'),
-      '#description' => $this->t('Provide milestones in JSON format, for example {"1990":"Started program","1995":"Promoted"}.'),
-      '#rows' => 5,
-      '#default_value' => $edit_milestones ?? '',
+      '#title' => $this->t('Curriculum (HTML)'),
+      '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
+      '#rows' => 6,
+      '#default_value' => is_array($editing_person) ? (string) ($editing_person['cv_html'] ?? '') : '',
     ];
 
     $form['executives_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
@@ -573,7 +435,6 @@ final class PdsExecutivesBlock extends BlockBase {
         'wrapper' => 'pds-executives-form',
       ],
     ];
-
     $form['executives_ui']['panes']['edit_person']['actions']['cancel_edit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Cancel'),
@@ -590,52 +451,31 @@ final class PdsExecutivesBlock extends BlockBase {
   }
 
   /**
-   * Save configuration.
+   * {@inheritdoc}
    */
   public function blockSubmit($form, FormStateInterface $form_state): void {
     $cfg = $this->getConfiguration();
+
     $this->configuration['title'] = trim((string) $form_state->getValue('title') ?? '');
-    $this->configuration['executives_id'] = trim((string) $form_state->getValue('executives_id') ?? 'principal-executives');
-    $this->configuration['events'] = [];
+    $this->configuration['section_id'] = trim((string) $form_state->getValue('section_id') ?? 'principal-executives');
 
-    $people = self::getWorkingPeople($form_state, $cfg['people'] ?? []);
-    $clean_people = [];
+    $executives = self::getWorkingExecutives($form_state, $cfg['executives'] ?? []);
+    $clean = [];
 
-    foreach ($people as $person) {
-      if (!is_array($person)) {
+    //1.- Persist sanitized executive definitions.
+    foreach ($executives as $exec) {
+      if (!is_array($exec)) {
         continue;
       }
-
-      $name = trim((string) ($person['name'] ?? ''));
-      $role = trim((string) ($person['role'] ?? ''));
-      $milestones_clean = [];
-
-      if (is_array($person['milestones'] ?? NULL)) {
-        foreach ($person['milestones'] as $milestone) {
-          if (!is_array($milestone)) {
-            continue;
-          }
-          $clean_milestone = $this->cleanMilestoneConfig($milestone);
-          if ($clean_milestone !== NULL) {
-            $milestones_clean[] = $clean_milestone;
-          }
-        }
+      $clean_exec = $this->cleanExecutiveConfig($exec);
+      if ($clean_exec !== NULL) {
+        $clean[] = $clean_exec;
       }
-
-      if ($name === '' && $role === '' && $milestones_clean === []) {
-        continue;
-      }
-
-      $clean_people[] = [
-        'name' => $name,
-        'role' => $role,
-        'milestones' => $milestones_clean,
-      ];
     }
 
-    $this->configuration['people'] = array_values($clean_people);
+    $this->configuration['executives'] = array_values($clean);
 
-    $form_state->set('working_people', $this->configuration['people']);
+    $form_state->set('working_people', $this->configuration['executives']);
   }
 
   /**
@@ -664,59 +504,9 @@ final class PdsExecutivesBlock extends BlockBase {
   }
 
   /**
-   * Normalize a milestone array before storing it in configuration.
+   * Resolve the current list of executives during form interaction.
    */
-  private function cleanMilestoneConfig(array $milestone): ?array {
-    $year = trim((string) ($milestone['year'] ?? ''));
-    $text = trim((string) ($milestone['text'] ?? ''));
-    $info = trim((string) ($milestone['info'] ?? ''));
-    $info_html = trim((string) ($milestone['info_html'] ?? ''));
-    $width = $this->parseNumeric($milestone['width'] ?? ($milestone['width_percent'] ?? $milestone['width_pct'] ?? NULL));
-    $principal = array_key_exists('principal', $milestone) ? $this->toBool($milestone['principal']) : FALSE;
-    $first = array_key_exists('first', $milestone) ? $this->toBool($milestone['first']) : FALSE;
-    $img_src = trim((string) ($milestone['img_src'] ?? $milestone['image'] ?? ''));
-    $img_alt = trim((string) ($milestone['img_alt'] ?? $milestone['image_alt'] ?? ''));
-
-    if ($year === '' && $text === '' && $info === '' && $info_html === '' && $img_src === '' && $img_alt === '' && !$principal && !$first && ($width === NULL || $width <= 0)) {
-      return NULL;
-    }
-
-    $clean = [];
-    if ($year !== '') {
-      $clean['year'] = $year;
-    }
-    if ($text !== '') {
-      $clean['text'] = $text;
-    }
-    if ($info !== '') {
-      $clean['info'] = $info;
-    }
-    if ($info_html !== '') {
-      $clean['info_html'] = $info_html;
-    }
-    if ($width !== NULL && $width > 0) {
-      $clean['width'] = $width;
-    }
-    if ($principal) {
-      $clean['principal'] = TRUE;
-    }
-    if ($first) {
-      $clean['first'] = TRUE;
-    }
-    if ($img_src !== '') {
-      $clean['img_src'] = $img_src;
-    }
-    if ($img_alt !== '') {
-      $clean['img_alt'] = $img_alt;
-    }
-
-    return $clean === [] ? NULL : $clean;
-  }
-
-  /**
-   * Resolve the current list of people during form interaction.
-   */
-  private static function getWorkingPeople(FormStateInterface $form_state, array $cfg_people): array {
+  private static function getWorkingExecutives(FormStateInterface $form_state, array $cfg_people): array {
     $is_sub = $form_state instanceof SubformStateInterface;
 
     if ($form_state->has('working_people')) {
@@ -736,21 +526,11 @@ final class PdsExecutivesBlock extends BlockBase {
       }
     }
 
-    if (!$is_sub) {
-      $submitted = $form_state->getValue(['executives_ui', 'panes', 'people_list', 'people']);
-      if (is_array($submitted)) {
-        $snapshot = $form_state->get('working_people');
-        if (is_array($snapshot)) {
-          return array_values($snapshot);
-        }
-      }
-    }
-
     return array_values(is_array($cfg_people) ? $cfg_people : []);
   }
 
   /**
-   * Determine which person is currently being edited, if any.
+   * Determine which executive is currently being edited, if any.
    */
   private static function getEditingIndex(FormStateInterface $form_state): ?int {
     $is_sub = $form_state instanceof SubformStateInterface;
@@ -776,139 +556,79 @@ final class PdsExecutivesBlock extends BlockBase {
   }
 
   /**
-   * Normalize year to two-digit string matching the Twig header.
+   * Clean up an executive array before saving it in configuration.
    */
-  private function normalizeYear(string $y): string {
-    $y = trim($y);
-    if ($y === '') { return ''; }
-    if (preg_match('/^\d{4}$/', $y)) {
-      $y2 = ((int) $y) % 100;
-      return str_pad((string) $y2, 2, '0', STR_PAD_LEFT);
+  private function cleanExecutiveConfig(array $exec): ?array {
+    $name = trim((string) ($exec['name'] ?? ''));
+    $title = trim((string) ($exec['title'] ?? ''));
+    $photo = $this->sanitizeUrl($exec['photo'] ?? '');
+    $linkedin = $this->sanitizeUrl($exec['linkedin'] ?? '');
+    $cv = trim((string) ($exec['cv_html'] ?? ''));
+
+    if ($name === '' && $title === '' && $photo === '' && $linkedin === '' && $cv === '') {
+      return NULL;
     }
-    if (preg_match('/^\d{2}$/', $y)) {
-      return $y;
+
+    $clean = [];
+    if ($name !== '') {
+      $clean['name'] = $name;
     }
-    if (preg_match('/^\d{1,2}$/', $y)) {
-      return str_pad($y, 2, '0', STR_PAD_LEFT);
+    if ($title !== '') {
+      $clean['title'] = $title;
     }
+    if ($photo !== '') {
+      $clean['photo'] = $photo;
+    }
+    if ($linkedin !== '') {
+      $clean['linkedin'] = $linkedin;
+    }
+    if ($cv !== '') {
+      $clean['cv_html'] = $cv;
+    }
+
+    return $clean === [] ? NULL : $clean;
+  }
+
+  /**
+   * Sanitize and normalize CV markup.
+   */
+  private function sanitizeCv(string $cv_html): string {
+    $cv_html = trim($cv_html);
+    if ($cv_html === '') {
+      return '';
+    }
+    $filtered = Xss::filter($cv_html, $this->allowedCvTags());
+    return $filtered !== '' ? $filtered : Html::escape($cv_html);
+  }
+
+  /**
+   * Restrict links to safe URL schemes.
+   */
+  private function sanitizeUrl($value): string {
+    $value = is_string($value) ? trim($value) : '';
+    if ($value === '') {
+      return '';
+    }
+
+    $filtered = UrlHelper::filterBadProtocol($value);
+    if (UrlHelper::isValid($filtered, TRUE) || UrlHelper::isValid($filtered, FALSE)) {
+      return $filtered;
+    }
+
+    if (strpos($filtered, '/') === 0) {
+      return $filtered;
+    }
+
     return '';
   }
 
   /**
-   * Convert a milestone array into a renderable segment.
+   * Allowed tags for the CV field.
    */
-  private function buildSegment(array $milestone_cfg, int $index): ?array {
-    $year_raw = trim((string) ($milestone_cfg['year'] ?? ''));
-    $year_norm = $this->normalizeYear($year_raw);
-    $text = trim((string) ($milestone_cfg['text'] ?? ''));
-    $info_text = trim((string) ($milestone_cfg['info'] ?? ''));
-    $info_html = trim((string) ($milestone_cfg['info_html'] ?? ''));
-    $img_src = trim((string) ($milestone_cfg['img_src'] ?? $milestone_cfg['image'] ?? ''));
-    $img_alt = trim((string) ($milestone_cfg['img_alt'] ?? $milestone_cfg['image_alt'] ?? ''));
-    $width = $this->parseNumeric($milestone_cfg['width'] ?? ($milestone_cfg['width_percent'] ?? $milestone_cfg['width_pct'] ?? NULL));
-
-    $principal_value = $milestone_cfg['principal'] ?? ($milestone_cfg['is_principal'] ?? ($milestone_cfg['type'] ?? NULL));
-    $principal = $this->toBool($principal_value);
-    if (!$principal) {
-      $principal = stripos($text, 'principal asset management') !== FALSE
-        || stripos($info_text, 'principal asset management') !== FALSE
-        || stripos($info_html, 'principal asset management') !== FALSE;
-    }
-
-    $first_value = $milestone_cfg['first'] ?? ($milestone_cfg['is_first'] ?? NULL);
-    $first = $this->toBool($first_value, $index === 0);
-    if ($first_value === NULL) {
-      $first = $index === 0;
-    }
-
-    $info_markup = '';
-    if ($info_html !== '') {
-      $info_markup = Xss::filter($info_html, ['br', 'strong', 'em', 'span', 'b', 'i', 'u']);
-    }
-    elseif ($info_text !== '') {
-      $info_markup = Html::escape($info_text);
-    }
-    else {
-      if ($year_raw !== '') {
-        $info_markup .= '<strong>' . Html::escape($year_raw) . '</strong>';
-      }
-      if ($text !== '') {
-        $info_markup .= ($info_markup === '' ? '' : ': ') . Html::escape($text);
-      }
-    }
-
-    if ($info_markup === '' && $text !== '') {
-      $info_markup = Html::escape($text);
-    }
-
-    if ($info_markup === '' && $img_src === '' && $width === NULL && $year_raw === '' && $text === '') {
-      return NULL;
-    }
-
+  private function allowedCvTags(): array {
     return [
-      'year_norm' => $year_norm,
-      'width' => $width,
-      'first' => $first,
-      'principal' => $principal,
-      'info' => $info_markup,
-      'img_src' => $img_src !== '' ? $img_src : NULL,
-      'img_alt' => $img_alt !== '' ? $img_alt : NULL,
+      'a', 'p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'span', 'div', 'h3', 'h4', 'h5', 'h6', 'b', 'i', 'u'
     ];
   }
 
-  /**
-   * Turn various numeric formats into float percentages.
-   */
-  private function parseNumeric($value): ?float {
-    if ($value === NULL || $value === '') {
-      return NULL;
-    }
-    if (is_numeric($value)) {
-      return (float) $value;
-    }
-    if (is_string($value)) {
-      $normalized = str_replace(',', '.', trim($value));
-      if ($normalized === '') {
-        return NULL;
-      }
-      if (is_numeric($normalized)) {
-        return (float) $normalized;
-      }
-    }
-    return NULL;
-  }
-
-  /**
-   * Format widths to a compact percentage string.
-   */
-  private function formatWidth(float $width): string {
-    $width = max(0, $width);
-    $formatted = sprintf('%.6F', $width);
-    return rtrim(rtrim($formatted, '0'), '.');
-  }
-
-  /**
-   * Interpret booleans coming from mixed user input.
-   */
-  private function toBool($value, bool $default = FALSE): bool {
-    if (is_bool($value)) {
-      return $value;
-    }
-    if (is_numeric($value)) {
-      return ((int) $value) !== 0;
-    }
-    if (is_string($value)) {
-      $value = strtolower(trim($value));
-      if ($value === '') {
-        return $default;
-      }
-      if (in_array($value, ['1', 'true', 'yes', 'y', 'on', 'principal'], TRUE)) {
-        return TRUE;
-      }
-      if (in_array($value, ['0', 'false', 'no', 'n', 'off'], TRUE)) {
-        return FALSE;
-      }
-    }
-    return $default;
-  }
 }
