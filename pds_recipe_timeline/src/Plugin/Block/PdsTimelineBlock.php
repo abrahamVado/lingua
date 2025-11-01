@@ -9,6 +9,7 @@ use Drupal\Component\Utility\Xss;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
+use Drupal\Core\Render\Markup;
 
 /**
  * Provides the "Principal Timeline" block.
@@ -177,69 +178,195 @@ final class PdsTimelineBlock extends BlockBase {
   public function blockForm($form, FormStateInterface $form_state) {
     $cfg = $this->getConfiguration();
     $people_working = self::getWorkingPeople($form_state, $cfg['people'] ?? []);
+    $editing_index = self::getEditingIndex($form_state);
+
+    //1.- Persist the currently active tab across AJAX rebuilds.
+    $input = $form_state->getUserInput();
+    $submitted_tab = is_array($input) && isset($input['timeline_ui_active_tab'])
+      ? trim((string) $input['timeline_ui_active_tab'])
+      : '';
+    $active_tab = $submitted_tab !== ''
+      ? $submitted_tab
+      : ($form_state->get('pds_recipe_timeline_active_tab') ?? '');
+    if ($active_tab === '' && $editing_index !== NULL) {
+      $active_tab = 'edit';
+    }
+    if ($active_tab === '') {
+      $active_tab = 'general';
+    }
+    $form_state->set('pds_recipe_timeline_active_tab', $active_tab);
 
     if (!$form_state->has('working_people')) {
       $form_state->set('working_people', $people_working);
     }
 
-    $form['title'] = [
+    $form['#attached']['library'][] = 'pds_recipe_timeline/admin.vertical_tabs';
+
+    //2.- Prepare metadata for the Claro-style vertical tabs menu.
+    $tabs = [
+      'general' => [
+        'label' => (string) $this->t('General'),
+        'pane_key' => 'general',
+        'tab_id' => 'tab-general',
+        'pane_id' => 'pane-general',
+        'access' => TRUE,
+      ],
+      'add' => [
+        'label' => (string) $this->t('Add New'),
+        'pane_key' => 'add',
+        'tab_id' => 'tab-add',
+        'pane_id' => 'pane-add',
+        'access' => TRUE,
+      ],
+      'people' => [
+        'label' => (string) $this->t('People'),
+        'pane_key' => 'people',
+        'tab_id' => 'tab-people',
+        'pane_id' => 'pane-people',
+        'access' => TRUE,
+      ],
+      'edit' => [
+        'label' => (string) $this->t('Edición'),
+        'pane_key' => 'edit',
+        'tab_id' => 'tab-edit',
+        'pane_id' => 'pane-edit',
+        'access' => $editing_index !== NULL,
+      ],
+    ];
+
+    $available_tabs = array_filter($tabs, static fn(array $tab) => !empty($tab['access']));
+    if (!isset($available_tabs[$active_tab])) {
+      $active_tab = array_key_first($available_tabs) ?: 'general';
+      $form_state->set('pds_recipe_timeline_active_tab', $active_tab);
+    }
+
+    //3.- Render the static menu markup expected by the admin design.
+    $menu_markup = '<ul class="pds-vertical-tabs__menu" role="tablist" aria-orientation="vertical" data-pds-vertical-tabs-menu="true">';
+    foreach ($available_tabs as $machine_name => $tab) {
+      $is_selected = $machine_name === $active_tab;
+      $li_classes = ['pds-vertical-tabs__menu-item'];
+      if ($is_selected) {
+        $li_classes[] = 'is-selected';
+      }
+      $menu_markup .= '<li class="' . implode(' ', $li_classes) . '">';
+      $menu_markup .= '<a class="pds-vertical-tabs__menu-link" href="#' . Html::escape($tab['pane_id']) . '" role="tab" id="' . Html::escape($tab['tab_id']) . '" aria-controls="' . Html::escape($tab['pane_id']) . '" aria-selected="' . ($is_selected ? 'true' : 'false') . '" data-pds-vertical-tab="' . Html::escape($tab['pane_key']) . '"';
+      if (!$is_selected) {
+        $menu_markup .= ' tabindex="-1"';
+      }
+      $menu_markup .= '>' . Html::escape($tab['label']) . '</a>';
+      $menu_markup .= '</li>';
+    }
+    $menu_markup .= '</ul>';
+
+    $form['timeline_ui'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => 'pds-timeline-form',
+        'class' => ['pds-vertical-tabs'],
+        'data-pds-vertical-tabs' => 'true',
+      ],
+    ];
+
+    $form['timeline_ui']['active_tab'] = [
+      '#type' => 'hidden',
+      '#value' => $active_tab,
+      '#parents' => ['timeline_ui_active_tab'],
+      '#attributes' => [
+        'data-pds-vertical-tabs-active' => 'true',
+      ],
+    ];
+
+    $form['timeline_ui']['menu'] = [
+      '#type' => 'markup',
+      '#markup' => Markup::create($menu_markup),
+    ];
+
+    $form['timeline_ui']['panes'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['pds-vertical-tabs__panes'],
+      ],
+    ];
+
+    //4.- Build the "General" pane with overall configuration fields.
+    $form['timeline_ui']['panes']['general'] = [
+      '#type' => 'container',
+      '#attributes' => $this->buildPaneAttributes('general', 'tab-general', $active_tab),
+    ];
+
+    $form['timeline_ui']['panes']['general']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h2',
+      '#value' => $this->t('General'),
+    ];
+
+    $form['timeline_ui']['panes']['general']['description'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => $this->t('Site title, tagline, and language.'),
+    ];
+
+    $form['timeline_ui']['panes']['general']['title'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
       '#default_value' => $cfg['title'] ?? '',
+      '#parents' => ['title'],
     ];
 
-    $form['timeline_id'] = [
+    $form['timeline_ui']['panes']['general']['timeline_id'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Timeline ID'),
       '#default_value' => $cfg['timeline_id'] ?? 'principal-timeline',
       '#description' => $this->t('DOM id attribute. Must be unique on the page.'),
+      '#parents' => ['timeline_id'],
     ];
 
-    $form['timeline_ui'] = [
+    //5.- Pane dedicated to creating new people entries via JSON payloads.
+    $form['timeline_ui']['panes']['add_person'] = [
       '#type' => 'container',
-      '#attributes' => ['id' => 'pds-timeline-form'],
+      '#attributes' => $this->buildPaneAttributes('add', 'tab-add', $active_tab),
     ];
 
-    $form['timeline_ui']['tabs'] = [
-      '#type' => 'vertical_tabs',
-      '#title' => $this->t('Timeline management'),
+    $form['timeline_ui']['panes']['add_person']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h2',
+      '#value' => $this->t('Add New'),
     ];
 
-    $form['timeline_ui']['add_person'] = [
-      '#type' => 'details',
-      '#title' => $this->t('New People'),
-      '#group' => 'tabs',
-      '#open' => TRUE,
+    $form['timeline_ui']['panes']['add_person']['description'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => $this->t('Create people with JSON milestones in one step.'),
     ];
 
-    $form['timeline_ui']['add_person']['person_name'] = [
+    $form['timeline_ui']['panes']['add_person']['person_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Header'),
       '#required' => FALSE,
     ];
 
-    $form['timeline_ui']['add_person']['person_role'] = [
+    $form['timeline_ui']['panes']['add_person']['person_role'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Subheader'),
       '#required' => FALSE,
     ];
 
-    $form['timeline_ui']['add_person']['milestones_json'] = [
+    $form['timeline_ui']['panes']['add_person']['milestones_json'] = [
       '#type' => 'textarea',
       '#title' => $this->t('Milestones JSON'),
       '#description' => $this->t('Provide milestones in JSON format, for example {"1990":"Started program","1995":"Promoted"}.'),
       '#rows' => 5,
     ];
 
-    $form['timeline_ui']['add_person']['actions'] = ['#type' => 'actions'];
-    $form['timeline_ui']['add_person']['actions']['add_person'] = [
+    $form['timeline_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['panes']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
       '#value' => $this->t('Add person'),
       '#name' => 'pds_recipe_timeline_add_person',
       '#validate' => ['pds_recipe_timeline_add_person_validate'],
       '#submit' => ['pds_recipe_timeline_add_person_submit'],
       '#limit_validation_errors' => [
-        ['timeline_ui', 'add_person'],
+        ['timeline_ui', 'panes', 'add_person'],
       ],
       '#ajax' => [
         'callback' => 'pds_recipe_timeline_ajax_events',
@@ -247,16 +374,25 @@ final class PdsTimelineBlock extends BlockBase {
       ],
     ];
 
-    $form['timeline_ui']['people_list'] = [
-      '#type' => 'details',
-      '#title' => $this->t('People'),
-      '#group' => 'tabs',
-      '#open' => TRUE,
+    //6.- Pane displaying the table with all configured people.
+    $form['timeline_ui']['panes']['people_list'] = [
+      '#type' => 'container',
+      '#attributes' => $this->buildPaneAttributes('people', 'tab-people', $active_tab),
     ];
 
-    $editing_index = self::getEditingIndex($form_state);
+    $form['timeline_ui']['panes']['people_list']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h2',
+      '#value' => $this->t('People'),
+    ];
 
-    $form['timeline_ui']['people_list']['people'] = [
+    $form['timeline_ui']['panes']['people_list']['description'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => $this->t('Manage existing people and their milestones.'),
+    ];
+
+    $form['timeline_ui']['panes']['people_list']['people'] = [
       '#type' => 'table',
       '#tree' => TRUE,
       '#header' => [
@@ -322,15 +458,15 @@ final class PdsTimelineBlock extends BlockBase {
         }
       }
 
-      $form['timeline_ui']['people_list']['people'][$index]['name'] = [
+      $form['timeline_ui']['panes']['people_list']['people'][$index]['name'] = [
         '#type' => 'item',
         '#plain_text' => (string) ($person['name'] ?? ''),
       ];
-      $form['timeline_ui']['people_list']['people'][$index]['role'] = [
+      $form['timeline_ui']['panes']['people_list']['people'][$index]['role'] = [
         '#type' => 'item',
         '#plain_text' => (string) ($person['role'] ?? ''),
       ];
-      $form['timeline_ui']['people_list']['people'][$index]['milestones'] = $milestone_items === []
+      $form['timeline_ui']['panes']['people_list']['people'][$index]['milestones'] = $milestone_items === []
         ? [
           '#type' => 'item',
           '#plain_text' => (string) $this->t('No milestones provided'),
@@ -339,7 +475,7 @@ final class PdsTimelineBlock extends BlockBase {
           '#theme' => 'item_list',
           '#items' => $milestone_items,
         ];
-      $form['timeline_ui']['people_list']['people'][$index]['edit'] = [
+      $form['timeline_ui']['panes']['people_list']['people'][$index]['edit'] = [
         '#type' => 'submit',
         '#value' => $this->t('Edit'),
         '#name' => 'pds_recipe_timeline_edit_person_' . $index,
@@ -352,21 +488,21 @@ final class PdsTimelineBlock extends BlockBase {
         '#attributes' => ['class' => ['pds-recipe-timeline-edit-person']],
         '#pds_recipe_timeline_edit_index' => $index,
       ];
-      $form['timeline_ui']['people_list']['people'][$index]['remove'] = [
+      $form['timeline_ui']['panes']['people_list']['people'][$index]['remove'] = [
         '#type' => 'checkbox',
         '#title' => $this->t('Remove'),
         '#title_display' => 'invisible',
       ];
     }
 
-    $form['timeline_ui']['people_list']['actions'] = ['#type' => 'actions'];
-    $form['timeline_ui']['people_list']['actions']['remove_people'] = [
+    $form['timeline_ui']['panes']['people_list']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['panes']['people_list']['actions']['remove_people'] = [
       '#type' => 'submit',
       '#value' => $this->t('Remove selected'),
       '#name' => 'pds_recipe_timeline_remove_people',
       '#submit' => ['pds_recipe_timeline_remove_people_submit'],
       '#limit_validation_errors' => [
-        ['timeline_ui', 'people_list', 'people'],
+        ['timeline_ui', 'panes', 'people_list', 'people'],
       ],
       '#ajax' => [
         'callback' => 'pds_recipe_timeline_ajax_events',
@@ -374,24 +510,34 @@ final class PdsTimelineBlock extends BlockBase {
       ],
     ];
 
-    $form['timeline_ui']['edit_person'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Edit person'),
-      '#group' => 'tabs',
-      '#open' => $editing_index !== NULL,
+    $form['timeline_ui']['panes']['edit_person'] = [
+      '#type' => 'container',
+      '#attributes' => $this->buildPaneAttributes('edit', 'tab-edit', $active_tab),
       '#access' => $editing_index !== NULL,
     ];
 
     $editing_person = ($editing_index !== NULL && isset($people_working[$editing_index])) ? $people_working[$editing_index] : NULL;
 
-    $form['timeline_ui']['edit_person']['person_name'] = [
+    $form['timeline_ui']['panes']['edit_person']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h2',
+      '#value' => $this->t('Edición'),
+    ];
+
+    $form['timeline_ui']['panes']['edit_person']['description'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => $this->t('Update the selected person and milestones.'),
+    ];
+
+    $form['timeline_ui']['panes']['edit_person']['person_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Header'),
       '#required' => FALSE,
       '#default_value' => is_array($editing_person) ? (string) ($editing_person['name'] ?? '') : '',
     ];
 
-    $form['timeline_ui']['edit_person']['person_role'] = [
+    $form['timeline_ui']['panes']['edit_person']['person_role'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Subheader'),
       '#required' => FALSE,
@@ -404,7 +550,7 @@ final class PdsTimelineBlock extends BlockBase {
       $edit_milestones = is_string($encoded) ? $encoded : '[]';
     }
 
-    $form['timeline_ui']['edit_person']['milestones_json'] = [
+    $form['timeline_ui']['panes']['edit_person']['milestones_json'] = [
       '#type' => 'textarea',
       '#title' => $this->t('Milestones JSON'),
       '#description' => $this->t('Provide milestones in JSON format, for example {"1990":"Started program","1995":"Promoted"}.'),
@@ -412,15 +558,15 @@ final class PdsTimelineBlock extends BlockBase {
       '#default_value' => $edit_milestones ?? '',
     ];
 
-    $form['timeline_ui']['edit_person']['actions'] = ['#type' => 'actions'];
-    $form['timeline_ui']['edit_person']['actions']['save_person'] = [
+    $form['timeline_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['panes']['edit_person']['actions']['save_person'] = [
       '#type' => 'submit',
       '#value' => $this->t('Save changes'),
       '#name' => 'pds_recipe_timeline_save_person',
       '#validate' => ['pds_recipe_timeline_edit_person_validate'],
       '#submit' => ['pds_recipe_timeline_edit_person_submit'],
       '#limit_validation_errors' => [
-        ['timeline_ui', 'edit_person'],
+        ['timeline_ui', 'panes', 'edit_person'],
       ],
       '#ajax' => [
         'callback' => 'pds_recipe_timeline_ajax_events',
@@ -428,7 +574,7 @@ final class PdsTimelineBlock extends BlockBase {
       ],
     ];
 
-    $form['timeline_ui']['edit_person']['actions']['cancel_edit'] = [
+    $form['timeline_ui']['panes']['edit_person']['actions']['cancel_edit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Cancel'),
       '#name' => 'pds_recipe_timeline_cancel_edit',
@@ -490,6 +636,31 @@ final class PdsTimelineBlock extends BlockBase {
     $this->configuration['people'] = array_values($clean_people);
 
     $form_state->set('working_people', $this->configuration['people']);
+  }
+
+  /**
+   * Build a consistent attribute set for a tab pane.
+   */
+  private function buildPaneAttributes(string $pane_key, string $tab_id, string $active_tab): array {
+    //1.- Seed default accessibility attributes shared by every pane.
+    $attributes = [
+      'id' => 'pane-' . $pane_key,
+      'class' => ['pds-vertical-tabs__pane'],
+      'role' => 'tabpanel',
+      'aria-labelledby' => $tab_id,
+      'data-pds-vertical-pane' => $pane_key,
+    ];
+
+    //2.- Hide panes that are not active so CSS can mimic Drupal Claro behavior.
+    if ($pane_key !== $active_tab) {
+      $attributes['hidden'] = 'hidden';
+      $attributes['aria-hidden'] = 'true';
+    }
+    else {
+      $attributes['aria-hidden'] = 'false';
+    }
+
+    return $attributes;
   }
 
   /**
@@ -566,7 +737,7 @@ final class PdsTimelineBlock extends BlockBase {
     }
 
     if (!$is_sub) {
-      $submitted = $form_state->getValue(['timeline_ui', 'people_list', 'people']);
+      $submitted = $form_state->getValue(['timeline_ui', 'panes', 'people_list', 'people']);
       if (is_array($submitted)) {
         $snapshot = $form_state->get('working_people');
         if (is_array($snapshot)) {
