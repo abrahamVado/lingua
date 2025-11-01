@@ -248,12 +248,12 @@ final class PdsExecutivesBlock extends BlockBase {
     $form['executives_ui']['panes']['add_person']['person_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Name'),
-      '#required' => TRUE,
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
     $form['executives_ui']['panes']['add_person']['person_title'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
-      '#required' => TRUE,
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
     $form['executives_ui']['panes']['add_person']['person_photo'] = [
       '#type' => 'textfield',
@@ -400,13 +400,13 @@ final class PdsExecutivesBlock extends BlockBase {
     $form['executives_ui']['panes']['edit_person']['person_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Name'),
-      '#required' => TRUE,
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
       '#default_value' => is_array($editing_person) ? (string) ($editing_person['name'] ?? '') : '',
     ];
     $form['executives_ui']['panes']['edit_person']['person_title'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
-      '#required' => TRUE,
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
       '#default_value' => is_array($editing_person) ? (string) ($editing_person['title'] ?? '') : '',
     ];
     $form['executives_ui']['panes']['edit_person']['person_photo'] = [
