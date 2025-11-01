@@ -38,7 +38,7 @@
         const triggerEditCancel = () => {
           const cancelButton = root.querySelector('[name="pds_recipe_timeline_cancel_edit"]');
           if (!cancelButton || cancelButton.disabled) {
-            return;
+            return false;
           }
 
           if (typeof cancelButton.click === 'function') {
@@ -55,9 +55,12 @@
             }
             cancelButton.dispatchEvent(clickEvent);
           }
+
+          return true;
         };
 
         let activeKey = null;
+        let pointerCancelTriggered = false;
 
         //4.- Activate the chosen tab and show the matching pane.
         const activate = (anchor, focus = true) => {
@@ -68,9 +71,11 @@
           const nextKey = anchor.getAttribute('data-pds-vertical-tab') || '';
           const previousKey = activeKey;
 
-          if (previousKey === 'edit' && nextKey !== 'edit') {
+          if (previousKey === 'edit' && nextKey !== 'edit' && !pointerCancelTriggered) {
             triggerEditCancel();
           }
+
+          pointerCancelTriggered = false;
 
           reset();
 
@@ -114,7 +119,20 @@
           }
         };
 
-        //5.- Support mouse activation while preventing default anchor jumps.
+        //5.- Detect pointer interaction early so cancel fires before switching panes.
+        menu.addEventListener('pointerdown', (event) => {
+          const anchor = event.target.closest('[data-pds-vertical-tab]');
+          if (!anchor) {
+            return;
+          }
+
+          const nextKey = anchor.getAttribute('data-pds-vertical-tab') || '';
+          if (activeKey === 'edit' && nextKey !== 'edit') {
+            pointerCancelTriggered = triggerEditCancel();
+          }
+        });
+
+        //6.- Support mouse activation while preventing default anchor jumps.
         menu.addEventListener('click', (event) => {
           const anchor = event.target.closest('[data-pds-vertical-tab]');
           if (!anchor) {
@@ -124,7 +142,7 @@
           activate(anchor, true);
         });
 
-        //6.- Enable keyboard navigation consistent with WAI-ARIA tabs.
+        //7.- Enable keyboard navigation consistent with WAI-ARIA tabs.
         menu.addEventListener('keydown', (event) => {
           const currentIndex = anchors.indexOf(document.activeElement);
           if (currentIndex === -1) {
@@ -162,7 +180,7 @@
           }
         });
 
-        //7.- Initialize the widget using the server-provided selection.
+        //8.- Initialize the widget using the server-provided selection.
         const preselected = anchors.find((anchor) => anchor.getAttribute('aria-selected') === 'true');
         activate(preselected || anchors[0], false);
       });
