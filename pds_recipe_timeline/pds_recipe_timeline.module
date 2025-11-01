@@ -76,30 +76,6 @@ function pds_recipe_timeline_set_active_tab(FormStateInterface $form_state, stri
 }
 
 /**
- * Fetches the working list of people from the current or parent form state.
- */
-function pds_recipe_timeline_get_working_people_snapshot(FormStateInterface $form_state): array {
-  //1.- Read the local snapshot stored on the active form state instance.
-  $people = $form_state->get('working_people');
-  if (is_array($people)) {
-    return $people;
-  }
-
-  //2.- When operating inside Layout Builder, fall back to the parent state.
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
-    if ($parent_state) {
-      $parent_people = $parent_state->get('working_people');
-      if (is_array($parent_people)) {
-        return $parent_people;
-      }
-    }
-  }
-
-  return [];
-}
-
-/**
  * "Add person" submit handler.
  */
 function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface $form_state): void {
@@ -123,7 +99,10 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
   }
 
   //4.- Append the new person to the working list stored in form state.
-  $people = pds_recipe_timeline_get_working_people_snapshot($form_state);
+  $people = $form_state->get('working_people');
+  if (!is_array($people)) {
+    $people = [];
+  }
 
   $people[] = $new_person;
 
@@ -197,7 +176,10 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
   }
 
   //3.- Collect the working snapshot that stores the actual person data.
-  $people = pds_recipe_timeline_get_working_people_snapshot($form_state);
+  $people = $form_state->get('working_people');
+  if (!is_array($people)) {
+    $people = [];
+  }
 
   //4.- Read checkbox submissions from either the current or parent form state.
   $values = $form_state->getValue($table_key);
@@ -414,8 +396,8 @@ function pds_recipe_timeline_edit_person_prepare_submit(array &$form, FormStateI
   }
 
   //2.- Retrieve the working snapshot of people.
-  $people = pds_recipe_timeline_get_working_people_snapshot($form_state);
-  if (!isset($people[$index]) || !is_array($people[$index])) {
+  $people = $form_state->get('working_people');
+  if (!is_array($people) || !isset($people[$index]) || !is_array($people[$index])) {
     return;
   }
 
@@ -498,8 +480,8 @@ function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface
   $index = (int) $index;
 
   //4.- Load and update the working list of people.
-  $people = pds_recipe_timeline_get_working_people_snapshot($form_state);
-  if (!isset($people[$index])) {
+  $people = $form_state->get('working_people');
+  if (!is_array($people) || !isset($people[$index])) {
     return;
   }
 
