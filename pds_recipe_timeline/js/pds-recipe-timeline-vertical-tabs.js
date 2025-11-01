@@ -34,10 +34,42 @@
           });
         };
 
-        //3.- Activate the chosen tab and show the matching pane.
+        //3.- Provide a helper that cancels edits when abandoning the edit tab.
+        const triggerEditCancel = () => {
+          const cancelButton = root.querySelector('[name="pds_recipe_timeline_cancel_edit"]');
+          if (!cancelButton || cancelButton.disabled) {
+            return;
+          }
+
+          if (typeof cancelButton.click === 'function') {
+            cancelButton.click();
+          }
+          else {
+            const eventInit = { bubbles: true, cancelable: true };
+            let clickEvent;
+            if (typeof window !== 'undefined' && typeof window.MouseEvent === 'function') {
+              clickEvent = new window.MouseEvent('click', eventInit);
+            }
+            else {
+              clickEvent = new Event('click', eventInit);
+            }
+            cancelButton.dispatchEvent(clickEvent);
+          }
+        };
+
+        let activeKey = null;
+
+        //4.- Activate the chosen tab and show the matching pane.
         const activate = (anchor, focus = true) => {
           if (!anchor) {
             return;
+          }
+
+          const nextKey = anchor.getAttribute('data-pds-vertical-tab') || '';
+          const previousKey = activeKey;
+
+          if (previousKey === 'edit' && nextKey !== 'edit') {
+            triggerEditCancel();
           }
 
           reset();
@@ -50,7 +82,7 @@
           anchor.setAttribute('aria-selected', 'true');
           anchor.removeAttribute('tabindex');
 
-          const paneKey = anchor.getAttribute('data-pds-vertical-tab');
+          let paneKey = nextKey;
           let pane = null;
           if (paneKey) {
             pane = root.querySelector('[data-pds-vertical-pane="' + paneKey + '"]');
@@ -59,6 +91,9 @@
             const href = anchor.getAttribute('href');
             if (href && href.startsWith('#')) {
               pane = root.querySelector(href);
+              if (pane && !paneKey) {
+                paneKey = href.slice(1);
+              }
             }
           }
 
@@ -72,12 +107,14 @@
             hiddenInput.value = paneKey || '';
           }
 
+          activeKey = paneKey || '';
+
           if (focus) {
             anchor.focus();
           }
         };
 
-        //4.- Support mouse activation while preventing default anchor jumps.
+        //5.- Support mouse activation while preventing default anchor jumps.
         menu.addEventListener('click', (event) => {
           const anchor = event.target.closest('[data-pds-vertical-tab]');
           if (!anchor) {
@@ -87,7 +124,7 @@
           activate(anchor, true);
         });
 
-        //5.- Enable keyboard navigation consistent with WAI-ARIA tabs.
+        //6.- Enable keyboard navigation consistent with WAI-ARIA tabs.
         menu.addEventListener('keydown', (event) => {
           const currentIndex = anchors.indexOf(document.activeElement);
           if (currentIndex === -1) {
@@ -125,7 +162,7 @@
           }
         });
 
-        //6.- Initialize the widget using the server-provided selection.
+        //7.- Initialize the widget using the server-provided selection.
         const preselected = anchors.find((anchor) => anchor.getAttribute('aria-selected') === 'true');
         activate(preselected || anchors[0], false);
       });
