@@ -301,6 +301,59 @@ function pds_recipe_executives_edit_person_prepare_submit(array &$form, FormStat
     $parent_state->set('pds_recipe_executives_editing_index', $index);
   }
 
+  //1.- Locate the edit pane keys so we can seed values for the rebuild.
+  $base_key = pds_recipe_executives_base_key($form, $form_state, ['executives_ui', 'panes', 'edit_person']);
+  $people = $form_state->get('working_people');
+  if (!is_array($people) && $parent_state) {
+    $people = $parent_state->get('working_people');
+  }
+
+  if (is_array($people) && isset($people[$index]) && is_array($people[$index])) {
+    //2.- Extract the stored executive details and normalize them for the form API.
+    $person = $people[$index];
+    $normalized = [
+      'person_name' => (string) ($person['name'] ?? ''),
+      'person_title' => (string) ($person['title'] ?? ''),
+      'person_photo' => (string) ($person['photo'] ?? ''),
+      'person_linkedin' => (string) ($person['linkedin'] ?? ''),
+      'person_cv' => (string) ($person['cv_html'] ?? ''),
+      'person_photo_upload' => [],
+    ];
+
+    if (isset($person['photo_file_fid']) && is_numeric($person['photo_file_fid'])) {
+      $normalized['person_photo_upload'] = [(int) $person['photo_file_fid']];
+    }
+
+    //3.- Push the normalized values into both the form state and user input so
+    //     Drupal prefers them over the empty submission payload we just sent.
+    foreach ($normalized as $key => $value) {
+      $full_key = array_merge($base_key, [$key]);
+      $form_state->setValue($full_key, $value);
+    }
+    $user_input = $form_state->getUserInput();
+    if (!is_array($user_input)) {
+      $user_input = [];
+    }
+    foreach ($normalized as $key => $value) {
+      NestedArray::setValue($user_input, array_merge($base_key, [$key]), $value);
+    }
+    $form_state->setUserInput($user_input);
+
+    if ($parent_state) {
+      foreach ($normalized as $key => $value) {
+        $parent_state->setValue(array_merge($base_key, [$key]), $value);
+      }
+      $parent_input = $parent_state->getUserInput();
+      if (!is_array($parent_input)) {
+        $parent_input = [];
+      }
+      foreach ($normalized as $key => $value) {
+        NestedArray::setValue($parent_input, array_merge($base_key, [$key]), $value);
+      }
+      $parent_state->setUserInput($parent_input);
+    }
+  }
+
   $form_state->setRebuild(TRUE);
   pds_recipe_executives_set_active_tab($form_state, 'edit');
 }
