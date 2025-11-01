@@ -1,25 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 use Drupal\Component\Utility\NestedArray;
+use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
 
 /**
  * Implements hook_theme().
- *
- * Exposes the twig template "pds-executives.html.twig" as theme hook "pds_executives".
- * Declares variable "events" so Twig can loop.
  */
 function pds_recipe_executives_theme($existing, $type, $theme, $path) {
   return [
     'pds_executives' => [
-      'template' => 'pds-executives', // templates/pds-executives.html.twig
+      'template' => 'pds-executives',
       'path' => $path . '/templates',
       'variables' => [
         'title' => '',
-        'years' => [],
-        'rows' => [],
-        'executives_id' => 'principal-executives',
+        'section_id' => 'principal-executives',
+        'executives' => [],
       ],
     ],
   ];
@@ -27,7 +26,6 @@ function pds_recipe_executives_theme($existing, $type, $theme, $path) {
 
 /**
  * AJAX callback to return just the executives_ui container.
- * Works for both normal block config and Layout Builder modal.
  */
 function pds_recipe_executives_ajax_events(array &$form, FormStateInterface $form_state) {
   if (isset($form['settings']['executives_ui'])) {
@@ -47,11 +45,9 @@ function pds_recipe_executives_set_active_tab(FormStateInterface $form_state, st
   $form_state->set('pds_recipe_executives_active_tab', $tab);
 
   //2.- Mirror the setting on the parent form state when nested in Layout Builder.
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
-    if ($parent_state) {
-      $parent_state->set('pds_recipe_executives_active_tab', $tab);
-    }
+  $parent_state = pds_recipe_executives_parent_state($form_state);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_executives_active_tab', $tab);
   }
 
   //3.- Synchronize the hidden form value so the next rebuild honors the tab choice.
@@ -63,8 +59,7 @@ function pds_recipe_executives_set_active_tab(FormStateInterface $form_state, st
   $user_input['executives_ui_active_tab'] = $tab;
   $form_state->setUserInput($user_input);
 
-  //4.- Ensure nested form states reuse the same hidden value and user input override.
-  if (isset($parent_state) && $parent_state) {
+  if ($parent_state) {
     $parent_state->setValue(['executives_ui_active_tab'], $tab);
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
@@ -76,73 +71,112 @@ function pds_recipe_executives_set_active_tab(FormStateInterface $form_state, st
 }
 
 /**
- * "Add person" submit handler.
+ * Validation for adding a new executive.
  */
-function pds_recipe_executives_add_person_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Determine the correct root path regardless of Layout Builder or direct edit.
-  $trigger = $form_state->getTriggeringElement();
-  $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
-  $base_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
-    ? ['settings', 'executives_ui', 'panes', 'add_person']
-    : ['executives_ui', 'panes', 'add_person'];
+function pds_recipe_executives_add_person_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_executives_base_key($form, $form_state, ['executives_ui', 'panes', 'add_person']);
+  $parent_state = pds_recipe_executives_parent_state($form_state);
 
-  //2.- Gain access to the parent form state when operating inside a subform context.
-  $parent_state = NULL;
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
+  //1.- Collect author input from the correct form tree branch.
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
+  $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
+  $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
+  $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
+  $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
+
+  //2.- Validate minimal requirements for a card.
+  if ($name === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_name'])), t('Name is required.'));
+  }
+  if ($title === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
   }
 
-  //3.- Retrieve sanitized information prepared by the validation handler.
-  $new_person = $form_state->get('pds_recipe_executives_add_person_new_person');
-  if (!is_array($new_person) || ($new_person['milestones'] ?? []) === []) {
+  //3.- Enforce safe URL formats.
+  if ($photo !== '' && !pds_recipe_executives_is_allowed_url($photo)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
+  }
+  if ($linkedin !== '' && !pds_recipe_executives_is_allowed_url($linkedin)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_linkedin'])), t('LinkedIn URL must be absolute or start with /.'));
+  }
+
+  if ($form_state->hasAnyErrors()) {
+    $form_state->set('pds_recipe_executives_add_person_new_person', NULL);
+    if ($parent_state) {
+      $parent_state->set('pds_recipe_executives_add_person_new_person', NULL);
+    }
     return;
   }
 
-  //4.- Append the new person to the working list stored in form state.
+  //4.- Store a clean snapshot for the submit handler.
+  $payload = [
+    'name' => $name,
+    'title' => $title,
+    'photo' => $photo,
+    'linkedin' => $linkedin,
+    'cv_html' => $cv,
+  ];
+
+  $form_state->set('pds_recipe_executives_add_person_new_person', $payload);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_executives_add_person_new_person', $payload);
+  }
+}
+
+/**
+ * Submit handler that appends the validated executive to the working list.
+ */
+function pds_recipe_executives_add_person_submit(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_executives_base_key($form, $form_state, ['executives_ui', 'panes', 'add_person']);
+  $parent_state = pds_recipe_executives_parent_state($form_state);
+
+  //1.- Retrieve sanitized information prepared by validation.
+  $new_person = $form_state->get('pds_recipe_executives_add_person_new_person');
+  if (!is_array($new_person)) {
+    return;
+  }
+
+  //2.- Append the new person to the working list stored in form state.
   $people = $form_state->get('working_people');
   if (!is_array($people)) {
     $people = [];
   }
-
   $people[] = $new_person;
-
-  //5.- Sync the working snapshot across the current and parent form states.
   $normalized_people = array_values($people);
+
   $form_state->set('working_people', $normalized_people);
   if ($parent_state) {
     $parent_state->set('working_people', $normalized_people);
   }
 
-  //6.- Reset author-facing inputs so the form is ready for the next addition.
-  $form_state->setValue(array_merge($base_key, ['person_name']), '');
-  $form_state->setValue(array_merge($base_key, ['person_role']), '');
-  $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  //3.- Reset author-facing inputs for the next addition.
+  foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+    $form_state->setValue(array_merge($base_key, [$key]), '');
+  }
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
-    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), '');
+  foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
   $form_state->setUserInput($user_input);
   if ($parent_state) {
-    $parent_state->setValue(array_merge($base_key, ['person_name']), '');
-    $parent_state->setValue(array_merge($base_key, ['person_role']), '');
-    $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
+    foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+      $parent_state->setValue(array_merge($base_key, [$key]), '');
+    }
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
-      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), '');
+    foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
     $parent_state->setUserInput($parent_input);
   }
 
-  //7.- Keep checkbox submissions aligned with the refreshed list of people.
-  $table_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
-    ? ['settings', 'executives_ui', 'panes', 'people_list', 'people']
-    : ['executives_ui', 'panes', 'people_list', 'people'];
+  //4.- Reset checkboxes to avoid stale remove selections.
+  $table_key = pds_recipe_executives_base_key($form, $form_state, ['executives_ui', 'panes', 'people_list', 'people']);
   $checkbox_rows = [];
   foreach ($normalized_people as $index => $_row) {
     $checkbox_rows[$index] = ['remove' => 0];
@@ -152,42 +186,32 @@ function pds_recipe_executives_add_person_submit(array &$form, FormStateInterfac
     $parent_state->setValue($table_key, $checkbox_rows);
   }
 
-  //8.- Clear the temporary storage and force a rebuild to refresh the UI.
+  //5.- Clear temp storage and rebuild to refresh UI.
   $form_state->set('pds_recipe_executives_add_person_new_person', NULL);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_executives_add_person_new_person', NULL);
+  }
   $form_state->setRebuild(TRUE);
   pds_recipe_executives_set_active_tab($form_state, 'people');
 }
 
 /**
- * "Remove selected" submit handler for the people table.
+ * Remove selected executives from the working snapshot.
  */
 function pds_recipe_executives_remove_people_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Figure out where the table values live by inspecting the triggering element.
-  $trigger = $form_state->getTriggeringElement();
-  $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
-  $table_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
-    ? ['settings', 'executives_ui', 'panes', 'people_list', 'people']
-    : ['executives_ui', 'panes', 'people_list', 'people'];
+  $table_key = pds_recipe_executives_base_key($form, $form_state, ['executives_ui', 'panes', 'people_list', 'people']);
+  $parent_state = pds_recipe_executives_parent_state($form_state);
 
-  //2.- Obtain the parent form state when operating inside Layout Builder subforms.
-  $parent_state = NULL;
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
-  }
-
-  //3.- Collect the working snapshot that stores the actual person data.
   $people = $form_state->get('working_people');
   if (!is_array($people)) {
     $people = [];
   }
 
-  //4.- Read checkbox submissions from either the current or parent form state.
+  //1.- Gather checkbox values from processed values or raw input.
   $values = $form_state->getValue($table_key);
   if (!is_array($values) && $parent_state) {
     $values = $parent_state->getValue($table_key);
   }
-
-  //5.- When processed values are missing, consult the raw user input as fallback.
   if (!is_array($values)) {
     $input = $form_state->getUserInput();
     if (is_array($input)) {
@@ -210,183 +234,39 @@ function pds_recipe_executives_remove_people_submit(array &$form, FormStateInter
     $values = [];
   }
 
-  //6.- Remove any person whose checkbox was selected.
-  foreach ($values as $delta => $row) {
-    if (!empty($row['remove']) && isset($people[$delta])) {
-      unset($people[$delta]);
+  //2.- Filter out rows flagged for removal.
+  $kept = [];
+  foreach ($people as $index => $person) {
+    $should_remove = !empty($values[$index]['remove']);
+    if ($should_remove) {
+      continue;
     }
+    $kept[] = $person;
   }
 
-  //7.- Save filtered results back to the form state hierarchy for subsequent rebuilds.
-  $normalized_people = array_values($people);
-  $form_state->set('working_people', $normalized_people);
+  $form_state->set('working_people', $kept);
   if ($parent_state) {
-    $parent_state->set('working_people', $normalized_people);
+    $parent_state->set('working_people', $kept);
   }
 
-  //8.- Reset checkbox submissions so future clicks start from a clean state.
-  $fresh_values = [];
-  foreach ($normalized_people as $index => $_row) {
-    $fresh_values[$index] = ['remove' => 0];
+  //3.- Reset checkboxes after deletion.
+  $reset_rows = [];
+  foreach ($kept as $index => $_row) {
+    $reset_rows[$index] = ['remove' => 0];
   }
-  $form_state->setValue($table_key, $fresh_values);
+  $form_state->setValue($table_key, $reset_rows);
   if ($parent_state) {
-    $parent_state->setValue($table_key, $fresh_values);
+    $parent_state->setValue($table_key, $reset_rows);
   }
 
-  $user_input = $form_state->getUserInput();
-  if (is_array($user_input)) {
-    NestedArray::setValue($user_input, $table_key, $fresh_values);
-    $form_state->setUserInput($user_input);
-  }
-  if ($parent_state) {
-    $parent_input = $parent_state->getUserInput();
-    if (is_array($parent_input)) {
-      NestedArray::setValue($parent_input, $table_key, $fresh_values);
-      $parent_state->setUserInput($parent_input);
-    }
-  }
-
-  //9.- Ask Drupal to rebuild the form to reflect the removal immediately.
   $form_state->setRebuild(TRUE);
   pds_recipe_executives_set_active_tab($form_state, 'people');
 }
 
 /**
- * "Add person" validation handler.
- */
-function pds_recipe_executives_add_person_validate(array &$form, FormStateInterface $form_state): void {
-  //1.- Choose the correct keys according to the editing context.
-  $base_key = isset($form['settings']) ? ['settings', 'executives_ui', 'panes', 'add_person'] : ['executives_ui', 'panes', 'add_person'];
-
-  //2.- Delegate JSON parsing and sanitizing to the shared helper.
-  pds_recipe_executives_store_person_payload($form, $form_state, $base_key, 'pds_recipe_executives_add_person_new_person');
-}
-
-/**
- * Shared validator that normalizes author supplied person data.
- */
-function pds_recipe_executives_store_person_payload(array &$form, FormStateInterface $form_state, array $base_key, string $storage_key): void {
-  //1.- Capture human entered values for reuse by submit handlers.
-  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
-  $role = trim((string) $form_state->getValue(array_merge($base_key, ['person_role'])));
-  $milestones_json = trim((string) $form_state->getValue(array_merge($base_key, ['milestones_json'])));
-
-  $error_name = implode('][', array_merge($base_key, ['milestones_json']));
-
-  //2.- Reset the storage slot so stale payloads never leak through.
-  $form_state->set($storage_key, NULL);
-
-  if ($milestones_json === '') {
-    $form_state->setErrorByName($error_name, t('Milestones JSON is required to create a person.'));
-    return;
-  }
-
-  //3.- Attempt to decode and normalize the JSON payload.
-  $decoded = json_decode($milestones_json, TRUE);
-  if (!is_array($decoded)) {
-    $form_state->setErrorByName($error_name, t('The milestones must be valid JSON.'));
-    return;
-  }
-
-  $milestones = [];
-
-  if (pds_recipe_executives_is_list($decoded)) {
-    foreach ($decoded as $item) {
-      if (!is_array($item)) {
-        continue;
-      }
-
-      $year = trim((string) ($item['year'] ?? ''));
-      $text = trim((string) ($item['text'] ?? ''));
-      $info = trim((string) ($item['info'] ?? ''));
-      $info_html = trim((string) ($item['info_html'] ?? ''));
-      $width = pds_recipe_executives_parse_numeric($item['width'] ?? ($item['width_percent'] ?? $item['width_pct'] ?? NULL));
-      $principal = array_key_exists('principal', $item)
-        ? pds_recipe_executives_cast_bool($item['principal'])
-        : (isset($item['type']) && strtolower((string) $item['type']) === 'principal');
-      $first = array_key_exists('first', $item)
-        ? pds_recipe_executives_cast_bool($item['first'])
-        : (array_key_exists('is_first', $item) ? pds_recipe_executives_cast_bool($item['is_first']) : FALSE);
-      $img_src = trim((string) ($item['img_src'] ?? $item['image'] ?? ''));
-      $img_alt = trim((string) ($item['img_alt'] ?? $item['image_alt'] ?? ''));
-
-      if ($year === '' && $text === '' && $info === '' && $info_html === '' && $img_src === '' && $img_alt === '' && $width === NULL && !$principal && !$first) {
-        continue;
-      }
-
-      $entry = [];
-      if ($year !== '') {
-        $entry['year'] = $year;
-      }
-      if ($text !== '') {
-        $entry['text'] = $text;
-      }
-      if ($info !== '') {
-        $entry['info'] = $info;
-      }
-      if ($info_html !== '') {
-        $entry['info_html'] = $info_html;
-      }
-      if ($width !== NULL && $width > 0) {
-        $entry['width'] = $width;
-      }
-      if ($principal) {
-        $entry['principal'] = TRUE;
-      }
-      if ($first) {
-        $entry['first'] = TRUE;
-      }
-      if ($img_src !== '') {
-        $entry['img_src'] = $img_src;
-      }
-      if ($img_alt !== '') {
-        $entry['img_alt'] = $img_alt;
-      }
-
-      if ($entry !== []) {
-        $milestones[] = $entry;
-      }
-    }
-  }
-  else {
-    foreach ($decoded as $year => $text) {
-      $year_str = trim((string) $year);
-      $text_str = trim((string) $text);
-      if ($year_str === '' && $text_str === '') {
-        continue;
-      }
-      $milestones[] = [
-        'year' => $year_str,
-        'text' => $text_str,
-      ];
-    }
-
-    if ($milestones !== []) {
-      usort($milestones, static function (array $a, array $b): int {
-        return strcmp($a['year'], $b['year']);
-      });
-    }
-  }
-
-  if ($milestones === []) {
-    $form_state->setErrorByName($error_name, t('Milestones JSON must include at least one entry.'));
-    return;
-  }
-
-  //4.- Share the sanitized payload with whichever submit handler will consume it.
-  $form_state->set($storage_key, [
-    'name' => $name,
-    'role' => $role,
-    'milestones' => $milestones,
-  ]);
-}
-
-/**
- * Prepare the edit form with the selected person's data.
+ * Prepare edit mode for a specific executive row.
  */
 function pds_recipe_executives_edit_person_prepare_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Discover the index chosen for editing.
   $trigger = $form_state->getTriggeringElement();
   $index = isset($trigger['#pds_recipe_executives_edit_index']) && is_numeric($trigger['#pds_recipe_executives_edit_index'])
     ? (int) $trigger['#pds_recipe_executives_edit_index']
@@ -395,107 +275,74 @@ function pds_recipe_executives_edit_person_prepare_submit(array &$form, FormStat
     return;
   }
 
-  //2.- Retrieve the working snapshot of people.
-  $people = $form_state->get('working_people');
-  if (!is_array($people) || !isset($people[$index]) || !is_array($people[$index])) {
-    return;
-  }
-
-  //3.- Allow the handler to update the parent form state when operating as a subform.
-  $parent_state = NULL;
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
-  }
-
-  //4.- Remember which person is being edited for subsequent rebuilds.
+  $parent_state = pds_recipe_executives_parent_state($form_state);
   $form_state->set('pds_recipe_executives_editing_index', $index);
   if ($parent_state) {
     $parent_state->set('pds_recipe_executives_editing_index', $index);
   }
 
-  //5.- Populate the edit form inputs with the existing data.
-  $base_key = isset($form['settings']) ? ['settings', 'executives_ui', 'panes', 'edit_person'] : ['executives_ui', 'panes', 'edit_person'];
-  $person = $people[$index];
-  $name = (string) ($person['name'] ?? '');
-  $role = (string) ($person['role'] ?? '');
-  $milestones_encoded = json_encode($person['milestones'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-  $milestones_json = is_string($milestones_encoded) ? $milestones_encoded : '[]';
-
-  $form_state->setValue(array_merge($base_key, ['person_name']), $name);
-  $form_state->setValue(array_merge($base_key, ['person_role']), $role);
-  $form_state->setValue(array_merge($base_key, ['milestones_json']), $milestones_json);
-
-  if ($parent_state) {
-    $parent_state->setValue(array_merge($base_key, ['person_name']), $name);
-    $parent_state->setValue(array_merge($base_key, ['person_role']), $role);
-    $parent_state->setValue(array_merge($base_key, ['milestones_json']), $milestones_json);
-  }
-
-  //6.- Mirror the populated values in the raw user input so the rebuild respects them.
-  $user_input = $form_state->getUserInput();
-  if (!is_array($user_input)) {
-    $user_input = [];
-  }
-  $input_map = [
-    'person_name' => $name,
-    'person_role' => $role,
-    'milestones_json' => $milestones_json,
-  ];
-  foreach ($input_map as $input_key => $input_value) {
-    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), $input_value);
-  }
-  $form_state->setUserInput($user_input);
-
-  if ($parent_state) {
-    $parent_input = $parent_state->getUserInput();
-    if (!is_array($parent_input)) {
-      $parent_input = [];
-    }
-    foreach ($input_map as $input_key => $input_value) {
-      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), $input_value);
-    }
-    $parent_state->setUserInput($parent_input);
-  }
-
-  //7.- Clear any leftover sanitized payload to avoid stale data.
-  $form_state->set('pds_recipe_executives_edit_person_payload', NULL);
-  if ($parent_state) {
-    $parent_state->set('pds_recipe_executives_edit_person_payload', NULL);
-  }
-
-  //8.- Trigger a rebuild so the edit details section becomes visible.
   $form_state->setRebuild(TRUE);
   pds_recipe_executives_set_active_tab($form_state, 'edit');
 }
 
 /**
- * Validate the edit form using the shared normalization routine.
+ * Validate updated executive information.
  */
 function pds_recipe_executives_edit_person_validate(array &$form, FormStateInterface $form_state): void {
-  //1.- Align with the correct form structure depending on the context.
-  $base_key = isset($form['settings']) ? ['settings', 'executives_ui', 'panes', 'edit_person'] : ['executives_ui', 'panes', 'edit_person'];
+  $base_key = pds_recipe_executives_base_key($form, $form_state, ['executives_ui', 'panes', 'edit_person']);
+  $parent_state = pds_recipe_executives_parent_state($form_state);
 
-  //2.- Parse and store the sanitized payload for the submit handler.
-  pds_recipe_executives_store_person_payload($form, $form_state, $base_key, 'pds_recipe_executives_edit_person_payload');
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
+  $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
+  $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
+  $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
+  $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
+
+  if ($name === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_name'])), t('Name is required.'));
+  }
+  if ($title === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
+  }
+  if ($photo !== '' && !pds_recipe_executives_is_allowed_url($photo)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
+  }
+  if ($linkedin !== '' && !pds_recipe_executives_is_allowed_url($linkedin)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_linkedin'])), t('LinkedIn URL must be absolute or start with /.'));
+  }
+
+  if ($form_state->hasAnyErrors()) {
+    $form_state->set('pds_recipe_executives_edit_person_payload', NULL);
+    if ($parent_state) {
+      $parent_state->set('pds_recipe_executives_edit_person_payload', NULL);
+    }
+    return;
+  }
+
+  $payload = [
+    'name' => $name,
+    'title' => $title,
+    'photo' => $photo,
+    'linkedin' => $linkedin,
+    'cv_html' => $cv,
+  ];
+
+  $form_state->set('pds_recipe_executives_edit_person_payload', $payload);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_executives_edit_person_payload', $payload);
+  }
 }
 
 /**
- * Apply the edited person data to the working list.
+ * Save the edited executive back into the working list.
  */
 function pds_recipe_executives_edit_person_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Gather helper references to handle Layout Builder subforms.
-  $parent_state = NULL;
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
-  }
-
-  //2.- Fetch the sanitized payload prepared during validation.
+  $parent_state = pds_recipe_executives_parent_state($form_state);
   $updated_person = $form_state->get('pds_recipe_executives_edit_person_payload');
   if (!is_array($updated_person)) {
     return;
   }
 
-  //3.- Determine which person should be updated.
   $index = $form_state->get('pds_recipe_executives_editing_index');
   if ($index === NULL && $parent_state) {
     $index = $parent_state->get('pds_recipe_executives_editing_index');
@@ -505,9 +352,12 @@ function pds_recipe_executives_edit_person_submit(array &$form, FormStateInterfa
   }
   $index = (int) $index;
 
-  //4.- Load and update the working list of people.
   $people = $form_state->get('working_people');
-  if (!is_array($people) || !isset($people[$index])) {
+  if (!is_array($people)) {
+    $people = [];
+  }
+
+  if (!isset($people[$index])) {
     return;
   }
 
@@ -515,198 +365,68 @@ function pds_recipe_executives_edit_person_submit(array &$form, FormStateInterfa
   $normalized_people = array_values($people);
 
   $form_state->set('working_people', $normalized_people);
+  $form_state->set('pds_recipe_executives_editing_index', NULL);
+  $form_state->set('pds_recipe_executives_edit_person_payload', NULL);
+
   if ($parent_state) {
     $parent_state->set('working_people', $normalized_people);
-  }
-
-  //5.- Reset the edit metadata so the section collapses after saving.
-  $form_state->set('pds_recipe_executives_editing_index', NULL);
-  $form_state->set('pds_recipe_executives_edit_person_payload', NULL);
-  if ($parent_state) {
     $parent_state->set('pds_recipe_executives_editing_index', NULL);
     $parent_state->set('pds_recipe_executives_edit_person_payload', NULL);
   }
 
-  $base_key = isset($form['settings']) ? ['settings', 'executives_ui', 'panes', 'edit_person'] : ['executives_ui', 'panes', 'edit_person'];
-  $form_state->setValue(array_merge($base_key, ['person_name']), '');
-  $form_state->setValue(array_merge($base_key, ['person_role']), '');
-  $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
-  if ($parent_state) {
-    $parent_state->setValue(array_merge($base_key, ['person_name']), '');
-    $parent_state->setValue(array_merge($base_key, ['person_role']), '');
-    $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
-  }
-
-  //6.- Blank the raw user input to prevent stale values from overriding future edits.
-  $user_input = $form_state->getUserInput();
-  if (!is_array($user_input)) {
-    $user_input = [];
-  }
-  foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
-    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), '');
-  }
-  $form_state->setUserInput($user_input);
-
-  if ($parent_state) {
-    $parent_input = $parent_state->getUserInput();
-    if (!is_array($parent_input)) {
-      $parent_input = [];
-    }
-    foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
-      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), '');
-    }
-    $parent_state->setUserInput($parent_input);
-  }
-
-  //7.- Keep the remove checkboxes aligned with the refreshed list.
-  $table_key = isset($form['settings'])
-    ? ['settings', 'executives_ui', 'panes', 'people_list', 'people']
-    : ['executives_ui', 'panes', 'people_list', 'people'];
-  $checkbox_rows = [];
-  foreach ($normalized_people as $delta => $_row) {
-    $checkbox_rows[$delta] = ['remove' => 0];
-  }
-  $form_state->setValue($table_key, $checkbox_rows);
-  if ($parent_state) {
-    $parent_state->setValue($table_key, $checkbox_rows);
-  }
-
-  //8.- Ask for a rebuild so the table reflects the updated information immediately.
   $form_state->setRebuild(TRUE);
   pds_recipe_executives_set_active_tab($form_state, 'people');
 }
 
 /**
- * Cancel the edit operation and close the form section.
+ * Cancel edit mode and go back to the list tab.
  */
 function pds_recipe_executives_edit_person_cancel_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Gain access to the parent form state when needed.
-  $parent_state = NULL;
-  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-    $parent_state = $form_state->getCompleteFormState();
-  }
-
-  //2.- Clear editing metadata to hide the edit UI.
+  $parent_state = pds_recipe_executives_parent_state($form_state);
   $form_state->set('pds_recipe_executives_editing_index', NULL);
   $form_state->set('pds_recipe_executives_edit_person_payload', NULL);
   if ($parent_state) {
     $parent_state->set('pds_recipe_executives_editing_index', NULL);
     $parent_state->set('pds_recipe_executives_edit_person_payload', NULL);
   }
-
-  //3.- Reset field values so the form shows blank inputs next time.
-  $base_key = isset($form['settings']) ? ['settings', 'executives_ui', 'panes', 'edit_person'] : ['executives_ui', 'panes', 'edit_person'];
-  $form_state->setValue(array_merge($base_key, ['person_name']), '');
-  $form_state->setValue(array_merge($base_key, ['person_role']), '');
-  $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
-  if ($parent_state) {
-    $parent_state->setValue(array_merge($base_key, ['person_name']), '');
-    $parent_state->setValue(array_merge($base_key, ['person_role']), '');
-    $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
-  }
-
-  //4.- Remove any stale user input so subsequent edits load the freshly selected person.
-  $user_input = $form_state->getUserInput();
-  if (!is_array($user_input)) {
-    $user_input = [];
-  }
-  foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
-    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), '');
-  }
-  $form_state->setUserInput($user_input);
-
-  if ($parent_state) {
-    $parent_input = $parent_state->getUserInput();
-    if (!is_array($parent_input)) {
-      $parent_input = [];
-    }
-    foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
-      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), '');
-    }
-    $parent_state->setUserInput($parent_input);
-  }
-
-  //5.- Trigger a rebuild so the collapsed state is reflected.
   $form_state->setRebuild(TRUE);
   pds_recipe_executives_set_active_tab($form_state, 'people');
 }
 
 /**
- * Detects if an array uses consecutive numeric keys starting at zero.
+ * Helper: determine the base form key for nested structures.
  */
-function pds_recipe_executives_is_list(array $array): bool {
-  //1.- Prefer PHP's native helper when available.
-  if (function_exists('array_is_list')) {
-    return array_is_list($array);
+function pds_recipe_executives_base_key(array &$form, FormStateInterface $form_state, array $segments): array {
+  $trigger = $form_state->getTriggeringElement();
+  $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
+  if (in_array('settings', $parents, TRUE) || isset($form['settings'])) {
+    array_unshift($segments, 'settings');
   }
-
-  //2.- Manual fallback for older runtimes.
-  $expected = 0;
-  foreach ($array as $key => $_value) {
-    if ($key !== $expected) {
-      return FALSE;
-    }
-    $expected++;
-  }
-
-  return TRUE;
+  return $segments;
 }
 
 /**
- * Converts mixed values into a strict boolean.
+ * Helper: locate the parent form state when inside a SubformState.
  */
-function pds_recipe_executives_cast_bool($value, bool $default = FALSE): bool {
-  //1.- Direct booleans are returned untouched.
-  if (is_bool($value)) {
-    return $value;
-  }
-
-  //2.- Numeric strings or integers treat non-zero as TRUE.
-  if (is_numeric($value)) {
-    return ((int) $value) !== 0;
-  }
-
-  //3.- Support common textual truthy/falsey values.
-  if (is_string($value)) {
-    $normalized = strtolower(trim($value));
-    if ($normalized === '') {
-      return $default;
-    }
-    if (in_array($normalized, ['1', 'true', 'yes', 'y', 'on', 'principal'], TRUE)) {
-      return TRUE;
-    }
-    if (in_array($normalized, ['0', 'false', 'no', 'n', 'off'], TRUE)) {
-      return FALSE;
+function pds_recipe_executives_parent_state(FormStateInterface $form_state): ?FormStateInterface {
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent = $form_state->getCompleteFormState();
+    if ($parent instanceof FormStateInterface) {
+      return $parent;
     }
   }
-
-  return $default;
-}
-
-/**
- * Cast various numeric inputs ("12", "12.5", "12,5") to float.
- */
-function pds_recipe_executives_parse_numeric($value): ?float {
-  //1.- Null or empty values are ignored.
-  if ($value === NULL || $value === '') {
-    return NULL;
-  }
-
-  //2.- Existing numerics convert directly.
-  if (is_numeric($value)) {
-    return (float) $value;
-  }
-
-  //3.- Normalize decimal separators for string inputs.
-  if (is_string($value)) {
-    $normalized = str_replace(',', '.', trim($value));
-    if ($normalized === '') {
-      return NULL;
-    }
-    if (is_numeric($normalized)) {
-      return (float) $normalized;
-    }
-  }
-
   return NULL;
+}
+
+/**
+ * Helper: determine if an URL is safe for configuration.
+ */
+function pds_recipe_executives_is_allowed_url(string $url): bool {
+  if ($url === '') {
+    return TRUE;
+  }
+  if (UrlHelper::isValid($url, TRUE) || UrlHelper::isValid($url, FALSE)) {
+    return TRUE;
+  }
+  return strpos($url, '/') === 0;
 }
