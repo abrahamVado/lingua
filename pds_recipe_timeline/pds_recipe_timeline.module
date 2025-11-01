@@ -171,20 +171,33 @@ function pds_recipe_timeline_add_person_validate(array &$form, FormStateInterfac
   //1.- Choose the correct keys according to the editing context.
   $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'add_person'] : ['timeline_ui', 'add_person'];
 
-  //2.- Gather author entered values from the UI.
+  //2.- Delegate JSON parsing and sanitizing to the shared helper.
+  pds_recipe_timeline_store_person_payload($form, $form_state, $base_key, 'pds_recipe_timeline_add_person_new_person');
+}
+
+/**
+ * Shared validator that normalizes author supplied person data.
+ */
+function pds_recipe_timeline_store_person_payload(array &$form, FormStateInterface $form_state, array $base_key, string $storage_key): void {
+  //1.- Capture human entered values for reuse by submit handlers.
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
   $role = trim((string) $form_state->getValue(array_merge($base_key, ['person_role'])));
   $milestones_json = trim((string) $form_state->getValue(array_merge($base_key, ['milestones_json'])));
 
+  $error_name = implode('][', array_merge($base_key, ['milestones_json']));
+
+  //2.- Reset the storage slot so stale payloads never leak through.
+  $form_state->set($storage_key, NULL);
+
   if ($milestones_json === '') {
-    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON is required to create a person.'));
+    $form_state->setErrorByName($error_name, t('Milestones JSON is required to create a person.'));
     return;
   }
 
   //3.- Attempt to decode and normalize the JSON payload.
   $decoded = json_decode($milestones_json, TRUE);
   if (!is_array($decoded)) {
-    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('The milestones must be valid JSON.'));
+    $form_state->setErrorByName($error_name, t('The milestones must be valid JSON.'));
     return;
   }
 
@@ -269,16 +282,194 @@ function pds_recipe_timeline_add_person_validate(array &$form, FormStateInterfac
   }
 
   if ($milestones === []) {
-    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON must include at least one entry.'));
+    $form_state->setErrorByName($error_name, t('Milestones JSON must include at least one entry.'));
     return;
   }
 
-  //4.- Share the sanitized payload with the submit handler.
-  $form_state->set('pds_recipe_timeline_add_person_new_person', [
+  //4.- Share the sanitized payload with whichever submit handler will consume it.
+  $form_state->set($storage_key, [
     'name' => $name,
     'role' => $role,
     'milestones' => $milestones,
   ]);
+}
+
+/**
+ * Prepare the edit form with the selected person's data.
+ */
+function pds_recipe_timeline_edit_person_prepare_submit(array &$form, FormStateInterface $form_state): void {
+  //1.- Discover the index chosen for editing.
+  $trigger = $form_state->getTriggeringElement();
+  $index = isset($trigger['#pds_recipe_timeline_edit_index']) && is_numeric($trigger['#pds_recipe_timeline_edit_index'])
+    ? (int) $trigger['#pds_recipe_timeline_edit_index']
+    : NULL;
+  if ($index === NULL) {
+    return;
+  }
+
+  //2.- Retrieve the working snapshot of people.
+  $people = $form_state->get('working_people');
+  if (!is_array($people) || !isset($people[$index]) || !is_array($people[$index])) {
+    return;
+  }
+
+  //3.- Allow the handler to update the parent form state when operating as a subform.
+  $parent_state = NULL;
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent_state = $form_state->getCompleteFormState();
+  }
+
+  //4.- Remember which person is being edited for subsequent rebuilds.
+  $form_state->set('pds_recipe_timeline_editing_index', $index);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_timeline_editing_index', $index);
+  }
+
+  //5.- Populate the edit form inputs with the existing data.
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $person = $people[$index];
+  $name = (string) ($person['name'] ?? '');
+  $role = (string) ($person['role'] ?? '');
+  $milestones_encoded = json_encode($person['milestones'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+  $milestones_json = is_string($milestones_encoded) ? $milestones_encoded : '[]';
+
+  $form_state->setValue(array_merge($base_key, ['person_name']), $name);
+  $form_state->setValue(array_merge($base_key, ['person_role']), $role);
+  $form_state->setValue(array_merge($base_key, ['milestones_json']), $milestones_json);
+
+  if ($parent_state) {
+    $parent_state->setValue(array_merge($base_key, ['person_name']), $name);
+    $parent_state->setValue(array_merge($base_key, ['person_role']), $role);
+    $parent_state->setValue(array_merge($base_key, ['milestones_json']), $milestones_json);
+  }
+
+  //6.- Clear any leftover sanitized payload to avoid stale data.
+  $form_state->set('pds_recipe_timeline_edit_person_payload', NULL);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_timeline_edit_person_payload', NULL);
+  }
+
+  //7.- Trigger a rebuild so the edit details section becomes visible.
+  $form_state->setRebuild(TRUE);
+}
+
+/**
+ * Validate the edit form using the shared normalization routine.
+ */
+function pds_recipe_timeline_edit_person_validate(array &$form, FormStateInterface $form_state): void {
+  //1.- Align with the correct form structure depending on the context.
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+
+  //2.- Parse and store the sanitized payload for the submit handler.
+  pds_recipe_timeline_store_person_payload($form, $form_state, $base_key, 'pds_recipe_timeline_edit_person_payload');
+}
+
+/**
+ * Apply the edited person data to the working list.
+ */
+function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface $form_state): void {
+  //1.- Gather helper references to handle Layout Builder subforms.
+  $parent_state = NULL;
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent_state = $form_state->getCompleteFormState();
+  }
+
+  //2.- Fetch the sanitized payload prepared during validation.
+  $updated_person = $form_state->get('pds_recipe_timeline_edit_person_payload');
+  if (!is_array($updated_person)) {
+    return;
+  }
+
+  //3.- Determine which person should be updated.
+  $index = $form_state->get('pds_recipe_timeline_editing_index');
+  if ($index === NULL && $parent_state) {
+    $index = $parent_state->get('pds_recipe_timeline_editing_index');
+  }
+  if (!is_numeric($index)) {
+    return;
+  }
+  $index = (int) $index;
+
+  //4.- Load and update the working list of people.
+  $people = $form_state->get('working_people');
+  if (!is_array($people) || !isset($people[$index])) {
+    return;
+  }
+
+  $people[$index] = $updated_person;
+  $normalized_people = array_values($people);
+
+  $form_state->set('working_people', $normalized_people);
+  if ($parent_state) {
+    $parent_state->set('working_people', $normalized_people);
+  }
+
+  //5.- Reset the edit metadata so the section collapses after saving.
+  $form_state->set('pds_recipe_timeline_editing_index', NULL);
+  $form_state->set('pds_recipe_timeline_edit_person_payload', NULL);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_timeline_editing_index', NULL);
+    $parent_state->set('pds_recipe_timeline_edit_person_payload', NULL);
+  }
+
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $form_state->setValue(array_merge($base_key, ['person_name']), '');
+  $form_state->setValue(array_merge($base_key, ['person_role']), '');
+  $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  if ($parent_state) {
+    $parent_state->setValue(array_merge($base_key, ['person_name']), '');
+    $parent_state->setValue(array_merge($base_key, ['person_role']), '');
+    $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  }
+
+  //6.- Keep the remove checkboxes aligned with the refreshed list.
+  $table_key = isset($form['settings'])
+    ? ['settings', 'timeline_ui', 'people_list', 'people']
+    : ['timeline_ui', 'people_list', 'people'];
+  $checkbox_rows = [];
+  foreach ($normalized_people as $delta => $_row) {
+    $checkbox_rows[$delta] = ['remove' => 0];
+  }
+  $form_state->setValue($table_key, $checkbox_rows);
+  if ($parent_state) {
+    $parent_state->setValue($table_key, $checkbox_rows);
+  }
+
+  //7.- Ask for a rebuild so the table reflects the updated information immediately.
+  $form_state->setRebuild(TRUE);
+}
+
+/**
+ * Cancel the edit operation and close the form section.
+ */
+function pds_recipe_timeline_edit_person_cancel_submit(array &$form, FormStateInterface $form_state): void {
+  //1.- Gain access to the parent form state when needed.
+  $parent_state = NULL;
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent_state = $form_state->getCompleteFormState();
+  }
+
+  //2.- Clear editing metadata to hide the edit UI.
+  $form_state->set('pds_recipe_timeline_editing_index', NULL);
+  $form_state->set('pds_recipe_timeline_edit_person_payload', NULL);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_timeline_editing_index', NULL);
+    $parent_state->set('pds_recipe_timeline_edit_person_payload', NULL);
+  }
+
+  //3.- Reset field values so the form shows blank inputs next time.
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $form_state->setValue(array_merge($base_key, ['person_name']), '');
+  $form_state->setValue(array_merge($base_key, ['person_role']), '');
+  $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  if ($parent_state) {
+    $parent_state->setValue(array_merge($base_key, ['person_name']), '');
+    $parent_state->setValue(array_merge($base_key, ['person_role']), '');
+    $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  }
+
+  //4.- Trigger a rebuild so the collapsed state is reflected.
+  $form_state->setRebuild(TRUE);
 }
 
 /**
