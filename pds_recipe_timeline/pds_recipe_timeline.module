@@ -186,25 +186,45 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
   if (!is_array($values) && $parent_state) {
     $values = $parent_state->getValue($table_key);
   }
+
+  //5.- When processed values are missing, consult the raw user input as fallback.
+  if (!is_array($values)) {
+    $input = $form_state->getUserInput();
+    if (is_array($input)) {
+      $raw_values = NestedArray::getValue($input, $table_key);
+      if (is_array($raw_values)) {
+        $values = $raw_values;
+      }
+    }
+  }
+  if (!is_array($values) && $parent_state) {
+    $parent_input = $parent_state->getUserInput();
+    if (is_array($parent_input)) {
+      $raw_values = NestedArray::getValue($parent_input, $table_key);
+      if (is_array($raw_values)) {
+        $values = $raw_values;
+      }
+    }
+  }
   if (!is_array($values)) {
     $values = [];
   }
 
-  //5.- Remove any person whose checkbox was selected.
+  //6.- Remove any person whose checkbox was selected.
   foreach ($values as $delta => $row) {
     if (!empty($row['remove']) && isset($people[$delta])) {
       unset($people[$delta]);
     }
   }
 
-  //6.- Save filtered results back to the form state hierarchy for subsequent rebuilds.
+  //7.- Save filtered results back to the form state hierarchy for subsequent rebuilds.
   $normalized_people = array_values($people);
   $form_state->set('working_people', $normalized_people);
   if ($parent_state) {
     $parent_state->set('working_people', $normalized_people);
   }
 
-  //7.- Reset checkbox submissions so future clicks start from a clean state.
+  //8.- Reset checkbox submissions so future clicks start from a clean state.
   $fresh_values = [];
   foreach ($normalized_people as $index => $_row) {
     $fresh_values[$index] = ['remove' => 0];
@@ -214,7 +234,20 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
     $parent_state->setValue($table_key, $fresh_values);
   }
 
-  //8.- Ask Drupal to rebuild the form to reflect the removal immediately.
+  $user_input = $form_state->getUserInput();
+  if (is_array($user_input)) {
+    NestedArray::setValue($user_input, $table_key, $fresh_values);
+    $form_state->setUserInput($user_input);
+  }
+  if ($parent_state) {
+    $parent_input = $parent_state->getUserInput();
+    if (is_array($parent_input)) {
+      NestedArray::setValue($parent_input, $table_key, $fresh_values);
+      $parent_state->setUserInput($parent_input);
+    }
+  }
+
+  //9.- Ask Drupal to rebuild the form to reflect the removal immediately.
   $form_state->setRebuild(TRUE);
   pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
