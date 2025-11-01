@@ -520,9 +520,61 @@ function pds_recipe_executives_build_file_url(File $file): ?string {
   }
 
   //2.- Normalize to a relative path so configuration stays environment agnostic.
-  $relative = file_url_transform_relative($absolute);
+  $relative = NULL;
+  if (method_exists($generator, 'transformRelative')) {
+    $relative = $generator->transformRelative($absolute);
+  }
+  if (!is_string($relative) || $relative === '') {
+    $relative = pds_recipe_executives_transform_relative_fallback($absolute);
+  }
   if (!is_string($relative) || $relative === '') {
     return NULL;
+  }
+
+  return $relative;
+}
+
+
+/**
+ * Convert an absolute URL into a site-relative path when core helper is absent.
+ */
+function pds_recipe_executives_transform_relative_fallback(string $absolute): ?string {
+  //1.- Abort when the provided value is not an absolute URL.
+  if (!UrlHelper::isValid($absolute, TRUE)) {
+    return NULL;
+  }
+
+  //2.- Extract path, query, and fragment components.
+  $parts = parse_url($absolute);
+  if ($parts === FALSE) {
+    return NULL;
+  }
+  $relative = $parts['path'] ?? '';
+  if (isset($parts['query']) && $parts['query'] !== '') {
+    $relative .= '?' . $parts['query'];
+  }
+  if (isset($parts['fragment']) && $parts['fragment'] !== '') {
+    $relative .= '#' . $parts['fragment'];
+  }
+  if ($relative === '') {
+    return NULL;
+  }
+
+  //3.- Remove the application's base path when available.
+  if (\Drupal::hasService('request_stack')) {
+    $request = \Drupal::service('request_stack')->getCurrentRequest();
+    if ($request) {
+      $base_path = $request->getBasePath();
+      if ($base_path !== '' && strpos($relative, $base_path) === 0) {
+        $relative = substr($relative, strlen($base_path));
+        if ($relative === '') {
+          $relative = '/';
+        }
+        elseif ($relative[0] !== '/') {
+          $relative = '/' . $relative;
+        }
+      }
+    }
   }
 
   return $relative;
