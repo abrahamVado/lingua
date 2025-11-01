@@ -1,5 +1,6 @@
 <?php
 
+use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
 
@@ -96,10 +97,26 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
   $form_state->setValue(array_merge($base_key, ['person_name']), '');
   $form_state->setValue(array_merge($base_key, ['person_role']), '');
   $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$input_key]), '');
+  }
+  $form_state->setUserInput($user_input);
   if ($parent_state) {
     $parent_state->setValue(array_merge($base_key, ['person_name']), '');
     $parent_state->setValue(array_merge($base_key, ['person_role']), '');
     $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    foreach (['person_name', 'person_role', 'milestones_json'] as $input_key) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$input_key]), '');
+    }
+    $parent_state->setUserInput($parent_input);
   }
 
   //7.- Keep checkbox submissions aligned with the refreshed list of people.
