@@ -238,6 +238,7 @@ final class PdsTimelineBlock extends BlockBase {
       '#type' => 'submit',
       '#value' => $this->t('Add person'),
       '#name' => 'pds_recipe_timeline_add_person',
+      '#validate' => ['pds_recipe_timeline_add_person_validate'],
       '#submit' => ['pds_recipe_timeline_add_person_submit'],
       '#limit_validation_errors' => [
         ['timeline_ui', 'add_person'],
