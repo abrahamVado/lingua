@@ -70,6 +70,19 @@
   font-display: swap;
 }
 
+:root {
+  --principal-left-col: 140px;
+  --principal-row-h: 69px;
+  --principal-container: 1140px;
+  --principal-title: #2a2e33;
+  --principal-line: #d9dde2;
+  --principal-gray: #5b6168;
+  --principal-blue: #0f6ad9;
+  --principal-dot: #404449;
+  --principal-name: #616267;
+  --principal-role: #616267;
+}
+
 .principal-timeline {
   max-width: var(--principal-container, 1140px);
   margin-inline: auto;
@@ -148,7 +161,7 @@
   top: 50%;
   transform: translateY(-50%);
   height: 2px;
-  background: var(--principal-gray, #5b6168);
+  background: var(--principal-line, #d9dde2);
 }
 
 .principal-timeline__job-segment--principal .principal-timeline__job-segment-line {
@@ -162,7 +175,7 @@
   transform: translate(-6px, -50%);
   width: 10px; height: 10px;
   border-radius: 2px;
-  background: var(--principal-gray, #5b6168);
+  background: var(--principal-dot, #404449);
 }
 
 .principal-timeline__job-segment--principal .principal-timeline__job-segment-line::before {
@@ -209,6 +222,42 @@
   margin: 6px auto 0;
 }
 
+.principal-timeline__tooltip {
+  position: absolute;
+  z-index: 30;
+  max-width: 320px;
+  background: #fff;
+  border: 1px solid #cfd3d8;
+  padding: 10px 14px;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  color: #2c3136;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+  transform: translateZ(0);
+  text-align: center;
+}
+
+.principal-timeline__tooltip img {
+  max-width: 100px;
+  height: auto;
+  display: block;
+  margin: 6px auto 0;
+}
+
+.principal-timeline__tooltip--principal {
+  background-color: #e1f3ff;
+  color: #0076CF;
+  border-color: #0076CF;
+}
+
+.principal-timeline__tooltip--default {
+  background-color: #f4f4f4;
+  border-color: #555555;
+  color: #2c3136;
+}
+
 .principal-timeline__job-segment--principal .principal-timeline__job-info {
   background-color: #e1f3ff;
   color: #0076CF;
@@ -233,6 +282,10 @@
 .principal-timeline__track { width: 100%; }
 
 @media (max-width: 900px) {
+  :root {
+    --principal-row-h: 62px;
+    --principal-container: 94vw;
+  }
   .principal-timeline__years { padding-left: calc(var(--principal-left-col, 140px) + 18px); }
 }
 @media (max-width: 640px) {

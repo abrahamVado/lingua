@@ -15,3 +15,6 @@ pds_timeline.public:
     theme:
       assets/css/pds-timeline.public.css: {}
   # Attached in the block build() so it shows on the front.
+  dependencies:
+    - core/drupal
+    - core/once

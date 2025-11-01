@@ -15,7 +15,10 @@ function pds_recipe_timeline_theme($existing, $type, $theme, $path) {
       'template' => 'pds-timeline', // templates/pds-timeline.html.twig
       'path' => $path . '/templates',
       'variables' => [
-        'events' => [],
+        'title' => '',
+        'years' => [],
+        'rows' => [],
+        'timeline_id' => 'principal-timeline',
       ],
     ],
   ];
@@ -186,16 +189,83 @@ function pds_recipe_timeline_add_person_validate(array &$form, FormStateInterfac
   }
 
   $milestones = [];
-  foreach ($decoded as $year => $text) {
-    $year_str = trim((string) $year);
-    $text_str = trim((string) $text);
-    if ($year_str === '' && $text_str === '') {
-      continue;
+
+  if (pds_recipe_timeline_is_list($decoded)) {
+    foreach ($decoded as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+
+      $year = trim((string) ($item['year'] ?? ''));
+      $text = trim((string) ($item['text'] ?? ''));
+      $info = trim((string) ($item['info'] ?? ''));
+      $info_html = trim((string) ($item['info_html'] ?? ''));
+      $width = pds_recipe_timeline_parse_numeric($item['width'] ?? ($item['width_percent'] ?? $item['width_pct'] ?? NULL));
+      $principal = array_key_exists('principal', $item)
+        ? pds_recipe_timeline_cast_bool($item['principal'])
+        : (isset($item['type']) && strtolower((string) $item['type']) === 'principal');
+      $first = array_key_exists('first', $item)
+        ? pds_recipe_timeline_cast_bool($item['first'])
+        : (array_key_exists('is_first', $item) ? pds_recipe_timeline_cast_bool($item['is_first']) : FALSE);
+      $img_src = trim((string) ($item['img_src'] ?? $item['image'] ?? ''));
+      $img_alt = trim((string) ($item['img_alt'] ?? $item['image_alt'] ?? ''));
+
+      if ($year === '' && $text === '' && $info === '' && $info_html === '' && $img_src === '' && $img_alt === '' && $width === NULL && !$principal && !$first) {
+        continue;
+      }
+
+      $entry = [];
+      if ($year !== '') {
+        $entry['year'] = $year;
+      }
+      if ($text !== '') {
+        $entry['text'] = $text;
+      }
+      if ($info !== '') {
+        $entry['info'] = $info;
+      }
+      if ($info_html !== '') {
+        $entry['info_html'] = $info_html;
+      }
+      if ($width !== NULL && $width > 0) {
+        $entry['width'] = $width;
+      }
+      if ($principal) {
+        $entry['principal'] = TRUE;
+      }
+      if ($first) {
+        $entry['first'] = TRUE;
+      }
+      if ($img_src !== '') {
+        $entry['img_src'] = $img_src;
+      }
+      if ($img_alt !== '') {
+        $entry['img_alt'] = $img_alt;
+      }
+
+      if ($entry !== []) {
+        $milestones[] = $entry;
+      }
     }
-    $milestones[] = [
-      'year' => $year_str,
-      'text' => $text_str,
-    ];
+  }
+  else {
+    foreach ($decoded as $year => $text) {
+      $year_str = trim((string) $year);
+      $text_str = trim((string) $text);
+      if ($year_str === '' && $text_str === '') {
+        continue;
+      }
+      $milestones[] = [
+        'year' => $year_str,
+        'text' => $text_str,
+      ];
+    }
+
+    if ($milestones !== []) {
+      usort($milestones, static function (array $a, array $b): int {
+        return strcmp($a['year'], $b['year']);
+      });
+    }
   }
 
   if ($milestones === []) {
@@ -203,15 +273,90 @@ function pds_recipe_timeline_add_person_validate(array &$form, FormStateInterfac
     return;
   }
 
-  //4.- Sort milestones by year to maintain chronological order.
-  usort($milestones, static function (array $a, array $b): int {
-    return strcmp($a['year'], $b['year']);
-  });
-
-  //5.- Share the sanitized payload with the submit handler.
+  //4.- Share the sanitized payload with the submit handler.
   $form_state->set('pds_recipe_timeline_add_person_new_person', [
     'name' => $name,
     'role' => $role,
     'milestones' => $milestones,
   ]);
+}
+
+/**
+ * Detects if an array uses consecutive numeric keys starting at zero.
+ */
+function pds_recipe_timeline_is_list(array $array): bool {
+  //1.- Prefer PHP's native helper when available.
+  if (function_exists('array_is_list')) {
+    return array_is_list($array);
+  }
+
+  //2.- Manual fallback for older runtimes.
+  $expected = 0;
+  foreach ($array as $key => $_value) {
+    if ($key !== $expected) {
+      return FALSE;
+    }
+    $expected++;
+  }
+
+  return TRUE;
+}
+
+/**
+ * Converts mixed values into a strict boolean.
+ */
+function pds_recipe_timeline_cast_bool($value, bool $default = FALSE): bool {
+  //1.- Direct booleans are returned untouched.
+  if (is_bool($value)) {
+    return $value;
+  }
+
+  //2.- Numeric strings or integers treat non-zero as TRUE.
+  if (is_numeric($value)) {
+    return ((int) $value) !== 0;
+  }
+
+  //3.- Support common textual truthy/falsey values.
+  if (is_string($value)) {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+      return $default;
+    }
+    if (in_array($normalized, ['1', 'true', 'yes', 'y', 'on', 'principal'], TRUE)) {
+      return TRUE;
+    }
+    if (in_array($normalized, ['0', 'false', 'no', 'n', 'off'], TRUE)) {
+      return FALSE;
+    }
+  }
+
+  return $default;
+}
+
+/**
+ * Cast various numeric inputs ("12", "12.5", "12,5") to float.
+ */
+function pds_recipe_timeline_parse_numeric($value): ?float {
+  //1.- Null or empty values are ignored.
+  if ($value === NULL || $value === '') {
+    return NULL;
+  }
+
+  //2.- Existing numerics convert directly.
+  if (is_numeric($value)) {
+    return (float) $value;
+  }
+
+  //3.- Normalize decimal separators for string inputs.
+  if (is_string($value)) {
+    $normalized = str_replace(',', '.', trim($value));
+    if ($normalized === '') {
+      return NULL;
+    }
+    if (is_numeric($normalized)) {
+      return (float) $normalized;
+    }
+  }
+
+  return NULL;
 }
