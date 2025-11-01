@@ -474,8 +474,17 @@ final class PdsExecutivesBlock extends BlockBase {
   public function blockSubmit($form, FormStateInterface $form_state): void {
     $cfg = $this->getConfiguration();
 
-    $this->configuration['title'] = trim((string) $form_state->getValue('title') ?? '');
-    $this->configuration['section_id'] = trim((string) $form_state->getValue('section_id') ?? 'principal-executives');
+    $submitted_title = $this->extractSubmittedString($form_state, 'title');
+    $submitted_section_id = $this->extractSubmittedString($form_state, 'section_id');
+
+    //1.- Persist the sanitized section heading while allowing empty titles to
+    //    fall back to the default block label.
+    $this->configuration['title'] = $submitted_title;
+
+    //2.- Guarantee a predictable DOM id even when the form omits the field.
+    $this->configuration['section_id'] = $submitted_section_id !== ''
+      ? $submitted_section_id
+      : 'principal-executives';
 
     $executives = self::getWorkingExecutives($form_state, $cfg['executives'] ?? []);
     $clean = [];
@@ -545,6 +554,45 @@ final class PdsExecutivesBlock extends BlockBase {
     }
 
     return array_values(is_array($cfg_people) ? $cfg_people : []);
+  }
+
+  /**
+   * Extract a scalar string value from the form state across nesting levels.
+   */
+  private function extractSubmittedString(FormStateInterface $form_state, string $key): string {
+    //1.- Compile every plausible location for the requested value, accounting
+    //    for Layout Builder subforms that wrap configuration under settings.
+    $candidates = [];
+    $direct_value = $form_state->getValue($key);
+    if ($direct_value !== NULL) {
+      $candidates[] = $direct_value;
+    }
+    $settings_value = $form_state->getValue(['settings', $key]);
+    if ($settings_value !== NULL) {
+      $candidates[] = $settings_value;
+    }
+    if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+      $parent_state = $form_state->getCompleteFormState();
+      if ($parent_state instanceof FormStateInterface) {
+        $parent_direct = $parent_state->getValue($key);
+        if ($parent_direct !== NULL) {
+          $candidates[] = $parent_direct;
+        }
+        $parent_settings = $parent_state->getValue(['settings', $key]);
+        if ($parent_settings !== NULL) {
+          $candidates[] = $parent_settings;
+        }
+      }
+    }
+
+    //2.- Return the first string candidate after trimming whitespace.
+    foreach ($candidates as $candidate) {
+      if (is_string($candidate)) {
+        return trim($candidate);
+      }
+    }
+
+    return '';
   }
 
   /**
