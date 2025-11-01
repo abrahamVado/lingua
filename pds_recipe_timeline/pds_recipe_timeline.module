@@ -41,62 +41,25 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
   //1.- Decide if the block is being edited inside Layout Builder or directly.
   $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'add_person'] : ['timeline_ui', 'add_person'];
 
-  //2.- Pull author provided values from the "New People" tab.
-  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
-  $role = trim((string) $form_state->getValue(array_merge($base_key, ['person_role'])));
-  $milestones_json = trim((string) $form_state->getValue(array_merge($base_key, ['milestones_json'])));
-
-  if ($milestones_json === '') {
-    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON is required to create a person.'));
+  //2.- Retrieve sanitized information prepared by the validation handler.
+  $new_person = $form_state->get('pds_recipe_timeline_add_person_new_person');
+  if (!is_array($new_person) || ($new_person['milestones'] ?? []) === []) {
     return;
   }
 
-  //3.- Decode the provided JSON structure and normalize it.
-  $decoded = json_decode($milestones_json, TRUE);
-  if (!is_array($decoded)) {
-    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('The milestones must be valid JSON.'));
-    return;
-  }
-
-  $milestones = [];
-  foreach ($decoded as $year => $text) {
-    $year_str = trim((string) $year);
-    $text_str = trim((string) $text);
-    if ($year_str === '' && $text_str === '') {
-      continue;
-    }
-    $milestones[] = [
-      'year' => $year_str,
-      'text' => $text_str,
-    ];
-  }
-
-  if ($milestones === []) {
-    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON must include at least one entry.'));
-    return;
-  }
-
-  //4.- Sort milestones by year to keep a clean timeline ordering.
-  usort($milestones, static function (array $a, array $b): int {
-    return strcmp($a['year'], $b['year']);
-  });
-
-  //5.- Append the new person to the working list and rebuild.
+  //3.- Append the new person to the working list and rebuild.
   $people = $form_state->get('working_people');
   if (!is_array($people)) {
     $people = [];
   }
 
-  $people[] = [
-    'name' => $name,
-    'role' => $role,
-    'milestones' => $milestones,
-  ];
+  $people[] = $new_person;
 
   $form_state->set('working_people', array_values($people));
   $form_state->setValue(array_merge($base_key, ['person_name']), '');
   $form_state->setValue(array_merge($base_key, ['person_role']), '');
   $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  $form_state->set('pds_recipe_timeline_add_person_new_person', NULL);
   $form_state->setRebuild(TRUE);
 }
 
@@ -128,4 +91,59 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
   //4.- Save filtered results back to the form state and rebuild UI.
   $form_state->set('working_people', array_values($people));
   $form_state->setRebuild(TRUE);
+}
+
+/**
+ * "Add person" validation handler.
+ */
+function pds_recipe_timeline_add_person_validate(array &$form, FormStateInterface $form_state): void {
+  //1.- Choose the correct keys according to the editing context.
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'add_person'] : ['timeline_ui', 'add_person'];
+
+  //2.- Gather author entered values from the UI.
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
+  $role = trim((string) $form_state->getValue(array_merge($base_key, ['person_role'])));
+  $milestones_json = trim((string) $form_state->getValue(array_merge($base_key, ['milestones_json'])));
+
+  if ($milestones_json === '') {
+    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON is required to create a person.'));
+    return;
+  }
+
+  //3.- Attempt to decode and normalize the JSON payload.
+  $decoded = json_decode($milestones_json, TRUE);
+  if (!is_array($decoded)) {
+    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('The milestones must be valid JSON.'));
+    return;
+  }
+
+  $milestones = [];
+  foreach ($decoded as $year => $text) {
+    $year_str = trim((string) $year);
+    $text_str = trim((string) $text);
+    if ($year_str === '' && $text_str === '') {
+      continue;
+    }
+    $milestones[] = [
+      'year' => $year_str,
+      'text' => $text_str,
+    ];
+  }
+
+  if ($milestones === []) {
+    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON must include at least one entry.'));
+    return;
+  }
+
+  //4.- Sort milestones by year to maintain chronological order.
+  usort($milestones, static function (array $a, array $b): int {
+    return strcmp($a['year'], $b['year']);
+  });
+
+  //5.- Share the sanitized payload with the submit handler.
+  $form_state->set('pds_recipe_timeline_add_person_new_person', [
+    'name' => $name,
+    'role' => $role,
+    'milestones' => $milestones,
+  ]);
 }
