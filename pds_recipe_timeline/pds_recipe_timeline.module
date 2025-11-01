@@ -1,6 +1,7 @@
 <?php
 
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Form\SubformStateInterface;
 
 /**
  * Implements hook_theme().
@@ -38,16 +39,26 @@ function pds_recipe_timeline_ajax_events(array &$form, FormStateInterface $form_
  * "Add person" submit handler.
  */
 function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Decide if the block is being edited inside Layout Builder or directly.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'add_person'] : ['timeline_ui', 'add_person'];
+  //1.- Determine the correct root path regardless of Layout Builder or direct edit.
+  $trigger = $form_state->getTriggeringElement();
+  $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
+  $base_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
+    ? ['settings', 'timeline_ui', 'add_person']
+    : ['timeline_ui', 'add_person'];
 
-  //2.- Retrieve sanitized information prepared by the validation handler.
+  //2.- Gain access to the parent form state when operating inside a subform context.
+  $parent_state = NULL;
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent_state = $form_state->getCompleteFormState();
+  }
+
+  //3.- Retrieve sanitized information prepared by the validation handler.
   $new_person = $form_state->get('pds_recipe_timeline_add_person_new_person');
   if (!is_array($new_person) || ($new_person['milestones'] ?? []) === []) {
     return;
   }
 
-  //3.- Append the new person to the working list and rebuild.
+  //4.- Append the new person to the working list stored in form state.
   $people = $form_state->get('working_people');
   if (!is_array($people)) {
     $people = [];
@@ -55,10 +66,37 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
 
   $people[] = $new_person;
 
-  $form_state->set('working_people', array_values($people));
+  //5.- Sync the working snapshot across the current and parent form states.
+  $normalized_people = array_values($people);
+  $form_state->set('working_people', $normalized_people);
+  if ($parent_state) {
+    $parent_state->set('working_people', $normalized_people);
+  }
+
+  //6.- Reset author-facing inputs so the form is ready for the next addition.
   $form_state->setValue(array_merge($base_key, ['person_name']), '');
   $form_state->setValue(array_merge($base_key, ['person_role']), '');
   $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  if ($parent_state) {
+    $parent_state->setValue(array_merge($base_key, ['person_name']), '');
+    $parent_state->setValue(array_merge($base_key, ['person_role']), '');
+    $parent_state->setValue(array_merge($base_key, ['milestones_json']), '');
+  }
+
+  //7.- Keep checkbox submissions aligned with the refreshed list of people.
+  $table_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
+    ? ['settings', 'timeline_ui', 'people_list', 'people']
+    : ['timeline_ui', 'people_list', 'people'];
+  $checkbox_rows = [];
+  foreach ($normalized_people as $index => $_row) {
+    $checkbox_rows[$index] = ['remove' => 0];
+  }
+  $form_state->setValue($table_key, $checkbox_rows);
+  if ($parent_state) {
+    $parent_state->setValue($table_key, $checkbox_rows);
+  }
+
+  //8.- Clear the temporary storage and force a rebuild to refresh the UI.
   $form_state->set('pds_recipe_timeline_add_person_new_person', NULL);
   $form_state->setRebuild(TRUE);
 }
@@ -67,29 +105,59 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
  * "Remove selected" submit handler for the people table.
  */
 function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Identify the correct path where checkboxes live depending on context.
-  $table_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'people_list', 'people'] : ['timeline_ui', 'people_list', 'people'];
+  //1.- Figure out where the table values live by inspecting the triggering element.
+  $trigger = $form_state->getTriggeringElement();
+  $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
+  $table_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
+    ? ['settings', 'timeline_ui', 'people_list', 'people']
+    : ['timeline_ui', 'people_list', 'people'];
 
-  //2.- Collect the working snapshot that stores the actual person data.
+  //2.- Obtain the parent form state when operating inside Layout Builder subforms.
+  $parent_state = NULL;
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent_state = $form_state->getCompleteFormState();
+  }
+
+  //3.- Collect the working snapshot that stores the actual person data.
   $people = $form_state->get('working_people');
   if (!is_array($people)) {
     $people = [];
   }
 
+  //4.- Read checkbox submissions from either the current or parent form state.
   $values = $form_state->getValue($table_key);
+  if (!is_array($values) && $parent_state) {
+    $values = $parent_state->getValue($table_key);
+  }
   if (!is_array($values)) {
     $values = [];
   }
 
-  //3.- Remove any person whose checkbox was selected.
+  //5.- Remove any person whose checkbox was selected.
   foreach ($values as $delta => $row) {
     if (!empty($row['remove']) && isset($people[$delta])) {
       unset($people[$delta]);
     }
   }
 
-  //4.- Save filtered results back to the form state and rebuild UI.
-  $form_state->set('working_people', array_values($people));
+  //6.- Save filtered results back to the form state hierarchy for subsequent rebuilds.
+  $normalized_people = array_values($people);
+  $form_state->set('working_people', $normalized_people);
+  if ($parent_state) {
+    $parent_state->set('working_people', $normalized_people);
+  }
+
+  //7.- Reset checkbox submissions so future clicks start from a clean state.
+  $fresh_values = [];
+  foreach ($normalized_people as $index => $_row) {
+    $fresh_values[$index] = ['remove' => 0];
+  }
+  $form_state->setValue($table_key, $fresh_values);
+  if ($parent_state) {
+    $parent_state->setValue($table_key, $fresh_values);
+  }
+
+  //8.- Ask Drupal to rebuild the form to reflect the removal immediately.
   $form_state->setRebuild(TRUE);
 }
 
