@@ -254,6 +254,8 @@ final class PdsTimelineBlock extends BlockBase {
       '#open' => TRUE,
     ];
 
+    $editing_index = self::getEditingIndex($form_state);
+
     $form['timeline_ui']['people_list']['people'] = [
       '#type' => 'table',
       '#tree' => TRUE,
@@ -261,6 +263,7 @@ final class PdsTimelineBlock extends BlockBase {
         $this->t('Header'),
         $this->t('Subheader'),
         $this->t('Milestones'),
+        $this->t('Edit'),
         $this->t('Remove'),
       ],
       '#empty' => $this->t('No people yet. Add a person using the New People tab.'),
@@ -336,6 +339,19 @@ final class PdsTimelineBlock extends BlockBase {
           '#theme' => 'item_list',
           '#items' => $milestone_items,
         ];
+      $form['timeline_ui']['people_list']['people'][$index]['edit'] = [
+        '#type' => 'submit',
+        '#value' => $this->t('Edit'),
+        '#name' => 'pds_recipe_timeline_edit_person_' . $index,
+        '#submit' => ['pds_recipe_timeline_edit_person_prepare_submit'],
+        '#limit_validation_errors' => [],
+        '#ajax' => [
+          'callback' => 'pds_recipe_timeline_ajax_events',
+          'wrapper' => 'pds-timeline-form',
+        ],
+        '#attributes' => ['class' => ['pds-recipe-timeline-edit-person']],
+        '#pds_recipe_timeline_edit_index' => $index,
+      ];
       $form['timeline_ui']['people_list']['people'][$index]['remove'] = [
         '#type' => 'checkbox',
         '#title' => $this->t('Remove'),
@@ -352,6 +368,72 @@ final class PdsTimelineBlock extends BlockBase {
       '#limit_validation_errors' => [
         ['timeline_ui', 'people_list', 'people'],
       ],
+      '#ajax' => [
+        'callback' => 'pds_recipe_timeline_ajax_events',
+        'wrapper' => 'pds-timeline-form',
+      ],
+    ];
+
+    $form['timeline_ui']['edit_person'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Edit person'),
+      '#group' => 'tabs',
+      '#open' => $editing_index !== NULL,
+      '#access' => $editing_index !== NULL,
+    ];
+
+    $editing_person = ($editing_index !== NULL && isset($people_working[$editing_index])) ? $people_working[$editing_index] : NULL;
+
+    $form['timeline_ui']['edit_person']['person_name'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Header'),
+      '#required' => FALSE,
+      '#default_value' => is_array($editing_person) ? (string) ($editing_person['name'] ?? '') : '',
+    ];
+
+    $form['timeline_ui']['edit_person']['person_role'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subheader'),
+      '#required' => FALSE,
+      '#default_value' => is_array($editing_person) ? (string) ($editing_person['role'] ?? '') : '',
+    ];
+
+    $edit_milestones = NULL;
+    if (is_array($editing_person)) {
+      $encoded = json_encode($editing_person['milestones'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+      $edit_milestones = is_string($encoded) ? $encoded : '[]';
+    }
+
+    $form['timeline_ui']['edit_person']['milestones_json'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Milestones JSON'),
+      '#description' => $this->t('Provide milestones in JSON format, for example {"1990":"Started program","1995":"Promoted"}.'),
+      '#rows' => 5,
+      '#default_value' => $edit_milestones ?? '',
+    ];
+
+    $form['timeline_ui']['edit_person']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['edit_person']['actions']['save_person'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Save changes'),
+      '#name' => 'pds_recipe_timeline_save_person',
+      '#validate' => ['pds_recipe_timeline_edit_person_validate'],
+      '#submit' => ['pds_recipe_timeline_edit_person_submit'],
+      '#limit_validation_errors' => [
+        ['timeline_ui', 'edit_person'],
+      ],
+      '#ajax' => [
+        'callback' => 'pds_recipe_timeline_ajax_events',
+        'wrapper' => 'pds-timeline-form',
+      ],
+    ];
+
+    $form['timeline_ui']['edit_person']['actions']['cancel_edit'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Cancel'),
+      '#name' => 'pds_recipe_timeline_cancel_edit',
+      '#limit_validation_errors' => [],
+      '#submit' => ['pds_recipe_timeline_edit_person_cancel_submit'],
       '#ajax' => [
         'callback' => 'pds_recipe_timeline_ajax_events',
         'wrapper' => 'pds-timeline-form',
@@ -494,6 +576,32 @@ final class PdsTimelineBlock extends BlockBase {
     }
 
     return array_values(is_array($cfg_people) ? $cfg_people : []);
+  }
+
+  /**
+   * Determine which person is currently being edited, if any.
+   */
+  private static function getEditingIndex(FormStateInterface $form_state): ?int {
+    $is_sub = $form_state instanceof SubformStateInterface;
+
+    if ($form_state->has('pds_recipe_timeline_editing_index')) {
+      $index = $form_state->get('pds_recipe_timeline_editing_index');
+      if (is_numeric($index)) {
+        return (int) $index;
+      }
+    }
+
+    if ($is_sub && method_exists($form_state, 'getCompleteFormState')) {
+      $parent = $form_state->getCompleteFormState();
+      if ($parent && $parent->has('pds_recipe_timeline_editing_index')) {
+        $index = $parent->get('pds_recipe_timeline_editing_index');
+        if (is_numeric($index)) {
+          return (int) $index;
+        }
+      }
+    }
+
+    return NULL;
   }
 
   /**
