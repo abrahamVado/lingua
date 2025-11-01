@@ -35,56 +35,97 @@ function pds_recipe_timeline_ajax_events(array &$form, FormStateInterface $form_
 }
 
 /**
- * "Add event" submit handler.
+ * "Add person" submit handler.
  */
-function pds_recipe_timeline_add_event_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Detect Layout Builder vs normal block edit so we know the value path.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'events'] : ['timeline_ui', 'events'];
+function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface $form_state): void {
+  //1.- Decide if the block is being edited inside Layout Builder or directly.
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'add_person'] : ['timeline_ui', 'add_person'];
 
-  //2.- Attempt to pull current table rows and fallback to working copy.
-  $events = $form_state->getValue($base_key);
-  if (!is_array($events) || $events === []) {
-    $snapshot = $form_state->get('working_events');
-    $events = is_array($snapshot) ? $snapshot : [];
+  //2.- Pull author provided values from the "New People" tab.
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
+  $role = trim((string) $form_state->getValue(array_merge($base_key, ['person_role'])));
+  $milestones_json = trim((string) $form_state->getValue(array_merge($base_key, ['milestones_json'])));
+
+  if ($milestones_json === '') {
+    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON is required to create a person.'));
+    return;
   }
 
-  //3.- Append a blank event row ready for author input.
-  $events[] = [
-    'year' => '',
-    'headline' => '',
-    'summary' => '',
-    'cta_label' => '',
-    'cta_url' => '',
-    'remove' => 0,
+  //3.- Decode the provided JSON structure and normalize it.
+  $decoded = json_decode($milestones_json, TRUE);
+  if (!is_array($decoded)) {
+    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('The milestones must be valid JSON.'));
+    return;
+  }
+
+  $milestones = [];
+  foreach ($decoded as $year => $text) {
+    $year_str = trim((string) $year);
+    $text_str = trim((string) $text);
+    if ($year_str === '' && $text_str === '') {
+      continue;
+    }
+    $milestones[] = [
+      'year' => $year_str,
+      'text' => $text_str,
+    ];
+  }
+
+  if ($milestones === []) {
+    $form_state->setErrorByName('timeline_ui][add_person][milestones_json', t('Milestones JSON must include at least one entry.'));
+    return;
+  }
+
+  //4.- Sort milestones by year to keep a clean timeline ordering.
+  usort($milestones, static function (array $a, array $b): int {
+    return strcmp($a['year'], $b['year']);
+  });
+
+  //5.- Append the new person to the working list and rebuild.
+  $people = $form_state->get('working_people');
+  if (!is_array($people)) {
+    $people = [];
+  }
+
+  $people[] = [
+    'name' => $name,
+    'role' => $role,
+    'milestones' => $milestones,
   ];
 
-  //4.- Persist updated rows into form_state and working snapshot for AJAX flows.
-  $form_state->setValue($base_key, $events);
-  $form_state->set('working_events', $events);
+  $form_state->set('working_people', array_values($people));
+  $form_state->setValue(array_merge($base_key, ['person_name']), '');
+  $form_state->setValue(array_merge($base_key, ['person_role']), '');
+  $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
   $form_state->setRebuild(TRUE);
 }
 
 /**
- * "Remove selected" submit handler.
+ * "Remove selected" submit handler for the people table.
  */
-function pds_recipe_timeline_remove_selected_submit(array &$form, FormStateInterface $form_state): void {
-  //1.- Identify the correct value key depending on Layout Builder context.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'events'] : ['timeline_ui', 'events'];
+function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterface $form_state): void {
+  //1.- Identify the correct path where checkboxes live depending on context.
+  $table_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'people_list', 'people'] : ['timeline_ui', 'people_list', 'people'];
 
-  //2.- Read rows either from submitted values or the working snapshot.
-  $events = $form_state->getValue($base_key);
-  if (!is_array($events) || $events === []) {
-    $snapshot = $form_state->get('working_events');
-    $events = is_array($snapshot) ? $snapshot : [];
+  //2.- Collect the working snapshot that stores the actual person data.
+  $people = $form_state->get('working_people');
+  if (!is_array($people)) {
+    $people = [];
   }
 
-  //3.- Filter rows whose "remove" checkbox is unchecked.
-  $events = array_values(array_filter($events, static function ($row) {
-    return is_array($row) && empty($row['remove']);
-  }));
+  $values = $form_state->getValue($table_key);
+  if (!is_array($values)) {
+    $values = [];
+  }
 
-  //4.- Save filtered list back for both rebuild and future operations.
-  $form_state->setValue($base_key, $events);
-  $form_state->set('working_events', $events);
+  //3.- Remove any person whose checkbox was selected.
+  foreach ($values as $delta => $row) {
+    if (!empty($row['remove']) && isset($people[$delta])) {
+      unset($people[$delta]);
+    }
+  }
+
+  //4.- Save filtered results back to the form state and rebuild UI.
+  $form_state->set('working_people', array_values($people));
   $form_state->setRebuild(TRUE);
 }
