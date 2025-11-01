@@ -39,6 +39,22 @@ function pds_recipe_timeline_ajax_events(array &$form, FormStateInterface $form_
 }
 
 /**
+ * Persist the selected admin tab between AJAX rebuilds.
+ */
+function pds_recipe_timeline_set_active_tab(FormStateInterface $form_state, string $tab): void {
+  //1.- Store the choice on the current form state instance.
+  $form_state->set('pds_recipe_timeline_active_tab', $tab);
+
+  //2.- Mirror the setting on the parent form state when nested in Layout Builder.
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent_state = $form_state->getCompleteFormState();
+    if ($parent_state) {
+      $parent_state->set('pds_recipe_timeline_active_tab', $tab);
+    }
+  }
+}
+
+/**
  * "Add person" submit handler.
  */
 function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface $form_state): void {
@@ -46,8 +62,8 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
   $trigger = $form_state->getTriggeringElement();
   $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
   $base_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
-    ? ['settings', 'timeline_ui', 'add_person']
-    : ['timeline_ui', 'add_person'];
+    ? ['settings', 'timeline_ui', 'panes', 'add_person']
+    : ['timeline_ui', 'panes', 'add_person'];
 
   //2.- Gain access to the parent form state when operating inside a subform context.
   $parent_state = NULL;
@@ -88,8 +104,8 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
 
   //7.- Keep checkbox submissions aligned with the refreshed list of people.
   $table_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
-    ? ['settings', 'timeline_ui', 'people_list', 'people']
-    : ['timeline_ui', 'people_list', 'people'];
+    ? ['settings', 'timeline_ui', 'panes', 'people_list', 'people']
+    : ['timeline_ui', 'panes', 'people_list', 'people'];
   $checkbox_rows = [];
   foreach ($normalized_people as $index => $_row) {
     $checkbox_rows[$index] = ['remove' => 0];
@@ -102,6 +118,7 @@ function pds_recipe_timeline_add_person_submit(array &$form, FormStateInterface 
   //8.- Clear the temporary storage and force a rebuild to refresh the UI.
   $form_state->set('pds_recipe_timeline_add_person_new_person', NULL);
   $form_state->setRebuild(TRUE);
+  pds_recipe_timeline_set_active_tab($form_state, 'add');
 }
 
 /**
@@ -112,8 +129,8 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
   $trigger = $form_state->getTriggeringElement();
   $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
   $table_key = in_array('settings', $parents, TRUE) || isset($form['settings'])
-    ? ['settings', 'timeline_ui', 'people_list', 'people']
-    : ['timeline_ui', 'people_list', 'people'];
+    ? ['settings', 'timeline_ui', 'panes', 'people_list', 'people']
+    : ['timeline_ui', 'panes', 'people_list', 'people'];
 
   //2.- Obtain the parent form state when operating inside Layout Builder subforms.
   $parent_state = NULL;
@@ -162,6 +179,7 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
 
   //8.- Ask Drupal to rebuild the form to reflect the removal immediately.
   $form_state->setRebuild(TRUE);
+  pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
 
 /**
@@ -169,7 +187,7 @@ function pds_recipe_timeline_remove_people_submit(array &$form, FormStateInterfa
  */
 function pds_recipe_timeline_add_person_validate(array &$form, FormStateInterface $form_state): void {
   //1.- Choose the correct keys according to the editing context.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'add_person'] : ['timeline_ui', 'add_person'];
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'panes', 'add_person'] : ['timeline_ui', 'panes', 'add_person'];
 
   //2.- Delegate JSON parsing and sanitizing to the shared helper.
   pds_recipe_timeline_store_person_payload($form, $form_state, $base_key, 'pds_recipe_timeline_add_person_new_person');
@@ -326,7 +344,7 @@ function pds_recipe_timeline_edit_person_prepare_submit(array &$form, FormStateI
   }
 
   //5.- Populate the edit form inputs with the existing data.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'panes', 'edit_person'] : ['timeline_ui', 'panes', 'edit_person'];
   $person = $people[$index];
   $name = (string) ($person['name'] ?? '');
   $role = (string) ($person['role'] ?? '');
@@ -351,6 +369,7 @@ function pds_recipe_timeline_edit_person_prepare_submit(array &$form, FormStateI
 
   //7.- Trigger a rebuild so the edit details section becomes visible.
   $form_state->setRebuild(TRUE);
+  pds_recipe_timeline_set_active_tab($form_state, 'edit');
 }
 
 /**
@@ -358,7 +377,7 @@ function pds_recipe_timeline_edit_person_prepare_submit(array &$form, FormStateI
  */
 function pds_recipe_timeline_edit_person_validate(array &$form, FormStateInterface $form_state): void {
   //1.- Align with the correct form structure depending on the context.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'panes', 'edit_person'] : ['timeline_ui', 'panes', 'edit_person'];
 
   //2.- Parse and store the sanitized payload for the submit handler.
   pds_recipe_timeline_store_person_payload($form, $form_state, $base_key, 'pds_recipe_timeline_edit_person_payload');
@@ -412,7 +431,7 @@ function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface
     $parent_state->set('pds_recipe_timeline_edit_person_payload', NULL);
   }
 
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'panes', 'edit_person'] : ['timeline_ui', 'panes', 'edit_person'];
   $form_state->setValue(array_merge($base_key, ['person_name']), '');
   $form_state->setValue(array_merge($base_key, ['person_role']), '');
   $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
@@ -424,8 +443,8 @@ function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface
 
   //6.- Keep the remove checkboxes aligned with the refreshed list.
   $table_key = isset($form['settings'])
-    ? ['settings', 'timeline_ui', 'people_list', 'people']
-    : ['timeline_ui', 'people_list', 'people'];
+    ? ['settings', 'timeline_ui', 'panes', 'people_list', 'people']
+    : ['timeline_ui', 'panes', 'people_list', 'people'];
   $checkbox_rows = [];
   foreach ($normalized_people as $delta => $_row) {
     $checkbox_rows[$delta] = ['remove' => 0];
@@ -437,6 +456,7 @@ function pds_recipe_timeline_edit_person_submit(array &$form, FormStateInterface
 
   //7.- Ask for a rebuild so the table reflects the updated information immediately.
   $form_state->setRebuild(TRUE);
+  pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
 
 /**
@@ -458,7 +478,7 @@ function pds_recipe_timeline_edit_person_cancel_submit(array &$form, FormStateIn
   }
 
   //3.- Reset field values so the form shows blank inputs next time.
-  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'edit_person'] : ['timeline_ui', 'edit_person'];
+  $base_key = isset($form['settings']) ? ['settings', 'timeline_ui', 'panes', 'edit_person'] : ['timeline_ui', 'panes', 'edit_person'];
   $form_state->setValue(array_merge($base_key, ['person_name']), '');
   $form_state->setValue(array_merge($base_key, ['person_role']), '');
   $form_state->setValue(array_merge($base_key, ['milestones_json']), '');
@@ -470,6 +490,7 @@ function pds_recipe_timeline_edit_person_cancel_submit(array &$form, FormStateIn
 
   //4.- Trigger a rebuild so the collapsed state is reflected.
   $form_state->setRebuild(TRUE);
+  pds_recipe_timeline_set_active_tab($form_state, 'people');
 }
 
 /**
