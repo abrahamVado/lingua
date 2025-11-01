@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Drupal\pds_recipe_timeline\Plugin\Block;
 
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
@@ -36,6 +37,7 @@ final class PdsTimelineBlock extends BlockBase {
       'title' => '',
       'timeline_id' => 'principal-timeline',
       'events' => [],
+      'people' => [],
     ];
   }
 
@@ -44,58 +46,115 @@ final class PdsTimelineBlock extends BlockBase {
    */
   public function build(): array {
     $cfg = $this->getConfiguration();
-    $events = is_array($cfg['events'] ?? NULL) ? $cfg['events'] : [];
+    $people_cfg = is_array($cfg['people'] ?? NULL) ? $cfg['people'] : [];
+    if ($people_cfg === [] && is_array($cfg['events'] ?? NULL) && $cfg['events'] !== []) {
+      //1.- Backwards compatibility: convert legacy events into a person per event.
+      foreach ($cfg['events'] as $legacy_event) {
+        if (!is_array($legacy_event)) {
+          continue;
+        }
 
-    $norm = [];
-    $year_set = [];
-    foreach ($events as $row) {
-      if (!is_array($row)) { continue; }
+        $legacy_year = trim((string) ($legacy_event['year'] ?? ''));
+        $legacy_summary = trim((string) ($legacy_event['summary'] ?? ''));
+        $legacy_cta_label = trim((string) ($legacy_event['cta_label'] ?? ''));
+        $legacy_cta_url = trim((string) ($legacy_event['cta_url'] ?? ''));
+        $legacy_info = $legacy_summary;
 
-      $year = $this->normalizeYear((string) ($row['year'] ?? ''));
-      if ($year === '') { continue; }
+        if ($legacy_cta_label !== '' && $legacy_cta_url !== '') {
+          $legacy_info .= ($legacy_info === '' ? '' : ' ') . $legacy_cta_label . ' (' . $legacy_cta_url . ')';
+        }
 
-      $headline = trim((string) ($row['headline'] ?? ''));
-      $summary  = trim((string) ($row['summary'] ?? ''));
-      $cta_lbl  = trim((string) ($row['cta_label'] ?? ''));
-      $cta_url  = trim((string) ($row['cta_url'] ?? ''));
-
-      $info = $summary;
-      if ($cta_lbl !== '' && $cta_url !== '') {
-        $info .= ($info === '' ? '' : '<br>') .
-          '<a href="' . htmlspecialchars($cta_url, ENT_QUOTES) . '">' .
-          htmlspecialchars($cta_lbl, ENT_QUOTES) . '</a>';
+        $people_cfg[] = [
+          'name' => trim((string) ($legacy_event['headline'] ?? '')),
+          'role' => '',
+          'milestones' => [
+            [
+              'year' => $legacy_year,
+              'text' => $legacy_info,
+            ],
+          ],
+        ];
       }
-
-      $norm[] = [
-        'year_raw' => $year,
-        'headline' => $headline,
-        'info' => $info,
-      ];
-      $year_set[$year] = TRUE;
     }
-
-    $years = array_keys($year_set);
-    usort($years, static fn($a, $b) => ((int) $a) <=> ((int) $b));
 
     $rows = [];
-    foreach ($norm as $ev) {
+    $years = [];
+
+    //1.- Iterate over every configured person to prepare timeline rows.
+    foreach ($people_cfg as $person_index => $person_cfg) {
+      if (!is_array($person_cfg)) {
+        continue;
+      }
+
+      $person_name = trim((string) ($person_cfg['name'] ?? ''));
+      $person_role = trim((string) ($person_cfg['role'] ?? ''));
+      $milestones = [];
+
+      if (is_array($person_cfg['milestones'] ?? NULL)) {
+        foreach ($person_cfg['milestones'] as $milestone_cfg) {
+          if (!is_array($milestone_cfg)) {
+            continue;
+          }
+
+          $raw_year = trim((string) ($milestone_cfg['year'] ?? ''));
+          $normalized_year = $this->normalizeYear($raw_year);
+          $milestone_text = trim((string) ($milestone_cfg['text'] ?? ''));
+
+          if ($normalized_year !== '') {
+            $years[$normalized_year] = TRUE;
+          }
+
+          if ($raw_year === '' && $milestone_text === '') {
+            continue;
+          }
+
+          $milestones[] = [
+            'year_raw' => $raw_year !== '' ? $raw_year : $normalized_year,
+            'year_norm' => $normalized_year,
+            'text' => $milestone_text,
+          ];
+        }
+      }
+
+      if ($milestones === []) {
+        continue;
+      }
+
+      $segment_count = count($milestones);
+      $segment_width = $segment_count > 0 ? 100 / $segment_count : 100;
+      $segments = [];
+
+      //2.- Transform milestones into visual timeline segments for Twig.
+      foreach ($milestones as $milestone_index => $milestone) {
+        $segment_info = '';
+        if ($milestone['year_raw'] !== '') {
+          $segment_info .= '<strong>' . Html::escape($milestone['year_raw']) . '</strong>';
+        }
+        if ($milestone['text'] !== '') {
+          $segment_info .= ($segment_info === '' ? '' : ': ') . Html::escape($milestone['text']);
+        }
+
+        $segments[] = [
+          'width' => $segment_width,
+          'first' => $milestone_index === 0,
+          'principal' => $milestone_index === 0,
+          'info' => $segment_info,
+          'img_src' => NULL,
+          'img_alt' => NULL,
+        ];
+      }
+
       $rows[] = [
         'person' => [
-          'name' => $ev['year_raw'],
-          'role' => $ev['headline'],
+          'name' => $person_name !== '' ? $person_name : (string) $this->t('Person @number', ['@number' => $person_index + 1]),
+          'role' => $person_role,
         ],
-        'segments' => [
-          [
-            'width' => 100,
-            'first' => TRUE,
-            'principal' => FALSE,
-            'info' => $ev['info'],
-            'img_src' => NULL,
-            'img_alt' => NULL,
-          ],
-        ],
+        'segments' => $segments,
       ];
     }
+
+    $year_list = array_keys($years);
+    usort($year_list, static fn($a, $b) => ((int) $a) <=> ((int) $b));
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? 'Timeline');
     $timeline_id = trim((string) ($cfg['timeline_id'] ?? '')) ?: 'principal-timeline';
@@ -103,7 +162,7 @@ final class PdsTimelineBlock extends BlockBase {
     return [
       '#theme' => 'pds_timeline',
       '#title' => $title,
-      '#years' => $years,
+      '#years' => $year_list,
       '#rows' => $rows,
       '#timeline_id' => $timeline_id,
       '#attached' => [
@@ -119,10 +178,10 @@ final class PdsTimelineBlock extends BlockBase {
    */
   public function blockForm($form, FormStateInterface $form_state) {
     $cfg = $this->getConfiguration();
-    $events_working = self::getWorkingEvents($form_state, $cfg['events'] ?? []);
+    $people_working = self::getWorkingPeople($form_state, $cfg['people'] ?? []);
 
-    if (!$form_state->has('working_events')) {
-      $form_state->set('working_events', $events_working);
+    if (!$form_state->has('working_people')) {
+      $form_state->set('working_people', $people_working);
     }
 
     $form['title'] = [
@@ -143,87 +202,122 @@ final class PdsTimelineBlock extends BlockBase {
       '#attributes' => ['id' => 'pds-timeline-form'],
     ];
 
-    $form['timeline_ui']['events'] = [
-      '#type' => 'table',
-      '#tree' => TRUE,
-      '#header' => [
-        $this->t('Year'),
-        $this->t('Headline'),
-        $this->t('Summary (HTML allowed)'),
-        $this->t('Link label'),
-        $this->t('Link URL'),
-        $this->t('Remove'),
-      ],
-      '#empty' => $this->t('No timeline events yet. Click "Add event".'),
+    $form['timeline_ui']['tabs'] = [
+      '#type' => 'vertical_tabs',
+      '#title' => $this->t('Timeline management'),
     ];
 
-    foreach ($events_working as $i => $row) {
-      $form['timeline_ui']['events'][$i]['year'] = [
-        '#type' => 'textfield',
-        '#title' => $this->t('Year'),
-        '#title_display' => 'invisible',
-        '#default_value' => $row['year'] ?? '',
-        '#size' => 10,
-        '#maxlength' => 32,
-      ];
-      $form['timeline_ui']['events'][$i]['headline'] = [
-        '#type' => 'textfield',
-        '#title' => $this->t('Headline'),
-        '#title_display' => 'invisible',
-        '#default_value' => $row['headline'] ?? '',
-        '#size' => 64,
-        '#maxlength' => 255,
-      ];
-      $form['timeline_ui']['events'][$i]['summary'] = [
-        '#type' => 'textarea',
-        '#title' => $this->t('Summary (HTML allowed)'),
-        '#title_display' => 'invisible',
-        '#default_value' => $row['summary'] ?? '',
-        '#rows' => 4,
-        '#description' => $this->t('Simple HTML like <p> or <strong> is allowed.'),
-      ];
-      $form['timeline_ui']['events'][$i]['cta_label'] = [
-        '#type' => 'textfield',
-        '#title' => $this->t('Link label'),
-        '#title_display' => 'invisible',
-        '#default_value' => $row['cta_label'] ?? '',
-        '#size' => 32,
-        '#maxlength' => 128,
-      ];
-      $form['timeline_ui']['events'][$i]['cta_url'] = [
-        '#type' => 'url',
-        '#title' => $this->t('Link URL'),
-        '#title_display' => 'invisible',
-        '#default_value' => $row['cta_url'] ?? '',
-        '#maxlength' => 512,
-      ];
-      $form['timeline_ui']['events'][$i]['remove'] = [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Remove'),
-        '#title_display' => 'invisible',
-      ];
-    }
+    $form['timeline_ui']['add_person'] = [
+      '#type' => 'details',
+      '#title' => $this->t('New People'),
+      '#group' => 'tabs',
+      '#open' => TRUE,
+    ];
 
-    $form['timeline_ui']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['add_person']['person_name'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Header'),
+      '#required' => FALSE,
+    ];
 
-    $form['timeline_ui']['actions']['add_event'] = [
+    $form['timeline_ui']['add_person']['person_role'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Subheader'),
+      '#required' => FALSE,
+    ];
+
+    $form['timeline_ui']['add_person']['milestones_json'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Milestones JSON'),
+      '#description' => $this->t('Provide milestones in JSON format, for example {"1990":"Started program","1995":"Promoted"}.'),
+      '#rows' => 5,
+    ];
+
+    $form['timeline_ui']['add_person']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Add event'),
-      '#name' => 'pds_recipe_timeline_add_event',
-      '#submit' => ['pds_recipe_timeline_add_event_submit'],
-      '#limit_validation_errors' => [],
+      '#value' => $this->t('Add person'),
+      '#name' => 'pds_recipe_timeline_add_person',
+      '#submit' => ['pds_recipe_timeline_add_person_submit'],
+      '#limit_validation_errors' => [
+        ['timeline_ui', 'add_person'],
+      ],
       '#ajax' => [
         'callback' => 'pds_recipe_timeline_ajax_events',
         'wrapper' => 'pds-timeline-form',
       ],
     ];
 
-    $form['timeline_ui']['actions']['remove_selected'] = [
+    $form['timeline_ui']['people_list'] = [
+      '#type' => 'details',
+      '#title' => $this->t('People'),
+      '#group' => 'tabs',
+      '#open' => TRUE,
+    ];
+
+    $form['timeline_ui']['people_list']['people'] = [
+      '#type' => 'table',
+      '#tree' => TRUE,
+      '#header' => [
+        $this->t('Header'),
+        $this->t('Subheader'),
+        $this->t('Milestones'),
+        $this->t('Remove'),
+      ],
+      '#empty' => $this->t('No people yet. Add a person using the New People tab.'),
+    ];
+
+    foreach ($people_working as $index => $person) {
+      $milestone_items = [];
+      if (is_array($person['milestones'] ?? NULL)) {
+        foreach ($person['milestones'] as $milestone) {
+          if (!is_array($milestone)) {
+            continue;
+          }
+          $year_label = trim((string) ($milestone['year'] ?? ''));
+          $text_label = trim((string) ($milestone['text'] ?? ''));
+          if ($year_label === '' && $text_label === '') {
+            continue;
+          }
+          $milestone_items[] = $year_label === ''
+            ? $text_label
+            : $this->t('@year: @text', ['@year' => $year_label, '@text' => $text_label]);
+        }
+      }
+
+      $form['timeline_ui']['people_list']['people'][$index]['name'] = [
+        '#type' => 'item',
+        '#plain_text' => (string) ($person['name'] ?? ''),
+      ];
+      $form['timeline_ui']['people_list']['people'][$index]['role'] = [
+        '#type' => 'item',
+        '#plain_text' => (string) ($person['role'] ?? ''),
+      ];
+      $form['timeline_ui']['people_list']['people'][$index]['milestones'] = $milestone_items === []
+        ? [
+          '#type' => 'item',
+          '#plain_text' => (string) $this->t('No milestones provided'),
+        ]
+        : [
+          '#theme' => 'item_list',
+          '#items' => $milestone_items,
+        ];
+      $form['timeline_ui']['people_list']['people'][$index]['remove'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Remove'),
+        '#title_display' => 'invisible',
+      ];
+    }
+
+    $form['timeline_ui']['people_list']['actions'] = ['#type' => 'actions'];
+    $form['timeline_ui']['people_list']['actions']['remove_people'] = [
       '#type' => 'submit',
       '#value' => $this->t('Remove selected'),
-      '#name' => 'pds_recipe_timeline_remove_selected',
-      '#submit' => ['pds_recipe_timeline_remove_selected_submit'],
-      '#limit_validation_errors' => [],
+      '#name' => 'pds_recipe_timeline_remove_people',
+      '#submit' => ['pds_recipe_timeline_remove_people_submit'],
+      '#limit_validation_errors' => [
+        ['timeline_ui', 'people_list', 'people'],
+      ],
       '#ajax' => [
         'callback' => 'pds_recipe_timeline_ajax_events',
         'wrapper' => 'pds-timeline-form',
@@ -237,50 +331,66 @@ final class PdsTimelineBlock extends BlockBase {
    * Save configuration.
    */
   public function blockSubmit($form, FormStateInterface $form_state): void {
-    $submitted_events = $form_state->getValue(['timeline_ui', 'events']);
-    if (!is_array($submitted_events)) {
-      $submitted_events = $form_state->getValue(['settings', 'timeline_ui', 'events']);
-    }
-    if (!is_array($submitted_events)) {
-      $submitted_events = [];
-    }
+    $cfg = $this->getConfiguration();
+    $this->configuration['title'] = trim((string) $form_state->getValue('title') ?? '');
+    $this->configuration['timeline_id'] = trim((string) $form_state->getValue('timeline_id') ?? 'principal-timeline');
+    $this->configuration['events'] = [];
 
-    $clean = [];
-    foreach ($submitted_events as $row) {
-      if (!is_array($row) || !empty($row['remove'])) { continue; }
+    $people = self::getWorkingPeople($form_state, $cfg['people'] ?? []);
+    $clean_people = [];
 
-      $year = trim((string) ($row['year'] ?? ''));
-      $headline = trim((string) ($row['headline'] ?? ''));
-      $summary = (string) ($row['summary'] ?? '');
-      $cta_label = trim((string) ($row['cta_label'] ?? ''));
-      $cta_url = trim((string) ($row['cta_url'] ?? ''));
+    foreach ($people as $person) {
+      if (!is_array($person)) {
+        continue;
+      }
 
-      if ($year === '' && $headline === '' && $summary === '') { continue; }
+      $name = trim((string) ($person['name'] ?? ''));
+      $role = trim((string) ($person['role'] ?? ''));
+      $milestones_clean = [];
 
-      $clean[] = [
-        'year' => $year,
-        'headline' => $headline,
-        'summary' => $summary,
-        'cta_label' => $cta_label,
-        'cta_url' => $cta_url,
+      if (is_array($person['milestones'] ?? NULL)) {
+        foreach ($person['milestones'] as $milestone) {
+          if (!is_array($milestone)) {
+            continue;
+          }
+          $year = trim((string) ($milestone['year'] ?? ''));
+          $text = trim((string) ($milestone['text'] ?? ''));
+
+          if ($year === '' && $text === '') {
+            continue;
+          }
+
+          $milestones_clean[] = [
+            'year' => $year,
+            'text' => $text,
+          ];
+        }
+      }
+
+      if ($name === '' && $role === '' && $milestones_clean === []) {
+        continue;
+      }
+
+      $clean_people[] = [
+        'name' => $name,
+        'role' => $role,
+        'milestones' => $milestones_clean,
       ];
     }
 
-    $this->configuration['title'] = trim((string) $form_state->getValue('title') ?? '');
-    $this->configuration['timeline_id'] = trim((string) $form_state->getValue('timeline_id') ?? 'principal-timeline');
-    $this->configuration['events'] = array_values($clean);
+    $this->configuration['people'] = array_values($clean_people);
 
-    $form_state->set('working_events', $this->configuration['events']);
+    $form_state->set('working_people', $this->configuration['people']);
   }
 
   /**
-   * Working rows resolver for classic form and LB subform.
+   * Resolve the current list of people during form interaction.
    */
-  private static function getWorkingEvents(FormStateInterface $form_state, array $cfg_events): array {
+  private static function getWorkingPeople(FormStateInterface $form_state, array $cfg_people): array {
     $is_sub = $form_state instanceof SubformStateInterface;
 
-    if ($form_state->has('working_events')) {
-      $tmp = $form_state->get('working_events');
+    if ($form_state->has('working_people')) {
+      $tmp = $form_state->get('working_people');
       if (is_array($tmp)) {
         return array_values($tmp);
       }
@@ -288,8 +398,8 @@ final class PdsTimelineBlock extends BlockBase {
 
     if ($is_sub && method_exists($form_state, 'getCompleteFormState')) {
       $parent = $form_state->getCompleteFormState();
-      if ($parent && $parent->has('working_events')) {
-        $tmp = $parent->get('working_events');
+      if ($parent && $parent->has('working_people')) {
+        $tmp = $parent->get('working_people');
         if (is_array($tmp)) {
           return array_values($tmp);
         }
@@ -297,13 +407,16 @@ final class PdsTimelineBlock extends BlockBase {
     }
 
     if (!$is_sub) {
-      $submitted = $form_state->getValue(['timeline_ui', 'events']);
+      $submitted = $form_state->getValue(['timeline_ui', 'people_list', 'people']);
       if (is_array($submitted)) {
-        return array_values($submitted);
+        $snapshot = $form_state->get('working_people');
+        if (is_array($snapshot)) {
+          return array_values($snapshot);
+        }
       }
     }
 
-    return array_values(is_array($cfg_events) ? $cfg_events : []);
+    return array_values(is_array($cfg_people) ? $cfg_people : []);
   }
 
   /**
