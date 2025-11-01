@@ -6,6 +6,8 @@ use Drupal\Component\Utility\NestedArray;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
+use Drupal\file\Entity\File;
+use Drupal\file\FileUsage\FileUsageInterface;
 
 /**
  * Implements hook_theme().
@@ -81,6 +83,8 @@ function pds_recipe_executives_add_person_validate(array &$form, FormStateInterf
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
   $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
   $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
+  $photo_upload = $form_state->getValue(array_merge($base_key, ['person_photo_upload']));
+  $photo_upload_info = pds_recipe_executives_extract_uploaded_photo($photo_upload);
   $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
   $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
 
@@ -93,6 +97,12 @@ function pds_recipe_executives_add_person_validate(array &$form, FormStateInterf
   }
 
   //3.- Enforce safe URL formats.
+  if ($photo_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo_upload'])), $photo_upload_info['error']);
+  }
+  if ($photo_upload_info['url'] !== NULL) {
+    $photo = $photo_upload_info['url'];
+  }
   if ($photo !== '' && !pds_recipe_executives_is_allowed_url($photo)) {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
   }
@@ -117,6 +127,10 @@ function pds_recipe_executives_add_person_validate(array &$form, FormStateInterf
     'cv_html' => $cv,
   ];
 
+  if ($photo_upload_info['fid'] !== NULL) {
+    $payload['photo_file_fid'] = $photo_upload_info['fid'];
+  }
+
   $form_state->set('pds_recipe_executives_add_person_new_person', $payload);
   if ($parent_state) {
     $parent_state->set('pds_recipe_executives_add_person_new_person', $payload);
@@ -136,6 +150,8 @@ function pds_recipe_executives_add_person_submit(array &$form, FormStateInterfac
     return;
   }
 
+  pds_recipe_executives_finalize_photo_payload($new_person);
+
   //2.- Append the new person to the working list stored in form state.
   $people = $form_state->get('working_people');
   if (!is_array($people)) {
@@ -153,6 +169,7 @@ function pds_recipe_executives_add_person_submit(array &$form, FormStateInterfac
   foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
+  $form_state->setValue(array_merge($base_key, ['person_photo_upload']), []);
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
@@ -160,11 +177,13 @@ function pds_recipe_executives_add_person_submit(array &$form, FormStateInterfac
   foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
     NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
+  NestedArray::setValue($user_input, array_merge($base_key, ['person_photo_upload']), []);
   $form_state->setUserInput($user_input);
   if ($parent_state) {
     foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
       $parent_state->setValue(array_merge($base_key, [$key]), '');
     }
+    $parent_state->setValue(array_merge($base_key, ['person_photo_upload']), []);
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
@@ -172,6 +191,7 @@ function pds_recipe_executives_add_person_submit(array &$form, FormStateInterfac
     foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
       NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
+    NestedArray::setValue($parent_input, array_merge($base_key, ['person_photo_upload']), []);
     $parent_state->setUserInput($parent_input);
   }
 
@@ -295,6 +315,8 @@ function pds_recipe_executives_edit_person_validate(array &$form, FormStateInter
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
   $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
   $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
+  $photo_upload = $form_state->getValue(array_merge($base_key, ['person_photo_upload']));
+  $photo_upload_info = pds_recipe_executives_extract_uploaded_photo($photo_upload);
   $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
   $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
 
@@ -303,6 +325,12 @@ function pds_recipe_executives_edit_person_validate(array &$form, FormStateInter
   }
   if ($title === '') {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
+  }
+  if ($photo_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo_upload'])), $photo_upload_info['error']);
+  }
+  if ($photo_upload_info['url'] !== NULL) {
+    $photo = $photo_upload_info['url'];
   }
   if ($photo !== '' && !pds_recipe_executives_is_allowed_url($photo)) {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
@@ -327,6 +355,10 @@ function pds_recipe_executives_edit_person_validate(array &$form, FormStateInter
     'cv_html' => $cv,
   ];
 
+  if ($photo_upload_info['fid'] !== NULL) {
+    $payload['photo_file_fid'] = $photo_upload_info['fid'];
+  }
+
   $form_state->set('pds_recipe_executives_edit_person_payload', $payload);
   if ($parent_state) {
     $parent_state->set('pds_recipe_executives_edit_person_payload', $payload);
@@ -342,6 +374,8 @@ function pds_recipe_executives_edit_person_submit(array &$form, FormStateInterfa
   if (!is_array($updated_person)) {
     return;
   }
+
+  pds_recipe_executives_finalize_photo_payload($updated_person);
 
   $index = $form_state->get('pds_recipe_executives_editing_index');
   if ($index === NULL && $parent_state) {
@@ -429,4 +463,101 @@ function pds_recipe_executives_is_allowed_url(string $url): bool {
     return TRUE;
   }
   return strpos($url, '/') === 0;
+}
+
+/**
+ * Extract the managed file selection from the photo upload widget.
+ */
+function pds_recipe_executives_extract_uploaded_photo($value): array {
+  //1.- Provide a predictable response structure for callers.
+  $result = [
+    'url' => NULL,
+    'fid' => NULL,
+    'error' => NULL,
+  ];
+
+  //2.- Normalize managed_file values into a single numeric fid.
+  if (!is_array($value)) {
+    return $result;
+  }
+  $candidates = array_filter($value, static function ($candidate): bool {
+    return is_numeric($candidate) && (int) $candidate > 0;
+  });
+  if ($candidates === []) {
+    return $result;
+  }
+  $fid = (int) reset($candidates);
+  if ($fid <= 0) {
+    return $result;
+  }
+
+  //3.- Load the file and derive the public URL used by the rendered card.
+  $file = File::load($fid);
+  if (!$file) {
+    $result['error'] = t('Unable to load the uploaded photo.');
+    return $result;
+  }
+  $url = pds_recipe_executives_build_file_url($file);
+  if ($url === NULL) {
+    $result['error'] = t('Unable to generate a URL for the uploaded photo.');
+    return $result;
+  }
+
+  $result['fid'] = $fid;
+  $result['url'] = $url;
+  return $result;
+}
+
+/**
+ * Build a relative URL for a managed file.
+ */
+function pds_recipe_executives_build_file_url(File $file): ?string {
+  //1.- Convert the stream wrapper URI into an absolute URL.
+  $generator = \Drupal::service('file_url_generator');
+  $absolute = $generator->generateAbsoluteString($file->getFileUri());
+  if (!is_string($absolute) || $absolute === '') {
+    return NULL;
+  }
+
+  //2.- Normalize to a relative path so configuration stays environment agnostic.
+  $relative = file_url_transform_relative($absolute);
+  if (!is_string($relative) || $relative === '') {
+    return NULL;
+  }
+
+  return $relative;
+}
+
+/**
+ * Mark uploaded files as permanent once the person payload is stored.
+ */
+function pds_recipe_executives_finalize_photo_payload(array &$person): void {
+  if (!isset($person['photo_file_fid'])) {
+    return;
+  }
+
+  //1.- Capture and immediately unset the helper key so the snapshot mirrors production data.
+  $fid = (int) $person['photo_file_fid'];
+  unset($person['photo_file_fid']);
+  if ($fid <= 0) {
+    return;
+  }
+
+  //2.- Promote the temporary file to permanent storage.
+  $file = File::load($fid);
+  if (!$file) {
+    return;
+  }
+  if ($file->isTemporary()) {
+    $file->setPermanent();
+    $file->save();
+  }
+
+  //3.- Register usage so Drupal keeps the asset available for the block configuration.
+  if (\Drupal::hasService('file.usage')) {
+    $usage = \Drupal::service('file.usage');
+    if ($usage instanceof FileUsageInterface) {
+      $usage->add($file, 'pds_recipe_executives', 'pds_executives_photo', $file->id());
+    }
+  }
 }

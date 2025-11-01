@@ -260,6 +260,15 @@ final class PdsExecutivesBlock extends BlockBase {
       '#title' => $this->t('Photo URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
     ];
+    $form['executives_ui']['panes']['add_person']['person_photo_upload'] = [
+      '#type' => 'managed_file',
+      '#title' => $this->t('Photo upload'),
+      '#description' => $this->t('Upload an image instead of entering a URL.'),
+      '#upload_location' => 'public://pds-executives',
+      '#upload_validators' => [
+        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
+      ],
+    ];
     $form['executives_ui']['panes']['add_person']['person_linkedin'] = [
       '#type' => 'textfield',
       '#title' => $this->t('LinkedIn URL'),
@@ -405,6 +414,15 @@ final class PdsExecutivesBlock extends BlockBase {
       '#title' => $this->t('Photo URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
       '#default_value' => is_array($editing_person) ? (string) ($editing_person['photo'] ?? '') : '',
+    ];
+    $form['executives_ui']['panes']['edit_person']['person_photo_upload'] = [
+      '#type' => 'managed_file',
+      '#title' => $this->t('Photo upload'),
+      '#description' => $this->t('Upload a new image to replace the current photo.'),
+      '#upload_location' => 'public://pds-executives',
+      '#upload_validators' => [
+        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
+      ],
     ];
     $form['executives_ui']['panes']['edit_person']['person_linkedin'] = [
       '#type' => 'textfield',
