@@ -9,7 +9,12 @@ function pds_recipe_latamvideo_theme($existing, $type, $theme, $path) {
         'attributes' => [],
         'heading' => NULL,
         'subheading' => NULL,
-        'logo_url' => NULL
+        'logo_url' => NULL,
+        'link_text' => NULL,
+        'link_url' => NULL,
+        'thumbnail_src' => NULL,
+        'thumbnail_alt' => NULL,
+        'embed_html' => NULL,
       ],
       'template' => 'pds-latamvideo',
       'path' => $path . '/templates',
