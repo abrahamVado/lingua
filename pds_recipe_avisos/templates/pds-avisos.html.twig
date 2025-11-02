@@ -16,7 +16,8 @@
 <section class="principal-avisos">
   <div class="container">
     {% if title %}
-      <h2>{{ title }}</h2>
+      {# //1.- Render the configurable heading with pre-sanitized markup support. #}
+      <h2>{{ title|raw }}</h2>
     {% endif %}
 
     <div class="principal-row-container">

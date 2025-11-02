@@ -6,6 +6,7 @@ namespace Drupal\pds_recipe_avisos\Plugin\Block;
 
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\UrlHelper;
+use Drupal\Component\Utility\Xss;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
@@ -69,11 +70,23 @@ final class PdsAvisosBlock extends BlockBase {
       $fondos[] = $fondo;
     }
 
-    $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
+    $submitted_title = trim((string) ($cfg['title'] ?? ''));
+
+    //1.- Sanitize the configurable heading while allowing a curated subset of HTML tags.
+    $title_markup = $this->buildTitleMarkup($submitted_title);
+    if ($title_markup === '') {
+      $fallback_label = trim((string) ($this->label() ?? ''));
+      if ($fallback_label !== '') {
+        //2.- Escape the block label fallback so it remains safe even when rendered as raw markup.
+        $title_markup = Html::escape($fallback_label);
+      }
+    }
+
+    $render_title = $title_markup === '' ? '' : Markup::create($title_markup);
 
     return [
       '#theme' => 'pds_avisos',
-      '#title' => $title,
+      '#title' => $render_title,
       '#fondos' => $fondos,
       '#icon_url' => $icon_url,
       '#arrow_url' => $arrow_url,
@@ -614,6 +627,21 @@ final class PdsAvisosBlock extends BlockBase {
     $relative = ltrim($relative_path, '/');
 
     return $base_path . trim($module_path, '/') . '/' . $relative;
+  }
+
+  /**
+   * Normalize author markup for the general tab title while enforcing safety.
+   */
+  private function buildTitleMarkup(string $value): string {
+    if ($value === '') {
+      return '';
+    }
+
+    //1.- Filter the markup to a predictable list of inline tags commonly used in headings.
+    $allowed_tags = ['a', 'br', 'em', 'span', 'strong', 'sub', 'sup', 'small'];
+    $filtered = Xss::filter($value, $allowed_tags);
+
+    return trim($filtered);
   }
 
   /**
