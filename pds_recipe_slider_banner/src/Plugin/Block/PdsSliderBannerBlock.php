@@ -26,11 +26,11 @@ final class PdsSliderBannerBlock extends BlockBase {
   /**
    * {@inheritdoc}
    */
-  public function defaultConfiguration(): array { 
+  public function defaultConfiguration(): array {
     return [
       'title' => '',
       'section_id' => 'principal-slider_banner',
-      'slider_banner' => [],
+      'slides' => [],
     ];
   }
 
@@ -39,33 +39,43 @@ final class PdsSliderBannerBlock extends BlockBase {
    */
   public function build(): array {
     $cfg = $this->getConfiguration();
-    $slider_banner_cfg = is_array($cfg['slider_banner'] ?? NULL) ? $cfg['slider_banner'] : [];
+    $raw_slides = [];
+    if (is_array($cfg['slides'] ?? NULL)) {
+      $raw_slides = $cfg['slides'];
+    }
+    elseif (is_array($cfg['slider_banner'] ?? NULL)) {
+      $raw_slides = $cfg['slider_banner'];
+    }
 
-    $slider_banner = [];
+    $slides = [];
 
-    //1.- Sanitize every configured executive before passing the data to Twig.
-    foreach ($slider_banner_cfg as $index => $item) {
+    //1.- Sanitize every configured slide before passing the data to Twig.
+    foreach ($raw_slides as $index => $item) {
       if (!is_array($item)) {
         continue;
       }
 
-      $name = trim((string) ($item['name'] ?? ''));
-      $title = trim((string) ($item['title'] ?? ''));
-      $photo = $this->sanitizeUrl($item['photo'] ?? '');
-      $linkedin = $this->sanitizeUrl($item['linkedin'] ?? '');
-      $cv_raw = (string) ($item['cv_html'] ?? '');
-      $cv_html = $this->sanitizeCv($cv_raw);
+      $desktop_src = $this->sanitizeUrl($item['desktop_src'] ?? '');
+      $mobile_src = $this->sanitizeUrl($item['mobile_src'] ?? '');
+      $alt = trim((string) ($item['alt'] ?? ''));
+      $title_html_raw = (string) ($item['title_html'] ?? '');
+      $title_html = $this->sanitizeCv($title_html_raw);
+      $intro = trim((string) ($item['intro'] ?? ''));
+      $cta_label = trim((string) ($item['cta_label'] ?? ''));
+      $cta_url = $this->sanitizeUrl($item['cta_url'] ?? '');
 
-      if ($name === '' && $title === '' && $photo === '' && $linkedin === '' && $cv_html === '') {
+      if ($desktop_src === '' && $mobile_src === '' && $alt === '' && $title_html === '' && $intro === '' && $cta_label === '' && $cta_url === '') {
         continue;
       }
 
-      $slider_banner[] = [
-        'name' => $name,
-        'title' => $title,
-        'photo' => $photo,
-        'linkedin' => $linkedin,
-        'cv_html' => $cv_html,
+      $slides[] = [
+        'desktop_src' => $desktop_src,
+        'mobile_src' => $mobile_src !== '' ? $mobile_src : $desktop_src,
+        'alt' => $alt,
+        'title_html' => $title_html,
+        'intro' => $intro,
+        'cta_label' => $cta_label,
+        'cta_url' => $cta_url,
       ];
     }
 
@@ -76,7 +86,7 @@ final class PdsSliderBannerBlock extends BlockBase {
       '#theme' => 'pds_slider_banner',
       '#title' => $title,
       '#section_id' => $section_id,
-      '#slider_banner' => $slider_banner,
+      '#slides' => $slides,
       '#attached' => [
         'library' => [
           'pds_recipe_slider_banner/slider_banner',
@@ -90,7 +100,14 @@ final class PdsSliderBannerBlock extends BlockBase {
    */
   public function blockForm($form, FormStateInterface $form_state) {
     $cfg = $this->getConfiguration();
-    $working = self::getWorkingSliderBanner($form_state, $cfg['slider_banner'] ?? []);
+    $slides_cfg = [];
+    if (is_array($cfg['slides'] ?? NULL)) {
+      $slides_cfg = $cfg['slides'];
+    }
+    elseif (is_array($cfg['slider_banner'] ?? NULL)) {
+      $slides_cfg = $cfg['slider_banner'];
+    }
+    $working = self::getWorkingSlides($form_state, $slides_cfg);
     $editing_index = self::getEditingIndex($form_state);
 
     //1.- Track which tab is active so AJAX rebuilds preserve the author context.
@@ -109,8 +126,8 @@ final class PdsSliderBannerBlock extends BlockBase {
     }
     $form_state->set('pds_recipe_slider_banner_active_tab', $active_tab);
 
-    if (!$form_state->has('working_people')) {
-      $form_state->set('working_people', $working);
+    if (!$form_state->has('working_slides')) {
+      $form_state->set('working_slides', $working);
     }
 
     $form['#attached']['library'][] = 'pds_recipe_slider_banner/admin.vertical_tabs';
@@ -130,11 +147,11 @@ final class PdsSliderBannerBlock extends BlockBase {
         'pane_id' => 'pane-add',
         'access' => TRUE,
       ],
-      'people' => [
-        'label' => (string) $this->t('Sliders'),
-        'pane_key' => 'people',
-        'tab_id' => 'tab-people',
-        'pane_id' => 'pane-people',
+      'slides' => [
+        'label' => (string) $this->t('Slides'),
+        'pane_key' => 'slides',
+        'tab_id' => 'tab-slides',
+        'pane_id' => 'pane-slides',
         'access' => TRUE,
       ],
       'edit' => [
@@ -229,236 +246,284 @@ final class PdsSliderBannerBlock extends BlockBase {
       '#parents' => ['section_id'],
     ];
 
-    //4.- Add pane lets authors create a new executive entry.
-    $form['slider_banner_ui']['panes']['add_person'] = [
+    //4.- Add pane lets authors create a new slide entry.
+    $form['slider_banner_ui']['panes']['add_slide'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('add', 'tab-add', $active_tab),
     ];
-    $form['slider_banner_ui']['panes']['add_person']['heading'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
       '#value' => $this->t('Add New'),
     ];
-    $form['slider_banner_ui']['panes']['add_person']['description'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Provide the public information for a new executive card.'),
+      '#value' => $this->t('Provide the public information for a new hero slide.'),
     ];
 
-    $form['slider_banner_ui']['panes']['add_person']['person_name'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['slide_desktop_src'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Name'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-    ];
-    $form['slider_banner_ui']['panes']['add_person']['person_title'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Title'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-    ];
-    $form['slider_banner_ui']['panes']['add_person']['person_photo'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Photo URL'),
+      '#title' => $this->t('Desktop image URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
-    $form['slider_banner_ui']['panes']['add_person']['person_photo_upload'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['slide_desktop_upload'] = [
       '#type' => 'managed_file',
-      '#title' => $this->t('Photo upload'),
+      '#title' => $this->t('Desktop image upload'),
       '#description' => $this->t('Upload an image instead of entering a URL.'),
       '#upload_location' => 'public://pds-slider_banner',
       '#upload_validators' => [
         'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
       ],
     ];
-    $form['slider_banner_ui']['panes']['add_person']['person_linkedin'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['slide_mobile_src'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('LinkedIn URL'),
-      '#description' => $this->t('Optional link for the modal action button.'),
-    ];
-    $form['slider_banner_ui']['panes']['add_person']['person_cv'] = [
-      '#type' => 'textarea',
-      '#title' => $this->t('Curriculum (HTML)'),
-      '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
-      '#rows' => 6,
-    ];
-
-    $form['slider_banner_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
-    $form['slider_banner_ui']['panes']['add_person']['actions']['add_person'] = [
-      '#type' => 'submit',
-      '#value' => $this->t('Add executive'),
-      '#name' => 'pds_recipe_slider_banner_add_person',
-      '#validate' => ['pds_recipe_slider_banner_add_person_validate'],
-      '#submit' => ['pds_recipe_slider_banner_add_person_submit'],
-      '#limit_validation_errors' => [
-        ['slider_banner_ui', 'panes', 'add_person'],
-      ],
-      '#ajax' => [
-        'callback' => 'pds_recipe_slider_banner_ajax_events',
-        'wrapper' => 'pds-slider_banner-form',
-      ],
-    ];
-
-    //5.- People pane lists existing slider_banner and exposes edit/remove actions.
-    $form['slider_banner_ui']['panes']['people_list'] = [
-      '#type' => 'container',
-      '#attributes' => $this->buildPaneAttributes('people', 'tab-people', $active_tab),
-    ];
-    $form['slider_banner_ui']['panes']['people_list']['heading'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'h2',
-      '#value' => $this->t('SliderBanner'),
-    ];
-    $form['slider_banner_ui']['panes']['people_list']['description'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'p',
-      '#value' => $this->t('Review, edit or remove existing cards.'),
-    ];
-
-    $form['slider_banner_ui']['panes']['people_list']['people'] = [
-      '#type' => 'table',
-      '#tree' => TRUE,
-      '#header' => [
-        $this->t('Name'),
-        $this->t('Title'),
-        $this->t('LinkedIn'),
-        $this->t('Edit'),
-        $this->t('Remove'),
-      ],
-      '#empty' => $this->t('No slider_banner yet. Add one using the Add New tab.'),
-    ];
-
-    foreach ($working as $index => $person) {
-      if (!is_array($person)) {
-        continue;
-      }
-      $name = trim((string) ($person['name'] ?? ''));
-      $title_value = trim((string) ($person['title'] ?? ''));
-      $linkedin_value = trim((string) ($person['linkedin'] ?? ''));
-
-      $form['slider_banner_ui']['panes']['people_list']['people'][$index]['name'] = [
-        '#plain_text' => $name === '' ? $this->t('Unnamed @number', ['@number' => $index + 1]) : $name,
-      ];
-      $form['slider_banner_ui']['panes']['people_list']['people'][$index]['title'] = [
-        '#plain_text' => $title_value,
-      ];
-      $form['slider_banner_ui']['panes']['people_list']['people'][$index]['linkedin'] = [
-        '#plain_text' => $linkedin_value,
-      ];
-      $form['slider_banner_ui']['panes']['people_list']['people'][$index]['edit'] = [
-        '#type' => 'submit',
-        '#value' => $this->t('Edit'),
-        '#name' => 'pds_recipe_slider_banner_edit_person_' . $index,
-        '#submit' => ['pds_recipe_slider_banner_edit_person_prepare_submit'],
-        '#limit_validation_errors' => [],
-        '#ajax' => [
-          'callback' => 'pds_recipe_slider_banner_ajax_events',
-          'wrapper' => 'pds-slider_banner-form',
-        ],
-        '#attributes' => ['class' => ['pds-recipe-slider-banner-edit-person']],
-        '#pds_recipe_slider_banner_edit_index' => $index,
-      ];
-      $form['slider_banner_ui']['panes']['people_list']['people'][$index]['remove'] = [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Remove'),
-      ];
-    }
-
-    $form['slider_banner_ui']['panes']['people_list']['actions'] = ['#type' => 'actions'];
-    $form['slider_banner_ui']['panes']['people_list']['actions']['remove_people'] = [
-      '#type' => 'submit',
-      '#value' => $this->t('Remove selected'),
-      '#name' => 'pds_recipe_slider_banner_remove_people',
-      '#submit' => ['pds_recipe_slider_banner_remove_people_submit'],
-      '#limit_validation_errors' => [
-        ['slider_banner_ui', 'panes', 'people_list', 'people'],
-      ],
-      '#ajax' => [
-        'callback' => 'pds_recipe_slider_banner_ajax_events',
-        'wrapper' => 'pds-slider_banner-form',
-      ],
-    ];
-
-    //6.- Edit pane mirrors the Add pane but pre-fills the selected executive.
-    $form['slider_banner_ui']['panes']['edit_person'] = [
-      '#type' => 'container',
-      '#attributes' => $this->buildPaneAttributes('edit', 'tab-edit', $active_tab),
-    ];
-    $form['slider_banner_ui']['panes']['edit_person']['heading'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'h2',
-      '#value' => $this->t('Edit'),
-    ];
-    $form['slider_banner_ui']['panes']['edit_person']['description'] = [
-      '#type' => 'html_tag',
-      '#tag' => 'p',
-      '#value' => $this->t('Update the selected executive card.'),
-    ];
-
-    $editing_person = $editing_index !== NULL && isset($working[$editing_index]) && is_array($working[$editing_index])
-      ? $working[$editing_index]
-      : NULL;
-
-    $form['slider_banner_ui']['panes']['edit_person']['person_name'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Name'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['name'] ?? '') : '',
-    ];
-    $form['slider_banner_ui']['panes']['edit_person']['person_title'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Title'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['title'] ?? '') : '',
-    ];
-    $form['slider_banner_ui']['panes']['edit_person']['person_photo'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Photo URL'),
+      '#title' => $this->t('Mobile image URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['photo'] ?? '') : '',
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
-    $form['slider_banner_ui']['panes']['edit_person']['person_photo_upload'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['slide_mobile_upload'] = [
       '#type' => 'managed_file',
-      '#title' => $this->t('Photo upload'),
-      '#description' => $this->t('Upload a new image to replace the current photo.'),
+      '#title' => $this->t('Mobile image upload'),
+      '#description' => $this->t('Upload an image instead of entering a URL.'),
       '#upload_location' => 'public://pds-slider_banner',
       '#upload_validators' => [
         'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
       ],
     ];
-    $form['slider_banner_ui']['panes']['edit_person']['person_linkedin'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['slide_alt'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('LinkedIn URL'),
-      '#description' => $this->t('Optional link for the modal action button.'),
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['linkedin'] ?? '') : '',
+      '#title' => $this->t('Alternative text'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
-    $form['slider_banner_ui']['panes']['edit_person']['person_cv'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['slide_title_html'] = [
       '#type' => 'textarea',
-      '#title' => $this->t('Curriculum (HTML)'),
+      '#title' => $this->t('Title (HTML)'),
       '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
-      '#rows' => 6,
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['cv_html'] ?? '') : '',
+      '#rows' => 4,
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+    ];
+    $form['slider_banner_ui']['panes']['add_slide']['slide_intro'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Intro'),
+      '#rows' => 3,
+    ];
+    $form['slider_banner_ui']['panes']['add_slide']['slide_cta_label'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('CTA label'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+    ];
+    $form['slider_banner_ui']['panes']['add_slide']['slide_cta_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('CTA URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
 
-    $form['slider_banner_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
-    $form['slider_banner_ui']['panes']['edit_person']['actions']['save_person'] = [
+    $form['slider_banner_ui']['panes']['add_slide']['actions'] = ['#type' => 'actions'];
+    $form['slider_banner_ui']['panes']['add_slide']['actions']['add_slide'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Save changes'),
-      '#name' => 'pds_recipe_slider_banner_save_person',
-      '#validate' => ['pds_recipe_slider_banner_edit_person_validate'],
-      '#submit' => ['pds_recipe_slider_banner_edit_person_submit'],
+      '#value' => $this->t('Add slide'),
+      '#name' => 'pds_recipe_slider_banner_add_slide',
+      '#validate' => ['pds_recipe_slider_banner_add_slide_validate'],
+      '#submit' => ['pds_recipe_slider_banner_add_slide_submit'],
       '#limit_validation_errors' => [
-        ['slider_banner_ui', 'panes', 'edit_person'],
+        ['slider_banner_ui', 'panes', 'add_slide'],
       ],
       '#ajax' => [
         'callback' => 'pds_recipe_slider_banner_ajax_events',
         'wrapper' => 'pds-slider_banner-form',
       ],
     ];
-    $form['slider_banner_ui']['panes']['edit_person']['actions']['cancel_edit'] = [
+
+    //5.- Slides pane lists existing entries and exposes edit/remove actions.
+    $form['slider_banner_ui']['panes']['slides_list'] = [
+      '#type' => 'container',
+      '#attributes' => $this->buildPaneAttributes('slides', 'tab-slides', $active_tab),
+    ];
+    $form['slider_banner_ui']['panes']['slides_list']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h2',
+      '#value' => $this->t('Slides'),
+    ];
+    $form['slider_banner_ui']['panes']['slides_list']['description'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => $this->t('Review, edit or remove existing slides.'),
+    ];
+
+    $form['slider_banner_ui']['panes']['slides_list']['slides'] = [
+      '#type' => 'table',
+      '#tree' => TRUE,
+      '#header' => [
+        $this->t('Title'),
+        $this->t('CTA label'),
+        $this->t('CTA URL'),
+        $this->t('Edit'),
+        $this->t('Remove'),
+      ],
+      '#empty' => $this->t('No slides yet. Add one using the Add New tab.'),
+    ];
+
+    foreach ($working as $index => $slide) {
+      if (!is_array($slide)) {
+        continue;
+      }
+      $title_value = trim(strip_tags((string) ($slide['title_html'] ?? '')));
+      $cta_label_value = trim((string) ($slide['cta_label'] ?? ''));
+      $cta_url_value = trim((string) ($slide['cta_url'] ?? ''));
+
+      $form['slider_banner_ui']['panes']['slides_list']['slides'][$index]['title'] = [
+        '#plain_text' => $title_value === '' ? $this->t('Untitled @number', ['@number' => $index + 1]) : $title_value,
+      ];
+      $form['slider_banner_ui']['panes']['slides_list']['slides'][$index]['cta_label'] = [
+        '#plain_text' => $cta_label_value,
+      ];
+      $form['slider_banner_ui']['panes']['slides_list']['slides'][$index]['cta_url'] = [
+        '#plain_text' => $cta_url_value,
+      ];
+      $form['slider_banner_ui']['panes']['slides_list']['slides'][$index]['edit'] = [
+        '#type' => 'submit',
+        '#value' => $this->t('Edit'),
+        '#name' => 'pds_recipe_slider_banner_edit_slide_' . $index,
+        '#submit' => ['pds_recipe_slider_banner_edit_slide_prepare_submit'],
+        '#limit_validation_errors' => [],
+        '#ajax' => [
+          'callback' => 'pds_recipe_slider_banner_ajax_events',
+          'wrapper' => 'pds-slider_banner-form',
+        ],
+        '#attributes' => ['class' => ['pds-recipe-slider-banner-edit-slide']],
+        '#pds_recipe_slider_banner_edit_index' => $index,
+      ];
+      $form['slider_banner_ui']['panes']['slides_list']['slides'][$index]['remove'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Remove'),
+      ];
+    }
+
+    $form['slider_banner_ui']['panes']['slides_list']['actions'] = ['#type' => 'actions'];
+    $form['slider_banner_ui']['panes']['slides_list']['actions']['remove_slides'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Remove selected'),
+      '#name' => 'pds_recipe_slider_banner_remove_slides',
+      '#submit' => ['pds_recipe_slider_banner_remove_slides_submit'],
+      '#limit_validation_errors' => [
+        ['slider_banner_ui', 'panes', 'slides_list', 'slides'],
+      ],
+      '#ajax' => [
+        'callback' => 'pds_recipe_slider_banner_ajax_events',
+        'wrapper' => 'pds-slider_banner-form',
+      ],
+    ];
+
+    //6.- Edit pane mirrors the Add pane but pre-fills the selected slide.
+    $form['slider_banner_ui']['panes']['edit_slide'] = [
+      '#type' => 'container',
+      '#attributes' => $this->buildPaneAttributes('edit', 'tab-edit', $active_tab),
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['heading'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'h2',
+      '#value' => $this->t('Edit'),
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['description'] = [
+      '#type' => 'html_tag',
+      '#tag' => 'p',
+      '#value' => $this->t('Update the selected slide.'),
+    ];
+
+    $editing_slide = $editing_index !== NULL && isset($working[$editing_index]) && is_array($working[$editing_index])
+      ? $working[$editing_index]
+      : NULL;
+
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_desktop_src'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Desktop image URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['desktop_src'] ?? '') : '',
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_desktop_upload'] = [
+      '#type' => 'managed_file',
+      '#title' => $this->t('Desktop image upload'),
+      '#description' => $this->t('Upload a new image to replace the current one.'),
+      '#upload_location' => 'public://pds-slider_banner',
+      '#upload_validators' => [
+        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
+      ],
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_mobile_src'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Mobile image URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['mobile_src'] ?? '') : '',
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_mobile_upload'] = [
+      '#type' => 'managed_file',
+      '#title' => $this->t('Mobile image upload'),
+      '#description' => $this->t('Upload a new image to replace the current one.'),
+      '#upload_location' => 'public://pds-slider_banner',
+      '#upload_validators' => [
+        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
+      ],
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_alt'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Alternative text'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['alt'] ?? '') : '',
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_title_html'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Title (HTML)'),
+      '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
+      '#rows' => 4,
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['title_html'] ?? '') : '',
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_intro'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Intro'),
+      '#rows' => 3,
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['intro'] ?? '') : '',
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_cta_label'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('CTA label'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['cta_label'] ?? '') : '',
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['slide_cta_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('CTA URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#default_value' => is_array($editing_slide) ? (string) ($editing_slide['cta_url'] ?? '') : '',
+    ];
+
+    $form['slider_banner_ui']['panes']['edit_slide']['actions'] = ['#type' => 'actions'];
+    $form['slider_banner_ui']['panes']['edit_slide']['actions']['save_slide'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Save changes'),
+      '#name' => 'pds_recipe_slider_banner_save_slide',
+      '#validate' => ['pds_recipe_slider_banner_edit_slide_validate'],
+      '#submit' => ['pds_recipe_slider_banner_edit_slide_submit'],
+      '#limit_validation_errors' => [
+        ['slider_banner_ui', 'panes', 'edit_slide'],
+      ],
+      '#ajax' => [
+        'callback' => 'pds_recipe_slider_banner_ajax_events',
+        'wrapper' => 'pds-slider_banner-form',
+      ],
+    ];
+    $form['slider_banner_ui']['panes']['edit_slide']['actions']['cancel_edit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Cancel'),
       '#name' => 'pds_recipe_slider_banner_cancel_edit',
       '#limit_validation_errors' => [],
-      '#submit' => ['pds_recipe_slider_banner_edit_person_cancel_submit'],
+      '#submit' => ['pds_recipe_slider_banner_edit_slide_cancel_submit'],
       '#ajax' => [
         'callback' => 'pds_recipe_slider_banner_ajax_events',
         'wrapper' => 'pds-slider_banner-form',
@@ -486,23 +551,31 @@ final class PdsSliderBannerBlock extends BlockBase {
       ? $submitted_section_id
       : 'principal-slider_banner';
 
-    $slider_banner = self::getWorkingSliderBanner($form_state, $cfg['slider_banner'] ?? []);
+    $slides_cfg = [];
+    if (is_array($cfg['slides'] ?? NULL)) {
+      $slides_cfg = $cfg['slides'];
+    }
+    elseif (is_array($cfg['slider_banner'] ?? NULL)) {
+      $slides_cfg = $cfg['slider_banner'];
+    }
+    $slides = self::getWorkingSlides($form_state, $slides_cfg);
     $clean = [];
 
-    //1.- Persist sanitized executive definitions.
-    foreach ($slider_banner as $exec) {
-      if (!is_array($exec)) {
+    //1.- Persist sanitized slide definitions.
+    foreach ($slides as $slide) {
+      if (!is_array($slide)) {
         continue;
       }
-      $clean_exec = $this->cleanExecutiveConfig($exec);
-      if ($clean_exec !== NULL) {
-        $clean[] = $clean_exec;
+      $clean_slide = $this->cleanSlideConfig($slide);
+      if ($clean_slide !== NULL) {
+        $clean[] = $clean_slide;
       }
     }
 
-    $this->configuration['slider_banner'] = array_values($clean);
+    $this->configuration['slides'] = array_values($clean);
+    unset($this->configuration['slider_banner']);
 
-    $form_state->set('working_people', $this->configuration['slider_banner']);
+    $form_state->set('working_slides', $this->configuration['slides']);
   }
 
   /**
@@ -531,13 +604,13 @@ final class PdsSliderBannerBlock extends BlockBase {
   }
 
   /**
-   * Resolve the current list of slider_banner during form interaction.
+   * Resolve the current list of slides during form interaction.
    */
-  private static function getWorkingSliderBanner(FormStateInterface $form_state, array $cfg_people): array {
+  private static function getWorkingSlides(FormStateInterface $form_state, array $cfg_slides): array {
     $is_sub = $form_state instanceof SubformStateInterface;
 
-    if ($form_state->has('working_people')) {
-      $tmp = $form_state->get('working_people');
+    if ($form_state->has('working_slides')) {
+      $tmp = $form_state->get('working_slides');
       if (is_array($tmp)) {
         return array_values($tmp);
       }
@@ -545,15 +618,15 @@ final class PdsSliderBannerBlock extends BlockBase {
 
     if ($is_sub && method_exists($form_state, 'getCompleteFormState')) {
       $parent = $form_state->getCompleteFormState();
-      if ($parent && $parent->has('working_people')) {
-        $tmp = $parent->get('working_people');
+      if ($parent && $parent->has('working_slides')) {
+        $tmp = $parent->get('working_slides');
         if (is_array($tmp)) {
           return array_values($tmp);
         }
       }
     }
 
-    return array_values(is_array($cfg_people) ? $cfg_people : []);
+    return array_values(is_array($cfg_slides) ? $cfg_slides : []);
   }
 
   /**
@@ -596,7 +669,7 @@ final class PdsSliderBannerBlock extends BlockBase {
   }
 
   /**
-   * Determine which executive is currently being edited, if any.
+   * Determine which slide is currently being edited, if any.
    */
   private static function getEditingIndex(FormStateInterface $form_state): ?int {
     $is_sub = $form_state instanceof SubformStateInterface;
@@ -622,34 +695,49 @@ final class PdsSliderBannerBlock extends BlockBase {
   }
 
   /**
-   * Clean up an executive array before saving it in configuration.
+   * Clean up a slide array before saving it in configuration.
    */
-  private function cleanExecutiveConfig(array $exec): ?array {
-    $name = trim((string) ($exec['name'] ?? ''));
-    $title = trim((string) ($exec['title'] ?? ''));
-    $photo = $this->sanitizeUrl($exec['photo'] ?? '');
-    $linkedin = $this->sanitizeUrl($exec['linkedin'] ?? '');
-    $cv = trim((string) ($exec['cv_html'] ?? ''));
+  private function cleanSlideConfig(array $slide): ?array {
+    $desktop = $this->sanitizeUrl($slide['desktop_src'] ?? '');
+    $mobile = $this->sanitizeUrl($slide['mobile_src'] ?? '');
+    $alt = trim((string) ($slide['alt'] ?? ''));
+    $title_html = $this->sanitizeCv((string) ($slide['title_html'] ?? ''));
+    $intro = trim((string) ($slide['intro'] ?? ''));
+    $cta_label = trim((string) ($slide['cta_label'] ?? ''));
+    $cta_url = $this->sanitizeUrl($slide['cta_url'] ?? '');
 
-    if ($name === '' && $title === '' && $photo === '' && $linkedin === '' && $cv === '') {
+    if ($desktop === '' && $mobile === '' && $alt === '' && $title_html === '' && $intro === '' && $cta_label === '' && $cta_url === '') {
       return NULL;
     }
 
     $clean = [];
-    if ($name !== '') {
-      $clean['name'] = $name;
+    if ($desktop !== '') {
+      $clean['desktop_src'] = $desktop;
     }
-    if ($title !== '') {
-      $clean['title'] = $title;
+    if ($mobile !== '') {
+      $clean['mobile_src'] = $mobile;
     }
-    if ($photo !== '') {
-      $clean['photo'] = $photo;
+    if ($alt !== '') {
+      $clean['alt'] = $alt;
     }
-    if ($linkedin !== '') {
-      $clean['linkedin'] = $linkedin;
+    if ($title_html !== '') {
+      $clean['title_html'] = $title_html;
     }
-    if ($cv !== '') {
-      $clean['cv_html'] = $cv;
+    if ($intro !== '') {
+      $clean['intro'] = $intro;
+    }
+    if ($cta_label !== '') {
+      $clean['cta_label'] = $cta_label;
+    }
+    if ($cta_url !== '') {
+      $clean['cta_url'] = $cta_url;
+    }
+
+    if (isset($slide['desktop_file_fid']) && is_numeric($slide['desktop_file_fid'])) {
+      $clean['desktop_file_fid'] = (int) $slide['desktop_file_fid'];
+    }
+    if (isset($slide['mobile_file_fid']) && is_numeric($slide['mobile_file_fid'])) {
+      $clean['mobile_file_fid'] = (int) $slide['mobile_file_fid'];
     }
 
     return $clean === [] ? NULL : $clean;
