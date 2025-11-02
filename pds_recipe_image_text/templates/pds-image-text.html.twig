@@ -1,9 +1,10 @@
-{# Component: Image + Text callout #}
+{# //1.- Attach the required styles for the image + text component #}
 {{ attach_library('pds_recipe_image_text/educacion') }}
 
-{# image_position can be "left" or "right" (default: left) #}
+{# //2.- Normalize the image position option to either "left" or "right" #}
 {% set pos = image_position|default('left') in ['left','right'] ? image_position : 'left' %}
 
+{# //3.- Output the component structure with optional fields #}
 <section class="principal-image-text principal-image-text--image-{{ pos }}">
   <div class="container">
     <div class="principal-row-container">
