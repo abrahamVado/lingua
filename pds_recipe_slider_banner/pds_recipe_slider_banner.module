@@ -20,7 +20,7 @@ function pds_recipe_slider_banner_theme($existing, $type, $theme, $path) {
       'variables' => [
         'title' => '',
         'section_id' => 'principal-slider_banner',
-        'slider_banner' => [],
+        'slides' => [],
       ],
     ],
   ];
@@ -73,132 +73,173 @@ function pds_recipe_slider_banner_set_active_tab(FormStateInterface $form_state,
 }
 
 /**
- * Validation for adding a new executive.
+ * Validation for adding a new slide.
  */
-function pds_recipe_slider_banner_add_person_validate(array &$form, FormStateInterface $form_state): void {
-  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'add_person']);
+function pds_recipe_slider_banner_add_slide_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'add_slide']);
   $parent_state = pds_recipe_slider_banner_parent_state($form_state);
 
   //1.- Collect author input from the correct form tree branch.
-  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
-  $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
-  $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
-  $photo_upload = $form_state->getValue(array_merge($base_key, ['person_photo_upload']));
-  $photo_upload_info = pds_recipe_slider_banner_extract_uploaded_photo($photo_upload);
-  $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
-  $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
+  $desktop_src = trim((string) $form_state->getValue(array_merge($base_key, ['slide_desktop_src'])));
+  $desktop_upload = $form_state->getValue(array_merge($base_key, ['slide_desktop_upload']));
+  $desktop_upload_info = pds_recipe_slider_banner_extract_uploaded_image($desktop_upload);
+  $mobile_src = trim((string) $form_state->getValue(array_merge($base_key, ['slide_mobile_src'])));
+  $mobile_upload = $form_state->getValue(array_merge($base_key, ['slide_mobile_upload']));
+  $mobile_upload_info = pds_recipe_slider_banner_extract_uploaded_image($mobile_upload);
+  $alt = trim((string) $form_state->getValue(array_merge($base_key, ['slide_alt'])));
+  $title_html = trim((string) $form_state->getValue(array_merge($base_key, ['slide_title_html'])));
+  $intro = trim((string) $form_state->getValue(array_merge($base_key, ['slide_intro'])));
+  $cta_label = trim((string) $form_state->getValue(array_merge($base_key, ['slide_cta_label'])));
+  $cta_url = trim((string) $form_state->getValue(array_merge($base_key, ['slide_cta_url'])));
 
-  //2.- Validate minimal requirements for a card.
-  if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_name'])), t('Name is required.'));
+  //2.- Merge upload-derived URLs when available.
+  if ($desktop_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_desktop_upload'])), $desktop_upload_info['error']);
   }
-  if ($title === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
+  elseif ($desktop_upload_info['url'] !== NULL) {
+    $desktop_src = $desktop_upload_info['url'];
   }
 
-  //3.- Enforce safe URL formats.
-  if ($photo_upload_info['error'] !== NULL) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo_upload'])), $photo_upload_info['error']);
+  if ($mobile_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_mobile_upload'])), $mobile_upload_info['error']);
   }
-  if ($photo_upload_info['url'] !== NULL) {
-    $photo = $photo_upload_info['url'];
+  elseif ($mobile_upload_info['url'] !== NULL) {
+    $mobile_src = $mobile_upload_info['url'];
   }
-  if ($photo !== '' && !pds_recipe_slider_banner_is_allowed_url($photo)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
+
+  //3.- Validate mandatory slide attributes.
+  if ($desktop_src === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_desktop_src'])), t('Desktop image URL is required.'));
   }
-  if ($linkedin !== '' && !pds_recipe_slider_banner_is_allowed_url($linkedin)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_linkedin'])), t('LinkedIn URL must be absolute or start with /.'));
+  if ($mobile_src === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_mobile_src'])), t('Mobile image URL is required.'));
+  }
+  if ($alt === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_alt'])), t('Alternative text is required.'));
+  }
+  if ($title_html === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_title_html'])), t('Title is required.'));
+  }
+  if ($cta_label === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_cta_label'])), t('CTA label is required.'));
+  }
+  if ($cta_url === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_cta_url'])), t('CTA URL is required.'));
+  }
+
+  //4.- Enforce safe URL formats.
+  if ($desktop_src !== '' && !pds_recipe_slider_banner_is_allowed_url($desktop_src)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_desktop_src'])), t('Desktop image URL must be absolute or start with / or a stream wrapper.'));
+  }
+  if ($mobile_src !== '' && !pds_recipe_slider_banner_is_allowed_url($mobile_src)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_mobile_src'])), t('Mobile image URL must be absolute or start with / or a stream wrapper.'));
+  }
+  if ($cta_url !== '' && !pds_recipe_slider_banner_is_allowed_url($cta_url)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_cta_url'])), t('CTA URL must be absolute or start with /.'));
   }
 
   if ($form_state->hasAnyErrors()) {
-    $form_state->set('pds_recipe_slider_banner_add_person_new_person', NULL);
+    $form_state->set('pds_recipe_slider_banner_add_slide_new_slide', NULL);
     if ($parent_state) {
-      $parent_state->set('pds_recipe_slider_banner_add_person_new_person', NULL);
+      $parent_state->set('pds_recipe_slider_banner_add_slide_new_slide', NULL);
     }
     return;
   }
 
-  //4.- Store a clean snapshot for the submit handler.
+  //5.- Store a clean snapshot for the submit handler.
   $payload = [
-    'name' => $name,
-    'title' => $title,
-    'photo' => $photo,
-    'linkedin' => $linkedin,
-    'cv_html' => $cv,
+    'desktop_src' => $desktop_src,
+    'mobile_src' => $mobile_src,
+    'alt' => $alt,
+    'title_html' => $title_html,
+    'intro' => $intro,
+    'cta_label' => $cta_label,
+    'cta_url' => $cta_url,
   ];
 
-  if ($photo_upload_info['fid'] !== NULL) {
-    $payload['photo_file_fid'] = $photo_upload_info['fid'];
+  if ($desktop_upload_info['fid'] !== NULL) {
+    $payload['desktop_file_fid'] = $desktop_upload_info['fid'];
+  }
+  if ($mobile_upload_info['fid'] !== NULL) {
+    $payload['mobile_file_fid'] = $mobile_upload_info['fid'];
   }
 
-  $form_state->set('pds_recipe_slider_banner_add_person_new_person', $payload);
+  $form_state->set('pds_recipe_slider_banner_add_slide_new_slide', $payload);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_slider_banner_add_person_new_person', $payload);
+    $parent_state->set('pds_recipe_slider_banner_add_slide_new_slide', $payload);
   }
 }
 
 /**
- * Submit handler that appends the validated executive to the working list.
+ * Submit handler that appends the validated slide to the working list.
  */
-function pds_recipe_slider_banner_add_person_submit(array &$form, FormStateInterface $form_state): void {
-  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'add_person']);
+function pds_recipe_slider_banner_add_slide_submit(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'add_slide']);
   $parent_state = pds_recipe_slider_banner_parent_state($form_state);
 
   //1.- Retrieve sanitized information prepared by validation.
-  $new_person = $form_state->get('pds_recipe_slider_banner_add_person_new_person');
-  if (!is_array($new_person)) {
+  $new_slide = $form_state->get('pds_recipe_slider_banner_add_slide_new_slide');
+  if (!is_array($new_slide)) {
     return;
   }
 
-  pds_recipe_slider_banner_finalize_photo_payload($new_person);
+  pds_recipe_slider_banner_finalize_slide_payload($new_slide);
 
-  //2.- Append the new person to the working list stored in form state.
-  $people = $form_state->get('working_people');
-  if (!is_array($people)) {
-    $people = [];
+  //2.- Append the new slide to the working list stored in form state.
+  $slides = $form_state->get('working_slides');
+  if (!is_array($slides)) {
+    $slides = [];
   }
-  $people[] = $new_person;
-  $normalized_people = array_values($people);
+  $slides[] = $new_slide;
+  $normalized_slides = array_values($slides);
 
-  $form_state->set('working_people', $normalized_people);
+  $form_state->set('working_slides', $normalized_slides);
   if ($parent_state) {
-    $parent_state->set('working_people', $normalized_people);
+    $parent_state->set('working_slides', $normalized_slides);
   }
 
   //3.- Reset author-facing inputs for the next addition.
-  foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+  foreach (['slide_desktop_src', 'slide_mobile_src', 'slide_alt', 'slide_title_html', 'slide_intro', 'slide_cta_label', 'slide_cta_url'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
-  $form_state->setValue(array_merge($base_key, ['person_photo_upload']), []);
+  foreach (['slide_desktop_upload', 'slide_mobile_upload'] as $upload_key) {
+    $form_state->setValue(array_merge($base_key, [$upload_key]), []);
+  }
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+  foreach (['slide_desktop_src', 'slide_mobile_src', 'slide_alt', 'slide_title_html', 'slide_intro', 'slide_cta_label', 'slide_cta_url'] as $key) {
     NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
-  NestedArray::setValue($user_input, array_merge($base_key, ['person_photo_upload']), []);
+  foreach (['slide_desktop_upload', 'slide_mobile_upload'] as $upload_key) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$upload_key]), []);
+  }
   $form_state->setUserInput($user_input);
   if ($parent_state) {
-    foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+    foreach (['slide_desktop_src', 'slide_mobile_src', 'slide_alt', 'slide_title_html', 'slide_intro', 'slide_cta_label', 'slide_cta_url'] as $key) {
       $parent_state->setValue(array_merge($base_key, [$key]), '');
     }
-    $parent_state->setValue(array_merge($base_key, ['person_photo_upload']), []);
+    foreach (['slide_desktop_upload', 'slide_mobile_upload'] as $upload_key) {
+      $parent_state->setValue(array_merge($base_key, [$upload_key]), []);
+    }
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+    foreach (['slide_desktop_src', 'slide_mobile_src', 'slide_alt', 'slide_title_html', 'slide_intro', 'slide_cta_label', 'slide_cta_url'] as $key) {
       NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
-    NestedArray::setValue($parent_input, array_merge($base_key, ['person_photo_upload']), []);
+    foreach (['slide_desktop_upload', 'slide_mobile_upload'] as $upload_key) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$upload_key]), []);
+    }
     $parent_state->setUserInput($parent_input);
   }
 
   //4.- Reset checkboxes to avoid stale remove selections.
-  $table_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'people_list', 'people']);
+  $table_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'slides_list', 'slides']);
   $checkbox_rows = [];
-  foreach ($normalized_people as $index => $_row) {
+  foreach ($normalized_slides as $index => $_row) {
     $checkbox_rows[$index] = ['remove' => 0];
   }
   $form_state->setValue($table_key, $checkbox_rows);
@@ -207,24 +248,24 @@ function pds_recipe_slider_banner_add_person_submit(array &$form, FormStateInter
   }
 
   //5.- Clear temp storage and rebuild to refresh UI.
-  $form_state->set('pds_recipe_slider_banner_add_person_new_person', NULL);
+  $form_state->set('pds_recipe_slider_banner_add_slide_new_slide', NULL);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_slider_banner_add_person_new_person', NULL);
+    $parent_state->set('pds_recipe_slider_banner_add_slide_new_slide', NULL);
   }
   $form_state->setRebuild(TRUE);
-  pds_recipe_slider_banner_set_active_tab($form_state, 'people');
+  pds_recipe_slider_banner_set_active_tab($form_state, 'slides');
 }
 
 /**
- * Remove selected slider_banner from the working snapshot.
+ * Remove selected slides from the working snapshot.
  */
-function pds_recipe_slider_banner_remove_people_submit(array &$form, FormStateInterface $form_state): void {
-  $table_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'people_list', 'people']);
+function pds_recipe_slider_banner_remove_slides_submit(array &$form, FormStateInterface $form_state): void {
+  $table_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'slides_list', 'slides']);
   $parent_state = pds_recipe_slider_banner_parent_state($form_state);
 
-  $people = $form_state->get('working_people');
-  if (!is_array($people)) {
-    $people = [];
+  $slides = $form_state->get('working_slides');
+  if (!is_array($slides)) {
+    $slides = [];
   }
 
   //1.- Gather checkbox values from processed values or raw input.
@@ -256,17 +297,17 @@ function pds_recipe_slider_banner_remove_people_submit(array &$form, FormStateIn
 
   //2.- Filter out rows flagged for removal.
   $kept = [];
-  foreach ($people as $index => $person) {
+  foreach ($slides as $index => $slide) {
     $should_remove = !empty($values[$index]['remove']);
     if ($should_remove) {
       continue;
     }
-    $kept[] = $person;
+    $kept[] = $slide;
   }
 
-  $form_state->set('working_people', $kept);
+  $form_state->set('working_slides', $kept);
   if ($parent_state) {
-    $parent_state->set('working_people', $kept);
+    $parent_state->set('working_slides', $kept);
   }
 
   //3.- Reset checkboxes after deletion.
@@ -280,13 +321,13 @@ function pds_recipe_slider_banner_remove_people_submit(array &$form, FormStateIn
   }
 
   $form_state->setRebuild(TRUE);
-  pds_recipe_slider_banner_set_active_tab($form_state, 'people');
+  pds_recipe_slider_banner_set_active_tab($form_state, 'slides');
 }
 
 /**
- * Prepare edit mode for a specific executive row.
+ * Prepare edit mode for a specific slide row.
  */
-function pds_recipe_slider_banner_edit_person_prepare_submit(array &$form, FormStateInterface $form_state): void {
+function pds_recipe_slider_banner_edit_slide_prepare_submit(array &$form, FormStateInterface $form_state): void {
   $trigger = $form_state->getTriggeringElement();
   $index = isset($trigger['#pds_recipe_slider_banner_edit_index']) && is_numeric($trigger['#pds_recipe_slider_banner_edit_index'])
     ? (int) $trigger['#pds_recipe_slider_banner_edit_index']
@@ -302,26 +343,32 @@ function pds_recipe_slider_banner_edit_person_prepare_submit(array &$form, FormS
   }
 
   //1.- Locate the edit pane keys so we can seed values for the rebuild.
-  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'edit_person']);
-  $people = $form_state->get('working_people');
-  if (!is_array($people) && $parent_state) {
-    $people = $parent_state->get('working_people');
+  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'edit_slide']);
+  $slides = $form_state->get('working_slides');
+  if (!is_array($slides) && $parent_state) {
+    $slides = $parent_state->get('working_slides');
   }
 
-  if (is_array($people) && isset($people[$index]) && is_array($people[$index])) {
-    //2.- Extract the stored executive details and normalize them for the form API.
-    $person = $people[$index];
+  if (is_array($slides) && isset($slides[$index]) && is_array($slides[$index])) {
+    //2.- Extract the stored slide details and normalize them for the form API.
+    $slide = $slides[$index];
     $normalized = [
-      'person_name' => (string) ($person['name'] ?? ''),
-      'person_title' => (string) ($person['title'] ?? ''),
-      'person_photo' => (string) ($person['photo'] ?? ''),
-      'person_linkedin' => (string) ($person['linkedin'] ?? ''),
-      'person_cv' => (string) ($person['cv_html'] ?? ''),
-      'person_photo_upload' => [],
+      'slide_desktop_src' => (string) ($slide['desktop_src'] ?? ''),
+      'slide_mobile_src' => (string) ($slide['mobile_src'] ?? ''),
+      'slide_alt' => (string) ($slide['alt'] ?? ''),
+      'slide_title_html' => (string) ($slide['title_html'] ?? ''),
+      'slide_intro' => (string) ($slide['intro'] ?? ''),
+      'slide_cta_label' => (string) ($slide['cta_label'] ?? ''),
+      'slide_cta_url' => (string) ($slide['cta_url'] ?? ''),
+      'slide_desktop_upload' => [],
+      'slide_mobile_upload' => [],
     ];
 
-    if (isset($person['photo_file_fid']) && is_numeric($person['photo_file_fid'])) {
-      $normalized['person_photo_upload'] = [(int) $person['photo_file_fid']];
+    if (isset($slide['desktop_file_fid']) && is_numeric($slide['desktop_file_fid'])) {
+      $normalized['slide_desktop_upload'] = [(int) $slide['desktop_file_fid']];
+    }
+    if (isset($slide['mobile_file_fid']) && is_numeric($slide['mobile_file_fid'])) {
+      $normalized['slide_mobile_upload'] = [(int) $slide['mobile_file_fid']];
     }
 
     //3.- Push the normalized values into both the form state and user input so
@@ -359,76 +406,109 @@ function pds_recipe_slider_banner_edit_person_prepare_submit(array &$form, FormS
 }
 
 /**
- * Validate updated executive information.
+ * Validate updated slide information.
  */
-function pds_recipe_slider_banner_edit_person_validate(array &$form, FormStateInterface $form_state): void {
-  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'edit_person']);
+function pds_recipe_slider_banner_edit_slide_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_slider_banner_base_key($form, $form_state, ['slider_banner_ui', 'panes', 'edit_slide']);
   $parent_state = pds_recipe_slider_banner_parent_state($form_state);
 
-  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
-  $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
-  $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
-  $photo_upload = $form_state->getValue(array_merge($base_key, ['person_photo_upload']));
-  $photo_upload_info = pds_recipe_slider_banner_extract_uploaded_photo($photo_upload);
-  $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
-  $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
+  $desktop_src = trim((string) $form_state->getValue(array_merge($base_key, ['slide_desktop_src'])));
+  $desktop_upload = $form_state->getValue(array_merge($base_key, ['slide_desktop_upload']));
+  $desktop_upload_info = pds_recipe_slider_banner_extract_uploaded_image($desktop_upload);
+  $mobile_src = trim((string) $form_state->getValue(array_merge($base_key, ['slide_mobile_src'])));
+  $mobile_upload = $form_state->getValue(array_merge($base_key, ['slide_mobile_upload']));
+  $mobile_upload_info = pds_recipe_slider_banner_extract_uploaded_image($mobile_upload);
+  $alt = trim((string) $form_state->getValue(array_merge($base_key, ['slide_alt'])));
+  $title_html = trim((string) $form_state->getValue(array_merge($base_key, ['slide_title_html'])));
+  $intro = trim((string) $form_state->getValue(array_merge($base_key, ['slide_intro'])));
+  $cta_label = trim((string) $form_state->getValue(array_merge($base_key, ['slide_cta_label'])));
+  $cta_url = trim((string) $form_state->getValue(array_merge($base_key, ['slide_cta_url'])));
 
-  if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_name'])), t('Name is required.'));
+  if ($desktop_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_desktop_upload'])), $desktop_upload_info['error']);
   }
-  if ($title === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
+  elseif ($desktop_upload_info['url'] !== NULL) {
+    $desktop_src = $desktop_upload_info['url'];
   }
-  if ($photo_upload_info['error'] !== NULL) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo_upload'])), $photo_upload_info['error']);
+
+  if ($mobile_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_mobile_upload'])), $mobile_upload_info['error']);
   }
-  if ($photo_upload_info['url'] !== NULL) {
-    $photo = $photo_upload_info['url'];
+  elseif ($mobile_upload_info['url'] !== NULL) {
+    $mobile_src = $mobile_upload_info['url'];
   }
-  if ($photo !== '' && !pds_recipe_slider_banner_is_allowed_url($photo)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
+
+  if ($desktop_src === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_desktop_src'])), t('Desktop image URL is required.'));
   }
-  if ($linkedin !== '' && !pds_recipe_slider_banner_is_allowed_url($linkedin)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_linkedin'])), t('LinkedIn URL must be absolute or start with /.'));
+  if ($mobile_src === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_mobile_src'])), t('Mobile image URL is required.'));
+  }
+  if ($alt === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_alt'])), t('Alternative text is required.'));
+  }
+  if ($title_html === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_title_html'])), t('Title is required.'));
+  }
+  if ($cta_label === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_cta_label'])), t('CTA label is required.'));
+  }
+  if ($cta_url === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_cta_url'])), t('CTA URL is required.'));
+  }
+
+  if ($desktop_src !== '' && !pds_recipe_slider_banner_is_allowed_url($desktop_src)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_desktop_src'])), t('Desktop image URL must be absolute or start with / or a stream wrapper.'));
+  }
+  if ($mobile_src !== '' && !pds_recipe_slider_banner_is_allowed_url($mobile_src)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_mobile_src'])), t('Mobile image URL must be absolute or start with / or a stream wrapper.'));
+  }
+  if ($cta_url !== '' && !pds_recipe_slider_banner_is_allowed_url($cta_url)) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['slide_cta_url'])), t('CTA URL must be absolute or start with /.'));
   }
 
   if ($form_state->hasAnyErrors()) {
-    $form_state->set('pds_recipe_slider_banner_edit_person_payload', NULL);
+    $form_state->set('pds_recipe_slider_banner_edit_slide_payload', NULL);
     if ($parent_state) {
-      $parent_state->set('pds_recipe_slider_banner_edit_person_payload', NULL);
+      $parent_state->set('pds_recipe_slider_banner_edit_slide_payload', NULL);
     }
     return;
   }
 
   $payload = [
-    'name' => $name,
-    'title' => $title,
-    'photo' => $photo,
-    'linkedin' => $linkedin,
-    'cv_html' => $cv,
+    'desktop_src' => $desktop_src,
+    'mobile_src' => $mobile_src,
+    'alt' => $alt,
+    'title_html' => $title_html,
+    'intro' => $intro,
+    'cta_label' => $cta_label,
+    'cta_url' => $cta_url,
   ];
 
-  if ($photo_upload_info['fid'] !== NULL) {
-    $payload['photo_file_fid'] = $photo_upload_info['fid'];
+  if ($desktop_upload_info['fid'] !== NULL) {
+    $payload['desktop_file_fid'] = $desktop_upload_info['fid'];
+  }
+  if ($mobile_upload_info['fid'] !== NULL) {
+    $payload['mobile_file_fid'] = $mobile_upload_info['fid'];
   }
 
-  $form_state->set('pds_recipe_slider_banner_edit_person_payload', $payload);
+  $form_state->set('pds_recipe_slider_banner_edit_slide_payload', $payload);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_slider_banner_edit_person_payload', $payload);
+    $parent_state->set('pds_recipe_slider_banner_edit_slide_payload', $payload);
   }
 }
 
 /**
- * Save the edited executive back into the working list.
+ * Save the edited slide back into the working list.
  */
-function pds_recipe_slider_banner_edit_person_submit(array &$form, FormStateInterface $form_state): void {
+function pds_recipe_slider_banner_edit_slide_submit(array &$form, FormStateInterface $form_state): void {
   $parent_state = pds_recipe_slider_banner_parent_state($form_state);
-  $updated_person = $form_state->get('pds_recipe_slider_banner_edit_person_payload');
-  if (!is_array($updated_person)) {
+  $updated_slide = $form_state->get('pds_recipe_slider_banner_edit_slide_payload');
+  if (!is_array($updated_slide)) {
     return;
   }
 
-  pds_recipe_slider_banner_finalize_photo_payload($updated_person);
+  pds_recipe_slider_banner_finalize_slide_payload($updated_slide);
 
   $index = $form_state->get('pds_recipe_slider_banner_editing_index');
   if ($index === NULL && $parent_state) {
@@ -439,45 +519,45 @@ function pds_recipe_slider_banner_edit_person_submit(array &$form, FormStateInte
   }
   $index = (int) $index;
 
-  $people = $form_state->get('working_people');
-  if (!is_array($people)) {
-    $people = [];
+  $slides = $form_state->get('working_slides');
+  if (!is_array($slides)) {
+    $slides = [];
   }
 
-  if (!isset($people[$index])) {
+  if (!isset($slides[$index])) {
     return;
   }
 
-  $people[$index] = $updated_person;
-  $normalized_people = array_values($people);
+  $slides[$index] = $updated_slide;
+  $normalized_slides = array_values($slides);
 
-  $form_state->set('working_people', $normalized_people);
+  $form_state->set('working_slides', $normalized_slides);
   $form_state->set('pds_recipe_slider_banner_editing_index', NULL);
-  $form_state->set('pds_recipe_slider_banner_edit_person_payload', NULL);
+  $form_state->set('pds_recipe_slider_banner_edit_slide_payload', NULL);
 
   if ($parent_state) {
-    $parent_state->set('working_people', $normalized_people);
+    $parent_state->set('working_slides', $normalized_slides);
     $parent_state->set('pds_recipe_slider_banner_editing_index', NULL);
-    $parent_state->set('pds_recipe_slider_banner_edit_person_payload', NULL);
+    $parent_state->set('pds_recipe_slider_banner_edit_slide_payload', NULL);
   }
 
   $form_state->setRebuild(TRUE);
-  pds_recipe_slider_banner_set_active_tab($form_state, 'people');
+  pds_recipe_slider_banner_set_active_tab($form_state, 'slides');
 }
 
 /**
  * Cancel edit mode and go back to the list tab.
  */
-function pds_recipe_slider_banner_edit_person_cancel_submit(array &$form, FormStateInterface $form_state): void {
+function pds_recipe_slider_banner_edit_slide_cancel_submit(array &$form, FormStateInterface $form_state): void {
   $parent_state = pds_recipe_slider_banner_parent_state($form_state);
   $form_state->set('pds_recipe_slider_banner_editing_index', NULL);
-  $form_state->set('pds_recipe_slider_banner_edit_person_payload', NULL);
+  $form_state->set('pds_recipe_slider_banner_edit_slide_payload', NULL);
   if ($parent_state) {
     $parent_state->set('pds_recipe_slider_banner_editing_index', NULL);
-    $parent_state->set('pds_recipe_slider_banner_edit_person_payload', NULL);
+    $parent_state->set('pds_recipe_slider_banner_edit_slide_payload', NULL);
   }
   $form_state->setRebuild(TRUE);
-  pds_recipe_slider_banner_set_active_tab($form_state, 'people');
+  pds_recipe_slider_banner_set_active_tab($form_state, 'slides');
 }
 
 /**
@@ -519,9 +599,9 @@ function pds_recipe_slider_banner_is_allowed_url(string $url): bool {
 }
 
 /**
- * Extract the managed file selection from the photo upload widget.
+ * Extract the managed file selection from an image upload widget.
  */
-function pds_recipe_slider_banner_extract_uploaded_photo($value): array {
+function pds_recipe_slider_banner_extract_uploaded_image($value): array {
   //1.- Provide a predictable response structure for callers.
   $result = [
     'url' => NULL,
@@ -547,12 +627,12 @@ function pds_recipe_slider_banner_extract_uploaded_photo($value): array {
   //3.- Load the file and derive the public URL used by the rendered card.
   $file = File::load($fid);
   if (!$file) {
-    $result['error'] = t('Unable to load the uploaded photo.');
+    $result['error'] = t('Unable to load the uploaded image.');
     return $result;
   }
   $url = pds_recipe_slider_banner_build_file_url($file);
   if ($url === NULL) {
-    $result['error'] = t('Unable to generate a URL for the uploaded photo.');
+    $result['error'] = t('Unable to generate a URL for the uploaded image.');
     return $result;
   }
 
@@ -634,35 +714,38 @@ function pds_recipe_slider_banner_transform_relative_fallback(string $absolute):
 }
 
 /**
- * Mark uploaded files as permanent once the person payload is stored.
+ * Mark uploaded files as permanent once the slide payload is stored.
  */
-function pds_recipe_slider_banner_finalize_photo_payload(array &$person): void {
-  if (!isset($person['photo_file_fid'])) {
-    return;
-  }
+function pds_recipe_slider_banner_finalize_slide_payload(array &$slide): void {
+  foreach (['desktop', 'mobile'] as $variant) {
+    $key = $variant . '_file_fid';
+    if (!isset($slide[$key])) {
+      continue;
+    }
 
-  //1.- Capture and immediately unset the helper key so the snapshot mirrors production data.
-  $fid = (int) $person['photo_file_fid'];
-  unset($person['photo_file_fid']);
-  if ($fid <= 0) {
-    return;
-  }
+    //1.- Capture and immediately unset the helper key so the snapshot mirrors production data.
+    $fid = (int) $slide[$key];
+    unset($slide[$key]);
+    if ($fid <= 0) {
+      continue;
+    }
 
-  //2.- Promote the temporary file to permanent storage.
-  $file = File::load($fid);
-  if (!$file) {
-    return;
-  }
-  if ($file->isTemporary()) {
-    $file->setPermanent();
-    $file->save();
-  }
+    //2.- Promote the temporary file to permanent storage.
+    $file = File::load($fid);
+    if (!$file) {
+      continue;
+    }
+    if ($file->isTemporary()) {
+      $file->setPermanent();
+      $file->save();
+    }
 
-  //3.- Register usage so Drupal keeps the asset available for the block configuration.
-  if (\Drupal::hasService('file.usage')) {
-    $usage = \Drupal::service('file.usage');
-    if ($usage instanceof FileUsageInterface) {
-      $usage->add($file, 'pds_recipe_slider_banner', 'pds_slider_banner_photo', $file->id());
+    //3.- Register usage so Drupal keeps the asset available for the block configuration.
+    if (\Drupal::hasService('file.usage')) {
+      $usage = \Drupal::service('file.usage');
+      if ($usage instanceof FileUsageInterface) {
+        $usage->add($file, 'pds_recipe_slider_banner', 'pds_slider_banner_image', $file->id());
+      }
     }
   }
 }
