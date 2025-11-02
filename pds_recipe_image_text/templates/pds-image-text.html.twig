@@ -1,0 +1,34 @@
+{# Component: Image + Text callout #}
+{{ attach_library('pds_recipe_image_text/educacion') }}
+
+{# image_position can be "left" or "right" (default: left) #}
+{% set pos = image_position|default('left') in ['left','right'] ? image_position : 'left' %}
+
+<section class="principal-image-text principal-image-text--image-{{ pos }}">
+  <div class="container">
+    <div class="principal-row-container">
+
+      <div class="image-column">
+        <div class="img-area">
+          <img
+            src="{{ image_src }}"
+            alt="{{ image_alt|default('') }}"
+            loading="lazy"
+            decoding="async"
+          >
+        </div>
+      </div>
+
+      <div class="text-column">
+        {% if title %}<h2>{{ title }}</h2>{% endif %}
+        {% if description %}<p>{{ description }}</p>{% endif %}
+        {% if button_url and button_text %}
+          <div class="button-area">
+            <a href="{{ button_url }}" class="principal-button">{{ button_text }}</a>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</section>
