@@ -352,8 +352,19 @@ final class PdsMapaBlock extends BlockBase {
   public function submitRemovePins(array &$form, FormStateInterface $form_state): void {
     $cfg = $this->getConfiguration();
 
-    // Get whatever user has right now (including checkboxes).
-    $pins_raw = self::getWorkingPins($form_state, $cfg['pins'] ?? []);
+    //1.- Intentionally bypass the cached working list so we can read the
+    //    current form submission (which includes the "remove" checkboxes).
+    $pins_raw = $form_state->getValue(['pins_ui', 'pins']);
+    if (!is_array($pins_raw)) {
+      //2.- Layout Builder nests the fields under "settings", so fall back
+      //    to that when the direct lookup returns nothing.
+      $pins_raw = $form_state->getValue(['settings', 'pins_ui', 'pins']);
+    }
+    if (!is_array($pins_raw)) {
+      //3.- As a last resort use the working pins so we still keep the form
+      //    functional even if no submission data is present.
+      $pins_raw = self::getWorkingPins($form_state, $cfg['pins'] ?? []);
+    }
 
     // Filter out checked rows.
     $clean = [];
