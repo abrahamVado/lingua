@@ -13,7 +13,7 @@ slider_banner:
     js/pds-slider_banner.js: {}
   css:
     theme:
-      css/pds-slider_banner.css: {}
+      assets/css/pds-slider_banner.public.css: {}
   dependencies:
     - core/drupal
     - core/once
