@@ -17,8 +17,11 @@ function pds_recipe_fondos_mutuos_theme($existing, $type, $theme, $path) {
       'path' => $path . '/templates',
       'variables' => [
         'title' => '',
+        'subheader' => '',
         'subtitle' => '',
         'fondos' => [],
+        'icon_url' => '',
+        'arrow_url' => '',
       ],
     ],
   ];
@@ -81,31 +84,19 @@ function pds_recipe_fondos_mutuos_add_person_validate(array &$form, FormStateInt
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
   $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
-  $icon_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_src'])));
-  $icon_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_alt'])));
-  $arrow_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_src'])));
-  $arrow_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_alt'])));
 
   //2.- Validate minimal requirements for a card.
   if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Name is required.'));
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));
   }
   if ($desc === '') {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
-  if ($icon_src === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_icon_src'])), t('Icon image is required.'));
-  }
 
-  //3.- Enforce safe URL formats on linkable fields.
-  foreach ([
-    ['key' => 'fondo_url', 'value' => $url, 'message' => t('Destination URL must be absolute or start with /.')],
-    ['key' => 'fondo_icon_src', 'value' => $icon_src, 'message' => t('Icon URL must be absolute or start with /.')],
-    ['key' => 'fondo_arrow_src', 'value' => $arrow_src, 'message' => t('Arrow URL must be absolute or start with /.')],
-  ] as $definition) {
-    if ($definition['value'] !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($definition['value'])) {
-      $form_state->setErrorByName(implode('][', array_merge($base_key, [$definition['key']])), $definition['message']);
-    }
+  //3.- Enforce safe URL formats on the optional link field.
+  if ($url !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($url)) {
+    $message = t('Destination URL must be absolute or start with /.');
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
   }
 
   if ($form_state->hasAnyErrors()) {
@@ -118,23 +109,11 @@ function pds_recipe_fondos_mutuos_add_person_validate(array &$form, FormStateInt
 
   //4.- Store a clean snapshot for the submit handler.
   $payload = [
-    'name' => $name,
-    'desc' => $desc,
+    'title' => $name,
+    'description' => $desc,
   ];
   if ($url !== '') {
     $payload['url'] = $url;
-  }
-  if ($icon_src !== '') {
-    $payload['icon_src'] = $icon_src;
-  }
-  if ($icon_alt !== '') {
-    $payload['icon_alt'] = $icon_alt;
-  }
-  if ($arrow_src !== '') {
-    $payload['arrow_src'] = $arrow_src;
-  }
-  if ($arrow_alt !== '') {
-    $payload['arrow_alt'] = $arrow_alt;
   }
 
   $form_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', $payload);
@@ -170,26 +149,26 @@ function pds_recipe_fondos_mutuos_add_person_submit(array &$form, FormStateInter
   }
 
   //3.- Reset author-facing inputs for the next addition.
-  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
     NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
   $form_state->setUserInput($user_input);
   if ($parent_state) {
-    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
       $parent_state->setValue(array_merge($base_key, [$key]), '');
     }
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
       NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
     $parent_state->setUserInput($parent_input);
@@ -312,13 +291,9 @@ function pds_recipe_fondos_mutuos_edit_person_prepare_submit(array &$form, FormS
     //2.- Extract the stored fondo details and normalize them for the form API.
     $fondo = $fondos[$index];
     $normalized = [
-      'fondo_name' => (string) ($fondo['name'] ?? ''),
-      'fondo_desc' => (string) ($fondo['desc'] ?? ''),
+      'fondo_name' => (string) ($fondo['title'] ?? ($fondo['name'] ?? '')),
+      'fondo_desc' => (string) ($fondo['description'] ?? ($fondo['desc'] ?? '')),
       'fondo_url' => (string) ($fondo['url'] ?? ''),
-      'fondo_icon_src' => (string) ($fondo['icon_src'] ?? ''),
-      'fondo_icon_alt' => (string) ($fondo['icon_alt'] ?? ''),
-      'fondo_arrow_src' => (string) ($fondo['arrow_src'] ?? ''),
-      'fondo_arrow_alt' => (string) ($fondo['arrow_alt'] ?? ''),
     ];
 
     //3.- Push the normalized values into both the form state and user input so
@@ -365,29 +340,17 @@ function pds_recipe_fondos_mutuos_edit_person_validate(array &$form, FormStateIn
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
   $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
-  $icon_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_src'])));
-  $icon_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_alt'])));
-  $arrow_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_src'])));
-  $arrow_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_alt'])));
 
   if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Name is required.'));
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));
   }
   if ($desc === '') {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
-  if ($icon_src === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_icon_src'])), t('Icon image is required.'));
-  }
 
-  foreach ([
-    ['key' => 'fondo_url', 'value' => $url, 'message' => t('Destination URL must be absolute or start with /.')],
-    ['key' => 'fondo_icon_src', 'value' => $icon_src, 'message' => t('Icon URL must be absolute or start with /.')],
-    ['key' => 'fondo_arrow_src', 'value' => $arrow_src, 'message' => t('Arrow URL must be absolute or start with /.')],
-  ] as $definition) {
-    if ($definition['value'] !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($definition['value'])) {
-      $form_state->setErrorByName(implode('][', array_merge($base_key, [$definition['key']])), $definition['message']);
-    }
+  if ($url !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($url)) {
+    $message = t('Destination URL must be absolute or start with /.');
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
   }
 
   if ($form_state->hasAnyErrors()) {
@@ -399,23 +362,11 @@ function pds_recipe_fondos_mutuos_edit_person_validate(array &$form, FormStateIn
   }
 
   $payload = [
-    'name' => $name,
-    'desc' => $desc,
+    'title' => $name,
+    'description' => $desc,
   ];
   if ($url !== '') {
     $payload['url'] = $url;
-  }
-  if ($icon_src !== '') {
-    $payload['icon_src'] = $icon_src;
-  }
-  if ($icon_alt !== '') {
-    $payload['icon_alt'] = $icon_alt;
-  }
-  if ($arrow_src !== '') {
-    $payload['arrow_src'] = $arrow_src;
-  }
-  if ($arrow_alt !== '') {
-    $payload['arrow_alt'] = $arrow_alt;
   }
 
   $form_state->set('pds_recipe_fondos_mutuos_edit_person_payload', $payload);

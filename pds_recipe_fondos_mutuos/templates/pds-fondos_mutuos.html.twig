@@ -2,16 +2,15 @@
   Theme hook: pds_fondos
   Vars:
   - title: string
+  - subheader: string
   - subtitle: string
+  - icon_url: string
+  - arrow_url: string
   - fondos: [
       {
         url: string,
-        icon_src: string,     # absolute or theme-relative
-        icon_alt: string,
-        name: string,
-        desc: string,
-        arrow_src: string,    # optional
-        arrow_alt: string     # optional
+        title: string,
+        description: string
       },
       ...
     ]
@@ -23,6 +22,9 @@
   <div class="principal-container">
     <div class="principal-titles-area">
       <h2>{{ title }}</h2>
+      {% if subheader %}
+        <h3>{{ subheader }}</h3>
+      {% endif %}
       {% if subtitle %}
         <p>{{ subtitle }}</p>
       {% endif %}
@@ -33,15 +35,17 @@
         <a href="{{ f.url|default('#') }}">
           <div class="principal-fondo">
             <div class="principal-fondo-icon-area">
-              <img src="{{ f.icon_src }}" alt="{{ f.icon_alt|default('') }}">
+              {% if icon_url %}
+                <img src="{{ icon_url }}" alt="">
+              {% endif %}
             </div>
             <div class="principal-fondo-description-area">
-              <h3>{{ f.name }}</h3>
-              <p>{{ f.desc }}</p>
+              <h3>{{ f.title }}</h3>
+              <p>{{ f.description }}</p>
             </div>
             <div class="principal-fondo-button-area">
-              {% if f.arrow_src %}
-                <img src="{{ f.arrow_src }}" alt="{{ f.arrow_alt|default('') }}">
+              {% if arrow_url %}
+                <img src="{{ arrow_url }}" alt="">
               {% endif %}
             </div>
           </div>
