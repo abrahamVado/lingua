@@ -2,6 +2,7 @@
 
 namespace Drupal\pds_recipe_mapa\Plugin\Block;
 
+use Drupal\Component\Utility\NestedArray;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
@@ -352,33 +353,57 @@ final class PdsMapaBlock extends BlockBase {
   public function submitRemovePins(array &$form, FormStateInterface $form_state): void {
     $cfg = $this->getConfiguration();
 
-    //1.- Intentionally bypass the cached working list so we can read the
-    //    current form submission (which includes the "remove" checkboxes).
-    $pins_raw = $form_state->getValue(['pins_ui', 'pins']);
+    //1.- Select the correct key path depending on whether Layout Builder wraps
+    //    the block form under the "settings" parent.
+    $table_key = isset($form['settings'])
+      ? ['settings', 'pins_ui', 'pins']
+      : ['pins_ui', 'pins'];
+
+    //2.- Gather checkbox submissions from the current form state and, when
+    //    editing inside Layout Builder, from the parent form state as well.
+    $pins_raw = $form_state->getValue($table_key);
+    $parent_state = $form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')
+      ? $form_state->getCompleteFormState()
+      : NULL;
+    if (!is_array($pins_raw) && $parent_state) {
+      $pins_raw = $parent_state->getValue($table_key);
+    }
+
+    //3.- Fall back to the raw user input when processed values are missing so
+    //    unchecked checkboxes do not block removal.
     if (!is_array($pins_raw)) {
-      //2.- Layout Builder nests the fields under "settings", so fall back
-      //    to that when the direct lookup returns nothing.
-      $pins_raw = $form_state->getValue(['settings', 'pins_ui', 'pins']);
+      $input = $form_state->getUserInput();
+      if (is_array($input)) {
+        $pins_raw = NestedArray::getValue($input, $table_key);
+      }
+    }
+    if (!is_array($pins_raw) && $parent_state) {
+      $parent_input = $parent_state->getUserInput();
+      if (is_array($parent_input)) {
+        $pins_raw = NestedArray::getValue($parent_input, $table_key);
+      }
     }
     if (!is_array($pins_raw)) {
-      //3.- As a last resort use the working pins so we still keep the form
-      //    functional even if no submission data is present.
+      //4.- As a final fallback preserve the previously working list so the
+      //    form continues to function when no submission data exists.
       $pins_raw = self::getWorkingPins($form_state, $cfg['pins'] ?? []);
     }
 
-    // Filter out checked rows.
+    //5.- Filter out rows whose checkbox was selected.
     $clean = [];
     foreach ($pins_raw as $row) {
-      if (!is_array($row)) {
-        continue;
-      }
-      if (!empty($row['remove'])) {
+      if (!is_array($row) || !empty($row['remove'])) {
         continue;
       }
       $clean[] = $row;
     }
 
+    //6.- Persist the filtered snapshot on both the current and parent form
+    //    states so subsequent rebuilds render the updated table immediately.
     $form_state->set('working_pins', $clean);
+    if ($parent_state) {
+      $parent_state->set('working_pins', $clean);
+    }
     $form_state->setRebuild(TRUE);
   }
 
