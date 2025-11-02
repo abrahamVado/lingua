@@ -1,64 +1,64 @@
-/* Utilities */
-.u-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;border:0!important;padding:0!important;}
-html.u-noscroll,html.u-noscroll body{overflow:hidden}
-
-/* Block: principal-fondos_mutuos */
-.principal-fondos_mutuos{padding:48px 16px}
-.principal-fondos_mutuos__inner{max-width:1120px;margin:0 auto}
-.principal-fondos_mutuos__title{font-size:clamp(22px,2.5vw,28px);margin:0 0 28px}
-
-.principal-fondos_mutuos__grid{
-  display:grid; gap:40px 56px;
-  grid-template-columns: repeat(3, minmax(0,1fr));
-  justify-items:center;
+/* Base */
+html, body {
+  font-family: 'FS Eliot Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+               Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue',
+               sans-serif;
 }
-@media (max-width:960px){ .principal-fondos_mutuos__grid{grid-template-columns:repeat(2, minmax(0,1fr)); gap:32px} }
-@media (max-width:560px){ .principal-fondos_mutuos__grid{grid-template-columns:1fr; gap:24px} }
+body { margin: 0; padding: 0; box-sizing: border-box; }
 
-.principal-fondos_mutuos__card{ text-align:center }
-.principal-fondos_mutuos__card:hover{filter: grayscale(1); }
-.principal-fondos_mutuos__card-btn{
-  display:flex; flex-direction:column; align-items:center; gap:14px;
-  background:transparent;border:0;cursor:pointer;padding:0; text-align:center;
+/* Module */
+.principal_modulo_conoce_fondos_mutuos { padding: 60px 0; background-color: #bbe6fc; }
+.principal-container { max-width: 1280px; margin: 0 auto; padding: 0 30px; }
+
+/* Titles */
+.principal_modulo_conoce_fondos_mutuos .principal-titles-area { text-align: center; margin-bottom: 40px; }
+.principal_modulo_conoce_fondos_mutuos .principal-titles-area h2 {
+  font-size: 42px; color: rgb(0,56,101); line-height: 50px; font-weight: 200; margin: 0 0 10px;
 }
-.principal-fondos_mutuos__photo{
-  width:160px;height:160px;border-radius:50%;
-  background-size:cover;background-position:center;
-  position:relative;
-  transition:transform .2s ease;
+.principal_modulo_conoce_fondos_mutuos .principal-titles-area h2 span { font-weight: 700; }
+.principal_modulo_conoce_fondos_mutuos .principal-titles-area p {
+  font-size: 22px; color: #333; line-height: 31px; font-weight: 400; margin: 0;
 }
-.principal-fondos_mutuos__card .principal-fondos_mutuos__photo:hover { box-shadow: 0 0 0 6px rgba(238, 243, 247, 0.6) inset; }
-.principal-fondos_mutuos__name{ font-size:22px; text-align:center; color:#0076cf; }
+.principal_modulo_conoce_fondos_mutuos .principal-titles-area p span { font-weight: 700; }
 
-/* Block: principal-modal */
-.principal-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:1000 }
-.principal-modal.is-open{ display:flex }
-.principal-modal[aria-hidden="true"]{ display:none }
-
-.principal-modal__overlay{ position:absolute; inset:0; background:rgba(0,0,0,.5) }
-.principal-modal__dialog{
-  position:relative; z-index:1; width:min(92vw, 920px); margin: 0 30px;
-  background:#fff; border-radius:16px; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,.25);
+/* Grid */
+.principal_modulo_conoce_fondos_mutuos .principal-fondos-area {
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
 }
-.principal-modal__close{ position:absolute; top:8px; right:8px; background:transparent; border:0; font-size:28px; line-height:1; cursor:pointer }
+.principal_modulo_conoce_fondos_mutuos .principal-fondos-area a {
+  text-decoration: none; color: inherit; display: contents;
+}
 
-.principal-modal__content{ display:grid; grid-template-columns:285px 1fr; gap:20px }
+/* Card */
+.principal_modulo_conoce_fondos_mutuos .principal-fondo {
+  background: #fff; border-radius: 8px 0 0 0; box-shadow: 0 4px 6px rgba(0,0,0,.1);
+  padding-right: 20px; flex: 1 1 calc(33.333% - 20px); box-sizing: border-box;
+  display: flex; overflow: hidden; flex-direction: row; align-items: center;
+}
+.principal_modulo_conoce_fondos_mutuos .principal-fondos-area a:hover
+  .principal-fondo .principal-fondo-description-area h3 { color: rgb(0,46,109); }
+.principal_modulo_conoce_fondos_mutuos .principal-fondos-area a:hover
+  .principal-fondo-icon-area { background-color: #005db6; }
 
-.principal-modal__photo{ width:100%; object-fit:cover }
-.principal-modal__name{ font-size:24px; font-weight:600; color:#333; margin-bottom:0; word-wrap:break-word; }
-.principal-modal__title{ display:block; font-size:18px; font-weight:600; color:#333; word-wrap:break-word; }
-.principal-modal__cv p{ font-size:18px; font-weight:300; color:#333; margin-top:24px; word-wrap:break-word; }
-.principal-modal__links{ margin-top:12px }
-.principal-modal__links a{ text-decoration:none; border:1px solid #1c6bc1; padding:8px 12px; border-radius:999px; color:#1c6bc1; display:inline-block }
-.principal-modal__links a:hover{ background:#1c6bc1; color:#fff }
+.principal-fondo-icon-area { flex: 0 0 auto; height: 100%; background: #0076cf; align-content: center; }
+.principal-fondo-icon-area img { max-width: 80px; height: auto; object-fit: contain; padding: 5px; }
 
-@media (max-width:640px){
-  .principal-modal__dialog{ width:100%; height:100%; margin:0; }
-  .principal-modal__cv p{ margin-top:0; }
-  .principal-modal__title{ margin-bottom:10px; }
-  .principal-modal__close{ top:40px; }
-  .principal-modal__content{ grid-template-columns:1fr; top:30px; margin-top:60px; }
-  .principal-modal__photo{ max-height:350px; }
-  .principal-modal__cv{ max-height:200px; overflow-y:auto; }
-  .principal-modal__name{ margin-top:0; }
+.principal-fondo-description-area { padding: 20px; flex: 1 1 auto; display: flex; flex-direction: column; align-self: flex-start; }
+.principal-fondo-description-area h3 {
+  font-size: 19px; color: #005db6; line-height: normal; font-weight: 500; min-height: 54px; margin: 0 0 10px;
+}
+.principal-fondo-description-area p {
+  font-size: 14px; color: #333; line-height: 20px; font-weight: 400; margin: 0; flex-grow: 1;
+}
+
+/* Responsive */
+@media (min-width:600px) and (max-width:920px){
+  .principal_modulo_conoce_fondos_mutuos .principal-fondo { flex: 1 1 calc(50% - 20px); }
+}
+@media (max-width:599px){
+  .principal_modulo_conoce_fondos_mutuos .principal-fondo { flex: 1 1 calc(100% - 20px); }
+}
+@media (max-width:920px){
+  .principal_modulo_conoce_fondos_mutuos .principal-titles-area h2 { font-size: 32px; line-height: 38px; }
+  .principal_modulo_conoce_fondos_mutuos .principal-titles-area p { font-size: 20px; line-height: 28px; }
 }
