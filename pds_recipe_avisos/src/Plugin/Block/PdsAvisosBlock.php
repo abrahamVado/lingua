@@ -28,8 +28,6 @@ final class PdsAvisosBlock extends BlockBase {
   public function defaultConfiguration(): array {
     return [
       'title' => '',
-      'subtitle' => '',
-      'subheader' => '',
       'fondos' => [],
     ];
   }
@@ -72,17 +70,16 @@ final class PdsAvisosBlock extends BlockBase {
     }
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
-    $subtitle = trim((string) ($cfg['subtitle'] ?? ''));
-    $subheader = trim((string) ($cfg['subheader'] ?? ''));
 
     return [
       '#theme' => 'pds_avisos',
       '#title' => $title,
-      '#subtitle' => $subtitle,
-      '#subheader' => $subheader,
       '#fondos' => $fondos,
       '#icon_url' => $icon_url,
       '#arrow_url' => $arrow_url,
+      '#attached' => [
+        'library' => ['pds_recipe_avisos/avisos'],
+      ],
     ];
   }
 
@@ -220,26 +217,13 @@ final class PdsAvisosBlock extends BlockBase {
     $form['avisos_ui']['panes']['general']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Configure the section heading along with optional subheader and subtitle lines.'),
+      '#value' => $this->t('Configure the section heading shown above the avisos list.'),
     ];
     $form['avisos_ui']['panes']['general']['title'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
       '#default_value' => $cfg['title'] ?? '',
       '#parents' => ['title'],
-    ];
-    $form['avisos_ui']['panes']['general']['subheader'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Subheader'),
-      '#description' => $this->t('Optional short line displayed between the title and subtitle.'),
-      '#default_value' => $cfg['subheader'] ?? '',
-      '#parents' => ['subheader'],
-    ];
-    $form['avisos_ui']['panes']['general']['subtitle'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Subtitle'),
-      '#default_value' => $cfg['subtitle'] ?? '',
-      '#parents' => ['subtitle'],
     ];
 
     //4.- Add pane lets authors create a new executive entry.
@@ -448,23 +432,15 @@ final class PdsAvisosBlock extends BlockBase {
     $cfg = $this->getConfiguration();
 
     $submitted_title = $this->extractSubmittedString($form_state, 'title');
-    $submitted_subtitle = $this->extractSubmittedString($form_state, 'subtitle');
-    $submitted_subheader = $this->extractSubmittedString($form_state, 'subheader');
 
     //1.- Persist the sanitized section heading while allowing empty titles to
     //    fall back to the default block label.
     $this->configuration['title'] = $submitted_title;
 
-    //2.- Store the optional subtitle exactly as entered.
-    $this->configuration['subtitle'] = $submitted_subtitle;
-
-    //3.- Persist the optional subheader shown between title and subtitle.
-    $this->configuration['subheader'] = $submitted_subheader;
-
     $avisos = self::getWorkingAvisos($form_state, $cfg['fondos'] ?? []);
     $clean = [];
 
-    //1.- Persist sanitized fondo definitions.
+    //2.- Persist sanitized fondo definitions.
     foreach ($avisos as $fondo) {
       if (!is_array($fondo)) {
         continue;

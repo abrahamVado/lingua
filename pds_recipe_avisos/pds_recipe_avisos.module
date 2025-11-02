@@ -17,8 +17,6 @@ function pds_recipe_avisos_theme($existing, $type, $theme, $path) {
       'path' => $path . '/templates',
       'variables' => [
         'title' => '',
-        'subheader' => '',
-        'subtitle' => '',
         'fondos' => [],
         'icon_url' => '',
         'arrow_url' => '',

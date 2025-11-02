@@ -1,53 +1,68 @@
-{# templates/pds-fondos.html.twig #}
+{# templates/pds-avisos.html.twig #}
 {#
-  Theme hook: pds_fondos
+  Theme hook: pds_avisos
   Vars:
-    - avisos: [
-        { url: string, title: string, description: string },
+    - title: string
+    - fondos: [
+        { url?: string, title: string, description?: string },
         ...
       ]
+    - icon_url: string
+    - arrow_url: string
 #}
 
-{# Optional: {{ attach_library('pds_recipe_avisos/avisos') }} #}
+{% set has_fondos = fondos is iterable and fondos|length > 0 %}
 
-<section class="pds-fondos-avisos">
-  {% if avisos is not empty %}
-    <ul class="pds-fondos-avisos__list" role="list">
-      {% for item in avisos %}
-        <li class="pds-fondos-avisos__item">
-          <article class="pds-fondos-avisos__card">
-            <h3 class="pds-fondos-avisos__title">
-              <a
-                class="pds-fondos-avisos__link"
-                href="{{ item.url }}"
-                target="_blank"
-                rel="noopener"
-              >
-                {{ item.title }}
-              </a>
-            </h3>
+<section class="principal-avisos">
+  <div class="container">
+    {% if title %}
+      <h2>{{ title }}</h2>
+    {% endif %}
 
-            {% if item.description %}
-              <p class="pds-fondos-avisos__desc">
-                {{ item.description }}
-              </p>
-            {% endif %}
+    <div class="principal-row-container">
+      {% if has_fondos %}
+        {% for item in fondos %}
+          <article class="normativa-column">
+            <span class="vinyeta" aria-hidden="true"></span>
+            <div class="normativa-info">
+              {% if item.title %}
+                <h4>
+                  {% if icon_url %}
+                    <img class="normativa-info__icon" src="{{ icon_url }}" alt="" aria-hidden="true" />
+                  {% endif %}
+                  {{ item.title }}
+                </h4>
+              {% elseif icon_url %}
+                <h4>
+                  <img class="normativa-info__icon" src="{{ icon_url }}" alt="" aria-hidden="true" />
+                </h4>
+              {% endif %}
 
-            <p class="pds-fondos-avisos__cta">
-              <a
-                class="principal-link principal-link--subtle"
-                href="{{ item.url }}"
-                target="_blank"
-                rel="noopener"
-              >
-                {{ 'Ir a detalle'|t }}
-              </a>
-            </p>
+              {% if item.description %}
+                <h3>{{ item.description }}</h3>
+              {% endif %}
+
+              {% if item.url is defined %}
+                <div class="button-area">
+                  <a
+                    class="principal-link principal-link--subtle"
+                    href="{{ item.url }}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <span>{{ 'Ir a detalle'|t }}</span>
+                    {% if arrow_url %}
+                      <img class="button-area__icon" src="{{ arrow_url }}" alt="" aria-hidden="true" />
+                    {% endif %}
+                  </a>
+                </div>
+              {% endif %}
+            </div>
           </article>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="pds-fondos-avisos__empty">{{ 'No hay avisos disponibles.'|t }}</p>
-  {% endif %}
+        {% endfor %}
+      {% else %}
+        <p class="principal-avisos__empty">{{ 'No hay avisos disponibles.'|t }}</p>
+      {% endif %}
+    </div>
+  </div>
 </section>
