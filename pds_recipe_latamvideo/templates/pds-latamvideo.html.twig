@@ -1,44 +1,56 @@
-{# templates/pds-embed-callout.html.twig #}
+{# templates/pds-latamvideo.html.twig #}
 {{ attach_library('pds_recipe_latamvideo/educacion') }}
 
-<section class="pds-calloutSection pds-util-padding-vert-112">
+<section{{ attributes.addClass('pds-calloutSection', 'pds-util-padding-vert-112') }}>
   <div class="pds-container">
     <div class="pds-row pds-calloutSection-wrapper">
 
-      {# Media (left) #}
       <div class="pds-col pds-col-6 pds-order-2 pds-order-lg-1">
         <figure class="pds-calloutSection-image">
-          <img
-            src="{{ image_src }}"
-            alt="{{ image_alt }}"
-            width="680" height="380" loading="lazy" decoding="async"
-          />
-          <button
-            type="button"
-            class="pds-button pds-button-secondary pds-modal-open"
-            data-video="{{ video_url }}"
-            aria-label="{{ 'Reproducir video'|t }}"
-          >
-            <span class="pds-play" aria-hidden="true"></span>
-          </button>
+          {% if thumbnail_src %}
+            <img
+              src="{{ thumbnail_src }}"
+              alt="{{ thumbnail_alt }}"
+              width="680" height="380" loading="lazy" decoding="async"
+            />
+          {% endif %}
+          {% if embed_html %}
+            <button
+              type="button"
+              class="pds-button pds-button-secondary pds-modal-open"
+              aria-label="{{ 'Reproducir video'|t }}"
+            >
+              <span class="pds-play" aria-hidden="true"></span>
+            </button>
+            <template class="pds-embed-template">{{ embed_html }}</template>
+          {% endif %}
         </figure>
       </div>
 
-      {# Text (right) #}
       <div class="pds-col pds-col-12 pds-col-lg-5 pds-offset-lg-1 pds-order-1 pds-order-lg-2">
-        <h2 class="pds-typography-h2">{{ title }}</h2>
-        <p class="pds-calloutSection-copy">{{ copy }}</p>
+        {% if heading %}
+          <h2 class="pds-typography-h2">{{ heading }}</h2>
+        {% endif %}
+        {% if subheading %}
+          <p class="pds-calloutSection-copy">{{ subheading }}</p>
+        {% endif %}
+        {% if link_text and link_url %}
+          <p class="pds-calloutSection-cta">
+            <a class="pds-button pds-button-primary" href="{{ link_url }}">{{ link_text }}</a>
+          </p>
+        {% endif %}
       </div>
 
     </div>
   </div>
 
-  {# Modal #}
-  <div class="pds-modal" id="pds-modal" aria-hidden="true">
-    <div class="pds-modal-backdrop" data-close="true"></div>
-    <div class="pds-modal-dialog" role="dialog" aria-modal="true" aria-label="{{ 'Reproductor de video'|t }}">
-      <button class="pds-modal-close" type="button" aria-label="{{ 'Cerrar'|t }}" data-close="true">×</button>
-      <div class="pds-modal-body" id="pds-modal-body"></div>
+  {% if embed_html %}
+    <div class="pds-modal" data-pds-modal aria-hidden="true">
+      <div class="pds-modal-backdrop" data-close="true"></div>
+      <div class="pds-modal-dialog" role="dialog" aria-modal="true" aria-label="{{ 'Reproductor de video'|t }}">
+        <button class="pds-modal-close" type="button" aria-label="{{ 'Cerrar'|t }}" data-close="true">×</button>
+        <div class="pds-modal-body" data-pds-modal-body></div>
+      </div>
     </div>
-  </div>
+  {% endif %}
 </section>

@@ -6,6 +6,7 @@
   'use strict';
 
   function init(root) {
+    //1.- Localizamos los nodos clave para abrir el modal y clonar el embed.
     const openBtn = root.querySelector('.pds-modal-open');
     const template = root.querySelector('.pds-embed-template');
     const modal = root.querySelector('[data-pds-modal]');
@@ -13,6 +14,7 @@
     if (!openBtn || !template || !modal || !body) return;
 
     function open() {
+      //2.- Clonamos el template del iframe y lo inyectamos en el modal activo.
       body.innerHTML = '';
       const node = template.content ? template.content.cloneNode(true) : null;
       if (node) body.appendChild(node);
@@ -24,6 +26,7 @@
     }
 
     function close() {
+      //3.- Cerramos el modal y limpiamos el contenido para detener la reproducción.
       modal.setAttribute('aria-hidden', 'true');
       body.innerHTML = '';            // remove embed to stop playback
       document.body.style.overflow = '';
