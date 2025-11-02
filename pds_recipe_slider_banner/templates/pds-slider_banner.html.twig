@@ -1,69 +1,47 @@
 {#
-  Theme hook: pds_slider_banner
-  Variables expected:
-  - slider_banner: array of items. Each item is:
+  Theme hook: pds_hero
+  Vars expected:
+  - modifier_class: string (optional, e.g. 'principal_hero--gradient-dark')
+  - slides: [
       {
-        photo: (string) absolute or theme-relative URL,
-        name: (string),
-        title: (string),
-        linkedin: (string|nullable),
-        cv_html: (string, HTML allowed)
-      }
-  - title: (string|optional) section heading
-  - section_id: (string|optional) id attribute for the section
+        desktop_src: string,
+        mobile_src: string,
+        alt: string,
+        title_html: string,   # HTML allowed
+        intro: string,
+        cta_label: string,
+        cta_url: string
+      }, ...
+    ]
 #}
+{{ attach_library('pds_hero/hero') }}
 
-{{ attach_library('pds_recipe_slider_banner/slider_banner') }}
+<section class="principal_hero {{ modifier_class|default('principal_hero--gradient-dark') }}" aria-label="{{ 'Promociones destacadas'|t }}">
+  <div class="principal_hero__slider" id="principalHero">
+    {% for s in slides %}
+      <article class="principal_hero__slide">
+        <picture class="principal_hero__bg">
+          <source media="(min-width: 768px)" srcset="{{ s.desktop_src }}">
+          <img class="principal_hero__bgImg" src="{{ s.mobile_src }}" alt="{{ s.alt }}">
+        </picture>
 
-<section class="principal-slider_banner" aria-labelledby="{{ section_id|default('principal-slider_banner-title') }}" id="{{ section_id|default('principal-slider_banner') }}">
-  <div class="principal-slider_banner__inner">
-    {% if title %}
-      <h2 id="{{ section_id|default('principal-slider_banner-title') }}" class="principal-slider_banner__title">{{ title }}</h2>
-    {% endif %}
-
-    <div class="principal-slider_banner__grid" role="list">
-      {% for item in slider_banner %}
-        {# Defensive defaults #}
-        {% set _photo = item.photo|default('') %}
-        {% set _name  = item.name|default('') %}
-        {% set _title = item.title|default('') %}
-        {% set _lk    = item.linkedin|default('#') %}
-        {% set _cv    = item.cv_html|default('') %}
-
-        <article class="principal-slider_banner__card" role="listitem"
-          {% if _photo %}data-photo="{{ _photo }}"{% endif %}
-          {% if _name %}data-name="{{ _name }}"{% endif %}
-          {% if _title %}data-title="{{ _title }}"{% endif %}
-          {% if _lk %}data-linkedin="{{ _lk }}"{% endif %}>
-          <button class="principal-slider_banner__card-btn" type="button" aria-label="{{ 'Ver currículo de'|t }} {{ _name }}">
-            <span class="principal-slider_banner__photo" {% if _photo %}style="background-image:url('{{ _photo }}')"{% endif %}></span>
-            <span class="principal-slider_banner__name">{{ _name }}</span>
-          </button>
-
-          <div class="principal-slider_banner__cv u-visually-hidden">
-            {{ _cv|raw }}
+        <div class="principal_hero__inner">
+          <div class="principal_hero__content">
+            <h1 class="principal_hero__title">{{ s.title_html|raw }}</h1>
+            <p class="principal_hero__intro">{{ s.intro }}</p>
+            <div class="principal_hero__cta">
+              <a class="principal_btn principal_btn--primary" href="{{ s.cta_url }}">{{ s.cta_label }}</a>
+            </div>
           </div>
-        </article>
-      {% endfor %}
-    </div>
-  </div>
-</section>
-
-{# Reusable modal #}
-<div id="executive-modal" class="principal-modal" aria-hidden="true" role="dialog" aria-modal="true">
-  <div class="principal-modal__overlay" data-close></div>
-  <div class="principal-modal__dialog" role="document">
-    <button class="principal-modal__close" type="button" aria-label="{{ 'Fechar'|t }}" data-close>&times;</button>
-    <div class="principal-modal__content">
-      <img class="principal-modal__photo" alt="" />
-      <div class="principal-modal__text">
-        <h3 class="principal-modal__name"></h3>
-        <span class="principal-modal__title"></span>
-        <div class="principal-modal__cv"></div>
-        <div class="principal-modal__links">
-          <a class="principal-modal__linkedin" href="#" target="_blank" rel="noopener">LinkedIn</a>
         </div>
-      </div>
-    </div>
+      </article>
+    {% endfor %}
   </div>
-</div>
+
+  <button class="principal_hero__arrow principal_hero__arrow--prev" aria-label="{{ 'Anterior'|t }}" type="button">
+    <span class="principal_hero__icon" data-dir="prev" aria-hidden="true"></span>
+  </button>
+  <button class="principal_hero__arrow principal_hero__arrow--next" aria-label="{{ 'Siguiente'|t }}" type="button">
+    <span class="principal_hero__icon" data-dir="next" aria-hidden="true"></span>
+  </button>
+</section>

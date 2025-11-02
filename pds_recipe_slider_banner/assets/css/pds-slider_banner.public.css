@@ -1,334 +1,92 @@
-/* Fonts: adjust paths or move to your global font stack */
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProThin.otf') format('opentype');
-  font-weight: 100;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProThinItalic.otf') format('opentype');
-  font-weight: 100;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProLight.otf') format('opentype');
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProLightItalic.otf') format('opentype');
-  font-weight: 300;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProRegular.otf') format('opentype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProItalic.otf') format('opentype');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProBold.otf') format('opentype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProBoldItalic.otf') format('opentype');
-  font-weight: 700;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProHeavy.otf') format('opentype');
-  font-weight: 800;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FS Eliot Pro';
-  src: url('../fonts/FS Eliot ProHeavyItalic.otf') format('opentype');
-  font-weight: 800;
-  font-style: italic;
-  font-display: swap;
+:root{
+  --principal-hero-maxW: 1200px;
+  --principal-color-primary: #0061a0;
+  --principal-color-text: #ffffff;
 }
 
-:root {
-  --principal-left-col: 140px;
-  --principal-row-h: 69px;
-  --principal-container: 1140px;
-  --principal-title: #2a2e33;
-  --principal-line: #d9dde2;
-  --principal-gray: #5b6168;
-  --principal-blue: #0f6ad9;
-  --principal-dot: #404449;
-  --principal-name: #616267;
-  --principal-role: #616267;
+.principal_hero{ position:relative; overflow:hidden; background:#000; }
+.principal_hero--gradient-dark .principal_hero__slide::after{
+  content:""; position:absolute; inset:0;
+  background: linear-gradient(180deg, rgba(0,0,0,.45) 0%, rgba(0,0,0,.55) 40%, rgba(0,0,0,.35) 100%);
+  pointer-events:none;
 }
 
-.principal-slider_banner {
-  max-width: var(--principal-container, 1140px);
-  margin-inline: auto;
-  padding: 54px 0 56px;
-  font-family: 'FS Eliot Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+.principal_hero__slider{ position:relative; }
+.principal_hero__slide{ position:relative; min-height:60vh; display:grid; align-items:stretch; }
+
+.principal_hero__bg, .principal_hero__bgImg{ position:absolute; inset:0; width:100%; height:100%; }
+.principal_hero__bgImg{ object-fit:cover; object-position:center; }
+
+.principal_hero__inner{
+  position:relative; z-index:2; display:grid; place-items:start start; padding:60px; min-height:inherit;
 }
 
-.principal-slider_banner__container { padding: 0 45px; }
-
-.principal-slider_banner__title {
-  text-align: center;
-  margin: 0 0 26px;
-  color: var(--principal-title, #2a2e33);
-  font-weight: 300;
-  font-size: clamp(26px, 3.1vw, 44px);
+.principal_hero__content{
+  width:min(100%, var(--principal-hero-maxW));
+  color: var(--principal-color-text);
+  max-width:85%;
 }
 
-.principal-slider_banner__years {
-  display: grid;
-  grid-template-columns: repeat(35, 1fr);
-  gap: 0;
-  color: #6b7179;
-  font-size: .92rem;
-  user-select: none;
-  margin-bottom: 10px;
-  padding-left: calc(var(--principal-left-col, 140px) + 26px);
+.principal_hero__title{ margin:0 0 24px; font-size:32px; line-height:40px; font-weight:400; }
+.principal_hero__intro{ font-size:18px; line-height:24px; margin:0 0 1.25rem; }
+
+.principal_btn{
+  display:inline-flex; align-items:center; gap:.5rem; padding:13px 30px;
+  border-radius:999px; text-decoration:none; font-weight:600; line-height:1; border:0; cursor:pointer;
+  transition: transform .2s ease, box-shadow .2s ease, background-color .2s ease;
 }
+.principal_btn--primary{ background:var(--principal-color-primary); color:#fff; box-shadow:0 6px 16px rgba(0,0,0,.25); }
+.principal_btn--primary:hover{ transform:translateY(-1px); }
+.principal_btn--primary:active{ transform:translateY(0); }
 
-.principal-slider_banner__year { text-align: center; }
-
-.principal-slider_banner__row {
-  display: grid;
-  grid-template-columns: var(--principal-left-col, 140px) 1fr;
-  align-items: center;
-  min-height: var(--principal-row-h, 69px);
+.principal_hero__arrow{
+  position:absolute; top:50%; translate:0 -50%;
+  border:unset; background:unset; backdrop-filter:blur(2px);
+  cursor:pointer; z-index:3; display:grid; place-items:center;
+  transition: background .2s ease, border-color .2s ease;
 }
+.principal_hero__arrow--prev{ left:clamp(.5rem, 2vw, 1rem); }
+.principal_hero__arrow--next{ right:clamp(.5rem, 2vw, 1rem); }
+.principal_hero__arrow:hover{ background:rgba(0,0,0,.4); }
 
-.principal-slider_banner__person { padding: 8px; }
-
-.principal-slider_banner__person-name {
-  display: block;
-  font-weight: 700;
-  font-size: 12px;
-  line-height: 14px;
-  color: var(--principal-name, #616267);
+.principal_hero__icon{ width:48px; height:48px; background-color:aqua; }
+/* Update paths to your theme/module public dir */
+.principal_hero__icon[data-dir="prev"]{
+  -webkit-mask:url('/icons/fizquierda.svg') no-repeat center / contain;
+          mask:url('/icons/fizquierda.svg') no-repeat center / contain;
 }
-
-.principal-slider_banner__person-role {
-  display: block;
-  color: var(--principal-role, #616267);
-  font-size: 11px;
-  line-height: 13px;
+.principal_hero__icon[data-dir="next"]{
+  -webkit-mask:url('/icons/fderecha.svg') no-repeat center / contain;
+          mask:url('/icons/fderecha.svg') no-repeat center / contain;
 }
+.principal_hero__arrow:hover .principal_hero__icon{ background-color:#fff; }
 
-.principal-slider_banner__jobs {
-  position: relative;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: 0;
+/* Slick dots */
+.principal_hero .slick-dots{ position:absolute; bottom:clamp(.75rem,2vw,1.25rem); left:50%; translate:-50% 0; }
+.principal_hero .slick-dots li{ margin:0 1px; }
+.principal_hero .slick-dots button{
+  width:12px; height:12px; border-radius:999px; background:rgba(255,255,255,.5);
+  text-indent:-9999px; overflow:hidden; padding:0; border:0;
 }
+.principal_hero .slick-dots .slick-active button{ background:#55fff5; }
+.slick-dotted.slick-slider{ margin-bottom:0; }
 
-.principal-slider_banner__job-segment {
-  position: relative;
-  height: 42px;
-  display: flex;
-  cursor: pointer;
-  align-items: center;
-  flex: 0 0 auto;
-  overflow: visible;
-}
-
-.principal-slider_banner__job-segment-line {
-  position: absolute;
-  left: 0; right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 2px;
-  background: var(--principal-line, #d9dde2);
-}
-
-.principal-slider_banner__job-segment--principal .principal-slider_banner__job-segment-line {
-  background: var(--principal-blue, #0f6ad9);
-}
-
-.principal-slider_banner__job-segment-line::before {
-  content:"";
-  position: absolute;
-  left: 0; top: 50%;
-  transform: translate(-6px, -50%);
-  width: 10px; height: 10px;
-  border-radius: 2px;
-  background: var(--principal-dot, #404449);
-}
-
-.principal-slider_banner__job-segment--principal .principal-slider_banner__job-segment-line::before {
-  background: var(--principal-blue, #0f6ad9);
-}
-
-.principal-slider_banner__job-segment--first { pointer-events: none; }
-.principal-slider_banner__job-segment--first .principal-slider_banner__job-segment-line { background: #c7ccd2; }
-.principal-slider_banner__job-segment--first .principal-slider_banner__job-segment-line::before { background: #8a9097; }
-
-.principal-slider_banner__job-info {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  max-width: calc(100% - 16px);
-  padding: 10px 12px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-align: center;
-  box-shadow: 0 6px 20px rgba(0,0,0,.12);
-  border: 1px solid #cfd3d8;
-  background: #fff;
-  color: #2c3136;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity .15s ease, visibility .15s ease, transform .15s ease;
-  z-index: 10;
-}
-
-.principal-slider_banner__job-segment.is-open .principal-slider_banner__job-info {
-  opacity: 1;
-  visibility: visible;
-  transform: translate(-50%, -50%) scale(1.0);
-}
-
-.principal-slider_banner__job-info img {
-  max-width: 100px;
-  height: auto;
-  display: block;
-  margin: 6px auto 0;
-}
-
-.principal-slider_banner__tooltip {
-  position: absolute;
-  z-index: 30;
-  max-width: 320px;
-  background: #fff;
-  border: 1px solid #cfd3d8;
-  padding: 10px 14px;
-  border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0,0,0,.12);
-  color: #2c3136;
-  font-size: 11px;
-  font-weight: 700;
-  pointer-events: none;
-  transform: translateZ(0);
-  text-align: center;
-}
-
-.principal-slider_banner__tooltip img {
-  max-width: 100px;
-  height: auto;
-  display: block;
-  margin: 6px auto 0;
-}
-
-.principal-slider_banner__tooltip--principal {
-  background-color: #e1f3ff;
-  color: #0076CF;
-  border-color: #0076CF;
-}
-
-.principal-slider_banner__tooltip--default {
-  background-color: #f4f4f4;
-  border-color: #555555;
-  color: #2c3136;
-}
-
-.principal-slider_banner__job-segment--principal .principal-slider_banner__job-info {
-  background-color: #e1f3ff;
-  color: #0076CF;
-  border-color: #0076CF;
-}
-.principal-slider_banner__job-segment:not(.principal-slider_banner__job-segment--principal) .principal-slider_banner__job-info {
-  background-color: #f4f4f4;
-  color: #2c3136;
-  border-color: #555;
-}
-
-@media (pointer: fine) {
-  .principal-slider_banner__job-segment:hover .principal-slider_banner__job-info {
-    opacity: 1;
-    visibility: visible;
-    transform: translate(-50%, -50%) scale(1.0);
+/* Responsive */
+@media (min-width:600px){
+  .principal_hero__slide{ min-height:40vh; }
+  .principal_hero__content{ max-width:500px; }
+  .principal_hero__title{ font-size:42px; line-height:50px; }
+  .principal_hero--gradient-dark .principal_hero__slide::after{
+    left:0; width:90%; background:linear-gradient(90deg, #000 48.45%, rgba(51,51,51,0) 100%); opacity:.5;
   }
 }
-
-/* Scrolling and responsiveness */
-.principal-slider_banner__viewport { overflow: visible; position: relative; }
-.principal-slider_banner__track { width: 100%; }
-
-@media (max-width: 900px) {
-  :root {
-    --principal-row-h: 62px;
-    --principal-container: 94vw;
+@media (min-width:992px){
+  .principal_hero__inner{ padding-inline: clamp(2rem, 6vw, 6rem); max-width:1140px; margin:auto; place-items:center start; padding:80px 48px; }
+  .principal_hero__slide{ min-height:35vh; }
+  .principal_hero__content{ max-width:580px; }
+  .principal_hero__title{ font-size:42px; line-height:50px; margin-bottom:28px; }
+  .principal_hero__intro{ font-size:18px; line-height:28px; margin-bottom:30px; }
+  .principal_hero--gradient-dark .principal_hero__slide::after{
+    left:0; width:90%; background:linear-gradient(90deg, #000 48.45%, rgba(51,51,51,0) 100%); opacity:.5;
   }
-  .principal-slider_banner__years { padding-left: calc(var(--principal-left-col, 140px) + 18px); }
-}
-@media (max-width: 640px) {
-  .principal-slider_banner__years { font-size: .86rem; }
-}
-@media (max-width: 1024px) {
-  .principal-slider_banner__container { padding: 0 20px; }
-  .principal-slider_banner__viewport {
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scroll-behavior: smooth;
-    position: relative;
-  }
-  .principal-slider_banner__track {
-    min-width: 980px;
-    padding-bottom: 4px;
-  }
-  .principal-slider_banner__years {
-    grid-template-columns: repeat(35, minmax(22px, 1fr));
-    margin-bottom: 8px;
-    font-size: .86rem;
-  }
-  .principal-slider_banner__viewport::before,
-  .principal-slider_banner__viewport::after {
-    content: "";
-    position: sticky;
-    top: 0;
-    width: 24px;
-    height: 100%;
-    pointer-events: none;
-    z-index: 1;
-  }
-  .principal-slider_banner__viewport::before {
-    left: 0;
-    background: linear-gradient(to right, rgba(255,255,255,.9), rgba(255,255,255,0));
-  }
-  .principal-slider_banner__viewport::after {
-    float: right;
-    right: 0;
-    background: linear-gradient(to left, rgba(255,255,255,.9), rgba(255,255,255,0));
-  }
-  .principal-slider_banner__viewport::-webkit-scrollbar { height: 8px; }
-  .principal-slider_banner__viewport::-webkit-scrollbar-thumb { background: #003865; border-radius: 999px; }
-  .principal-slider_banner__viewport::-webkit-scrollbar-track { background: transparent; }
 }
