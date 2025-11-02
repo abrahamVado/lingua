@@ -25,7 +25,7 @@ final class PdsImageTextBlock extends BlockBase {
     return [
       'image_src' => '',
       'image_alt' => '',
-      'title' => '',
+      'header' => '',
       'description' => '',
       'button_url' => '',
       'button_text' => '',
@@ -68,10 +68,10 @@ final class PdsImageTextBlock extends BlockBase {
       '#maxlength' => 512,
     ];
 
-    $form['title'] = [
+    $form['header'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Title'),
-      '#default_value' => $configuration['title'] ?? '',
+      '#title' => $this->t('Header'),
+      '#default_value' => $configuration['header'] ?? '',
       '#maxlength' => 255,
     ];
     $form['description'] = [
@@ -142,7 +142,7 @@ final class PdsImageTextBlock extends BlockBase {
     $this->setConfiguration([
       'image_src' => (string) ($values['image_src'] ?? ''),
       'image_alt' => (string) ($values['image_alt'] ?? ''),
-      'title' => (string) ($values['title'] ?? ''),
+      'header' => (string) ($values['header'] ?? ''),
       'description' => (string) ($values['description'] ?? ''),
       'button_url' => (string) ($values['button_url'] ?? ''),
       'button_text' => (string) ($values['button_text'] ?? ''),
@@ -175,7 +175,7 @@ final class PdsImageTextBlock extends BlockBase {
       '#theme' => 'pds_recipe_image_text',
       '#image_src' => $image_src,
       '#image_alt' => $configuration['image_alt'] ?? '',
-      '#title' => $configuration['title'] ?? '',
+      '#header' => $configuration['header'] ?? '',
       '#description' => $configuration['description'] ?? '',
       '#button_url' => $configuration['button_url'] ?? '',
       '#button_text' => $configuration['button_text'] ?? '',

@@ -8,7 +8,7 @@ function pds_recipe_image_text_theme($existing, $type, $theme, $path) {
       'variables' => [
         'image_src' => '',
         'image_alt' => '',
-        'title' => '',
+        'header' => '',
         'description' => '',
         'button_url' => '',
         'button_text' => '',
