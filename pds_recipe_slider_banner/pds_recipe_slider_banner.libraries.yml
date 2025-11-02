@@ -1,0 +1,30 @@
+pds_slider_banner.admin:
+  version: 1.x
+  js:
+    assets/js/pds-slider_banner.admin.js: {}
+  css:
+    theme:
+      assets/css/pds-slider_banner.admin.css: {}
+  # Load only in admin routes. You attach this manually in hook_form_alter on the block config form.
+
+slider_banner:
+  version: 1.x
+  js:
+    js/pds-slider_banner.js: {}
+  css:
+    theme:
+      css/pds-slider_banner.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+admin.vertical_tabs:
+  version: 1.x
+  js:
+    js/pds-recipe-slider-banner-vertical-tabs.js: {}
+  css:
+    theme:
+      css/admin/pds-recipe-slider-banner-vertical-tabs.css: {}
+  dependencies:
+    - core/drupal
+    - core/once

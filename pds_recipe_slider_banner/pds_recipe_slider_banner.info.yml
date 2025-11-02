@@ -1,0 +1,9 @@
+name: 'Recipe: SliderBanner'
+type: module
+description: 'Bloque editable para Layout Builder (línea de tiempo interactiva).'
+core_version_requirement: ^10 || ^11
+package: 'PDS SliderBanner'
+dependencies:
+  - drupal:block
+  - drupal:block_content
+  - drupal:layout_builder

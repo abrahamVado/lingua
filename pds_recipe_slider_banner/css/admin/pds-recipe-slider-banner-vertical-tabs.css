@@ -1,0 +1,132 @@
+/* //1.- Scope Claro-inspired variables to the slider_banner admin widget. */
+.pds-vertical-tabs {
+  --vt-bg: #f7f8fa;
+  --vt-panel: #ffffff;
+  --vt-border: #d7dbe2;
+  --vt-text: #1f2937;
+  --vt-muted: #6b7280;
+  --vt-accent: #0b76da;
+  --vt-focus: #2491ff;
+}
+
+/* //2.- Define the base layout and container appearance. */
+.pds-vertical-tabs {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  background: var(--vt-bg);
+  border: 1px solid var(--vt-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* //3.- Reset inner element spacing to align with Claro defaults. */
+.pds-vertical-tabs * {
+  box-sizing: border-box;
+}
+
+/* //4.- Style the navigation menu column. */
+.pds-vertical-tabs__menu {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  background: var(--vt-bg);
+  border-right: 1px solid var(--vt-border);
+}
+
+/* //5.- Menu items and interactive links inherit typography from Claro. */
+.pds-vertical-tabs__menu-item {
+  margin: 0;
+}
+
+.pds-vertical-tabs__menu-link {
+  display: block;
+  padding: 0.7rem 1rem;
+  text-decoration: none;
+  color: var(--vt-muted);
+  border-left: 3px solid transparent;
+  outline: none;
+}
+
+.pds-vertical-tabs__menu-link:hover {
+  background: #eef2f7;
+  color: var(--vt-text);
+}
+
+.pds-vertical-tabs__menu-link:focus {
+  outline: 2px solid var(--vt-focus);
+  outline-offset: 2px;
+}
+
+/* //6.- Selected state matches the provided blue background treatment. */
+.pds-vertical-tabs__menu-item.is-selected > .pds-vertical-tabs__menu-link {
+  background: var(--vt-accent);
+  color: #fff;
+  font-weight: 700;
+  border-left-color: transparent;
+}
+
+.pds-vertical-tabs__menu-item.is-selected > .pds-vertical-tabs__menu-link:hover,
+.pds-vertical-tabs__menu-item.is-selected > .pds-vertical-tabs__menu-link:active {
+  background: var(--vt-accent);
+  color: #fff;
+}
+
+.pds-vertical-tabs__menu-item.is-selected > .pds-vertical-tabs__menu-link:focus {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* //7.- Configure the right-hand pane wrapper and content. */
+.pds-vertical-tabs__panes {
+  background: var(--vt-panel);
+  padding: 0;
+}
+
+.pds-vertical-tabs__pane {
+  padding: 16px 20px;
+  border-left: 1px solid var(--vt-border);
+}
+
+.pds-vertical-tabs__pane[hidden] {
+  display: none;
+}
+
+.pds-vertical-tabs__pane h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  color: var(--vt-text);
+}
+
+.pds-vertical-tabs__pane p {
+  margin: 0.25rem 0 1rem;
+  color: var(--vt-muted);
+}
+
+/* //8.- Responsive adjustments collapse the menu into a horizontal list. */
+@media (max-width: 720px) {
+  .pds-vertical-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .pds-vertical-tabs__menu {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--vt-border);
+  }
+
+  .pds-vertical-tabs__menu-link {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+  }
+
+  .pds-vertical-tabs__menu-item.is-selected > .pds-vertical-tabs__menu-link {
+    border-bottom-color: transparent;
+  }
+
+  .pds-vertical-tabs__pane {
+    border-left: 0;
+  }
+}
