@@ -173,13 +173,13 @@ final class PdsImageTextBlock extends BlockBase {
 
     return [
       '#theme' => 'pds_recipe_image_text',
-      'image_src' => $image_src,
-      'image_alt' => $configuration['image_alt'] ?? '',
-      'title' => $configuration['title'] ?? '',
-      'description' => $configuration['description'] ?? '',
-      'button_url' => $configuration['button_url'] ?? '',
-      'button_text' => $configuration['button_text'] ?? '',
-      'image_position' => $validated_position,
+      '#image_src' => $image_src,
+      '#image_alt' => $configuration['image_alt'] ?? '',
+      '#title' => $configuration['title'] ?? '',
+      '#description' => $configuration['description'] ?? '',
+      '#button_url' => $configuration['button_url'] ?? '',
+      '#button_text' => $configuration['button_text'] ?? '',
+      '#image_position' => $validated_position,
       '#attached' => [
         'library' => ['pds_recipe_image_text/educacion'],
       ],
