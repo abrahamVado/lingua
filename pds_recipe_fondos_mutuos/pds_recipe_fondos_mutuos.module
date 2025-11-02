@@ -6,8 +6,6 @@ use Drupal\Component\Utility\NestedArray;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
-use Drupal\file\Entity\File;
-use Drupal\file\FileUsage\FileUsageInterface;
 
 /**
  * Implements hook_theme().
@@ -19,8 +17,8 @@ function pds_recipe_fondos_mutuos_theme($existing, $type, $theme, $path) {
       'path' => $path . '/templates',
       'variables' => [
         'title' => '',
-        'section_id' => 'principal-fondos_mutuos',
-        'fondos_mutuos' => [],
+        'subtitle' => '',
+        'fondos' => [],
       ],
     ],
   ];
@@ -73,47 +71,47 @@ function pds_recipe_fondos_mutuos_set_active_tab(FormStateInterface $form_state,
 }
 
 /**
- * Validation for adding a new executive.
+ * Validation for adding a new fondo card.
  */
 function pds_recipe_fondos_mutuos_add_person_validate(array &$form, FormStateInterface $form_state): void {
   $base_key = pds_recipe_fondos_mutuos_base_key($form, $form_state, ['fondos_mutuos_ui', 'panes', 'add_person']);
   $parent_state = pds_recipe_fondos_mutuos_parent_state($form_state);
 
   //1.- Collect author input from the correct form tree branch.
-  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
-  $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
-  $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
-  $photo_upload = $form_state->getValue(array_merge($base_key, ['person_photo_upload']));
-  $photo_upload_info = pds_recipe_fondos_mutuos_extract_uploaded_photo($photo_upload);
-  $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
-  $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
+  $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
+  $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+  $icon_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_src'])));
+  $icon_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_alt'])));
+  $arrow_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_src'])));
+  $arrow_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_alt'])));
 
   //2.- Validate minimal requirements for a card.
   if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_name'])), t('Name is required.'));
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Name is required.'));
   }
-  if ($title === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
+  if ($desc === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
+  }
+  if ($icon_src === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_icon_src'])), t('Icon image is required.'));
   }
 
-  //3.- Enforce safe URL formats.
-  if ($photo_upload_info['error'] !== NULL) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo_upload'])), $photo_upload_info['error']);
-  }
-  if ($photo_upload_info['url'] !== NULL) {
-    $photo = $photo_upload_info['url'];
-  }
-  if ($photo !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($photo)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
-  }
-  if ($linkedin !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($linkedin)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_linkedin'])), t('LinkedIn URL must be absolute or start with /.'));
+  //3.- Enforce safe URL formats on linkable fields.
+  foreach ([
+    ['key' => 'fondo_url', 'value' => $url, 'message' => t('Destination URL must be absolute or start with /.')],
+    ['key' => 'fondo_icon_src', 'value' => $icon_src, 'message' => t('Icon URL must be absolute or start with /.')],
+    ['key' => 'fondo_arrow_src', 'value' => $arrow_src, 'message' => t('Arrow URL must be absolute or start with /.')],
+  ] as $definition) {
+    if ($definition['value'] !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($definition['value'])) {
+      $form_state->setErrorByName(implode('][', array_merge($base_key, [$definition['key']])), $definition['message']);
+    }
   }
 
   if ($form_state->hasAnyErrors()) {
-    $form_state->set('pds_recipe_fondos_mutuos_add_person_new_person', NULL);
+    $form_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', NULL);
     if ($parent_state) {
-      $parent_state->set('pds_recipe_fondos_mutuos_add_person_new_person', NULL);
+      $parent_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', NULL);
     }
     return;
   }
@@ -121,84 +119,86 @@ function pds_recipe_fondos_mutuos_add_person_validate(array &$form, FormStateInt
   //4.- Store a clean snapshot for the submit handler.
   $payload = [
     'name' => $name,
-    'title' => $title,
-    'photo' => $photo,
-    'linkedin' => $linkedin,
-    'cv_html' => $cv,
+    'desc' => $desc,
   ];
-
-  if ($photo_upload_info['fid'] !== NULL) {
-    $payload['photo_file_fid'] = $photo_upload_info['fid'];
+  if ($url !== '') {
+    $payload['url'] = $url;
+  }
+  if ($icon_src !== '') {
+    $payload['icon_src'] = $icon_src;
+  }
+  if ($icon_alt !== '') {
+    $payload['icon_alt'] = $icon_alt;
+  }
+  if ($arrow_src !== '') {
+    $payload['arrow_src'] = $arrow_src;
+  }
+  if ($arrow_alt !== '') {
+    $payload['arrow_alt'] = $arrow_alt;
   }
 
-  $form_state->set('pds_recipe_fondos_mutuos_add_person_new_person', $payload);
+  $form_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', $payload);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_fondos_mutuos_add_person_new_person', $payload);
+    $parent_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', $payload);
   }
 }
 
 /**
- * Submit handler that appends the validated executive to the working list.
+ * Submit handler that appends the validated fondo to the working list.
  */
 function pds_recipe_fondos_mutuos_add_person_submit(array &$form, FormStateInterface $form_state): void {
   $base_key = pds_recipe_fondos_mutuos_base_key($form, $form_state, ['fondos_mutuos_ui', 'panes', 'add_person']);
   $parent_state = pds_recipe_fondos_mutuos_parent_state($form_state);
 
   //1.- Retrieve sanitized information prepared by validation.
-  $new_person = $form_state->get('pds_recipe_fondos_mutuos_add_person_new_person');
-  if (!is_array($new_person)) {
+  $new_fondo = $form_state->get('pds_recipe_fondos_mutuos_add_person_new_fondo');
+  if (!is_array($new_fondo)) {
     return;
   }
 
-  pds_recipe_fondos_mutuos_finalize_photo_payload($new_person);
-
-  //2.- Append the new person to the working list stored in form state.
-  $people = $form_state->get('working_people');
-  if (!is_array($people)) {
-    $people = [];
+  //2.- Append the new fondo to the working list stored in form state.
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos)) {
+    $fondos = [];
   }
-  $people[] = $new_person;
-  $normalized_people = array_values($people);
+  $fondos[] = $new_fondo;
+  $normalized_fondos = array_values($fondos);
 
-  $form_state->set('working_people', $normalized_people);
+  $form_state->set('working_fondos', $normalized_fondos);
   if ($parent_state) {
-    $parent_state->set('working_people', $normalized_people);
+    $parent_state->set('working_fondos', $normalized_fondos);
   }
 
   //3.- Reset author-facing inputs for the next addition.
-  foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
-  $form_state->setValue(array_merge($base_key, ['person_photo_upload']), []);
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
     NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
-  NestedArray::setValue($user_input, array_merge($base_key, ['person_photo_upload']), []);
   $form_state->setUserInput($user_input);
   if ($parent_state) {
-    foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
       $parent_state->setValue(array_merge($base_key, [$key]), '');
     }
-    $parent_state->setValue(array_merge($base_key, ['person_photo_upload']), []);
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    foreach (['person_name', 'person_title', 'person_photo', 'person_linkedin', 'person_cv'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_icon_src', 'fondo_icon_alt', 'fondo_arrow_src', 'fondo_arrow_alt'] as $key) {
       NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
-    NestedArray::setValue($parent_input, array_merge($base_key, ['person_photo_upload']), []);
     $parent_state->setUserInput($parent_input);
   }
 
   //4.- Reset checkboxes to avoid stale remove selections.
   $table_key = pds_recipe_fondos_mutuos_base_key($form, $form_state, ['fondos_mutuos_ui', 'panes', 'people_list', 'people']);
   $checkbox_rows = [];
-  foreach ($normalized_people as $index => $_row) {
+  foreach ($normalized_fondos as $index => $_row) {
     $checkbox_rows[$index] = ['remove' => 0];
   }
   $form_state->setValue($table_key, $checkbox_rows);
@@ -207,9 +207,9 @@ function pds_recipe_fondos_mutuos_add_person_submit(array &$form, FormStateInter
   }
 
   //5.- Clear temp storage and rebuild to refresh UI.
-  $form_state->set('pds_recipe_fondos_mutuos_add_person_new_person', NULL);
+  $form_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', NULL);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_fondos_mutuos_add_person_new_person', NULL);
+    $parent_state->set('pds_recipe_fondos_mutuos_add_person_new_fondo', NULL);
   }
   $form_state->setRebuild(TRUE);
   pds_recipe_fondos_mutuos_set_active_tab($form_state, 'people');
@@ -222,9 +222,9 @@ function pds_recipe_fondos_mutuos_remove_people_submit(array &$form, FormStateIn
   $table_key = pds_recipe_fondos_mutuos_base_key($form, $form_state, ['fondos_mutuos_ui', 'panes', 'people_list', 'people']);
   $parent_state = pds_recipe_fondos_mutuos_parent_state($form_state);
 
-  $people = $form_state->get('working_people');
-  if (!is_array($people)) {
-    $people = [];
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos)) {
+    $fondos = [];
   }
 
   //1.- Gather checkbox values from processed values or raw input.
@@ -256,17 +256,17 @@ function pds_recipe_fondos_mutuos_remove_people_submit(array &$form, FormStateIn
 
   //2.- Filter out rows flagged for removal.
   $kept = [];
-  foreach ($people as $index => $person) {
+  foreach ($fondos as $index => $fondo) {
     $should_remove = !empty($values[$index]['remove']);
     if ($should_remove) {
       continue;
     }
-    $kept[] = $person;
+    $kept[] = $fondo;
   }
 
-  $form_state->set('working_people', $kept);
+  $form_state->set('working_fondos', $kept);
   if ($parent_state) {
-    $parent_state->set('working_people', $kept);
+    $parent_state->set('working_fondos', $kept);
   }
 
   //3.- Reset checkboxes after deletion.
@@ -303,26 +303,23 @@ function pds_recipe_fondos_mutuos_edit_person_prepare_submit(array &$form, FormS
 
   //1.- Locate the edit pane keys so we can seed values for the rebuild.
   $base_key = pds_recipe_fondos_mutuos_base_key($form, $form_state, ['fondos_mutuos_ui', 'panes', 'edit_person']);
-  $people = $form_state->get('working_people');
-  if (!is_array($people) && $parent_state) {
-    $people = $parent_state->get('working_people');
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos) && $parent_state) {
+    $fondos = $parent_state->get('working_fondos');
   }
 
-  if (is_array($people) && isset($people[$index]) && is_array($people[$index])) {
-    //2.- Extract the stored executive details and normalize them for the form API.
-    $person = $people[$index];
+  if (is_array($fondos) && isset($fondos[$index]) && is_array($fondos[$index])) {
+    //2.- Extract the stored fondo details and normalize them for the form API.
+    $fondo = $fondos[$index];
     $normalized = [
-      'person_name' => (string) ($person['name'] ?? ''),
-      'person_title' => (string) ($person['title'] ?? ''),
-      'person_photo' => (string) ($person['photo'] ?? ''),
-      'person_linkedin' => (string) ($person['linkedin'] ?? ''),
-      'person_cv' => (string) ($person['cv_html'] ?? ''),
-      'person_photo_upload' => [],
+      'fondo_name' => (string) ($fondo['name'] ?? ''),
+      'fondo_desc' => (string) ($fondo['desc'] ?? ''),
+      'fondo_url' => (string) ($fondo['url'] ?? ''),
+      'fondo_icon_src' => (string) ($fondo['icon_src'] ?? ''),
+      'fondo_icon_alt' => (string) ($fondo['icon_alt'] ?? ''),
+      'fondo_arrow_src' => (string) ($fondo['arrow_src'] ?? ''),
+      'fondo_arrow_alt' => (string) ($fondo['arrow_alt'] ?? ''),
     ];
-
-    if (isset($person['photo_file_fid']) && is_numeric($person['photo_file_fid'])) {
-      $normalized['person_photo_upload'] = [(int) $person['photo_file_fid']];
-    }
 
     //3.- Push the normalized values into both the form state and user input so
     //     Drupal prefers them over the empty submission payload we just sent.
@@ -365,31 +362,32 @@ function pds_recipe_fondos_mutuos_edit_person_validate(array &$form, FormStateIn
   $base_key = pds_recipe_fondos_mutuos_base_key($form, $form_state, ['fondos_mutuos_ui', 'panes', 'edit_person']);
   $parent_state = pds_recipe_fondos_mutuos_parent_state($form_state);
 
-  $name = trim((string) $form_state->getValue(array_merge($base_key, ['person_name'])));
-  $title = trim((string) $form_state->getValue(array_merge($base_key, ['person_title'])));
-  $photo = trim((string) $form_state->getValue(array_merge($base_key, ['person_photo'])));
-  $photo_upload = $form_state->getValue(array_merge($base_key, ['person_photo_upload']));
-  $photo_upload_info = pds_recipe_fondos_mutuos_extract_uploaded_photo($photo_upload);
-  $linkedin = trim((string) $form_state->getValue(array_merge($base_key, ['person_linkedin'])));
-  $cv = trim((string) $form_state->getValue(array_merge($base_key, ['person_cv'])));
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
+  $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
+  $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+  $icon_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_src'])));
+  $icon_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_icon_alt'])));
+  $arrow_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_src'])));
+  $arrow_alt = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_arrow_alt'])));
 
   if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_name'])), t('Name is required.'));
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Name is required.'));
   }
-  if ($title === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_title'])), t('Title is required.'));
+  if ($desc === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
-  if ($photo_upload_info['error'] !== NULL) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo_upload'])), $photo_upload_info['error']);
+  if ($icon_src === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_icon_src'])), t('Icon image is required.'));
   }
-  if ($photo_upload_info['url'] !== NULL) {
-    $photo = $photo_upload_info['url'];
-  }
-  if ($photo !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($photo)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_photo'])), t('Photo URL must be absolute or start with / or a stream wrapper.'));
-  }
-  if ($linkedin !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($linkedin)) {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['person_linkedin'])), t('LinkedIn URL must be absolute or start with /.'));
+
+  foreach ([
+    ['key' => 'fondo_url', 'value' => $url, 'message' => t('Destination URL must be absolute or start with /.')],
+    ['key' => 'fondo_icon_src', 'value' => $icon_src, 'message' => t('Icon URL must be absolute or start with /.')],
+    ['key' => 'fondo_arrow_src', 'value' => $arrow_src, 'message' => t('Arrow URL must be absolute or start with /.')],
+  ] as $definition) {
+    if ($definition['value'] !== '' && !pds_recipe_fondos_mutuos_is_allowed_url($definition['value'])) {
+      $form_state->setErrorByName(implode('][', array_merge($base_key, [$definition['key']])), $definition['message']);
+    }
   }
 
   if ($form_state->hasAnyErrors()) {
@@ -402,14 +400,22 @@ function pds_recipe_fondos_mutuos_edit_person_validate(array &$form, FormStateIn
 
   $payload = [
     'name' => $name,
-    'title' => $title,
-    'photo' => $photo,
-    'linkedin' => $linkedin,
-    'cv_html' => $cv,
+    'desc' => $desc,
   ];
-
-  if ($photo_upload_info['fid'] !== NULL) {
-    $payload['photo_file_fid'] = $photo_upload_info['fid'];
+  if ($url !== '') {
+    $payload['url'] = $url;
+  }
+  if ($icon_src !== '') {
+    $payload['icon_src'] = $icon_src;
+  }
+  if ($icon_alt !== '') {
+    $payload['icon_alt'] = $icon_alt;
+  }
+  if ($arrow_src !== '') {
+    $payload['arrow_src'] = $arrow_src;
+  }
+  if ($arrow_alt !== '') {
+    $payload['arrow_alt'] = $arrow_alt;
   }
 
   $form_state->set('pds_recipe_fondos_mutuos_edit_person_payload', $payload);
@@ -423,12 +429,10 @@ function pds_recipe_fondos_mutuos_edit_person_validate(array &$form, FormStateIn
  */
 function pds_recipe_fondos_mutuos_edit_person_submit(array &$form, FormStateInterface $form_state): void {
   $parent_state = pds_recipe_fondos_mutuos_parent_state($form_state);
-  $updated_person = $form_state->get('pds_recipe_fondos_mutuos_edit_person_payload');
-  if (!is_array($updated_person)) {
+  $updated_fondo = $form_state->get('pds_recipe_fondos_mutuos_edit_person_payload');
+  if (!is_array($updated_fondo)) {
     return;
   }
-
-  pds_recipe_fondos_mutuos_finalize_photo_payload($updated_person);
 
   $index = $form_state->get('pds_recipe_fondos_mutuos_editing_index');
   if ($index === NULL && $parent_state) {
@@ -439,24 +443,24 @@ function pds_recipe_fondos_mutuos_edit_person_submit(array &$form, FormStateInte
   }
   $index = (int) $index;
 
-  $people = $form_state->get('working_people');
-  if (!is_array($people)) {
-    $people = [];
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos)) {
+    $fondos = [];
   }
 
-  if (!isset($people[$index])) {
+  if (!isset($fondos[$index])) {
     return;
   }
 
-  $people[$index] = $updated_person;
-  $normalized_people = array_values($people);
+  $fondos[$index] = $updated_fondo;
+  $normalized_fondos = array_values($fondos);
 
-  $form_state->set('working_people', $normalized_people);
+  $form_state->set('working_fondos', $normalized_fondos);
   $form_state->set('pds_recipe_fondos_mutuos_editing_index', NULL);
   $form_state->set('pds_recipe_fondos_mutuos_edit_person_payload', NULL);
 
   if ($parent_state) {
-    $parent_state->set('working_people', $normalized_people);
+    $parent_state->set('working_fondos', $normalized_fondos);
     $parent_state->set('pds_recipe_fondos_mutuos_editing_index', NULL);
     $parent_state->set('pds_recipe_fondos_mutuos_edit_person_payload', NULL);
   }
@@ -516,153 +520,4 @@ function pds_recipe_fondos_mutuos_is_allowed_url(string $url): bool {
     return TRUE;
   }
   return strpos($url, '/') === 0;
-}
-
-/**
- * Extract the managed file selection from the photo upload widget.
- */
-function pds_recipe_fondos_mutuos_extract_uploaded_photo($value): array {
-  //1.- Provide a predictable response structure for callers.
-  $result = [
-    'url' => NULL,
-    'fid' => NULL,
-    'error' => NULL,
-  ];
-
-  //2.- Normalize managed_file values into a single numeric fid.
-  if (!is_array($value)) {
-    return $result;
-  }
-  $candidates = array_filter($value, static function ($candidate): bool {
-    return is_numeric($candidate) && (int) $candidate > 0;
-  });
-  if ($candidates === []) {
-    return $result;
-  }
-  $fid = (int) reset($candidates);
-  if ($fid <= 0) {
-    return $result;
-  }
-
-  //3.- Load the file and derive the public URL used by the rendered card.
-  $file = File::load($fid);
-  if (!$file) {
-    $result['error'] = t('Unable to load the uploaded photo.');
-    return $result;
-  }
-  $url = pds_recipe_fondos_mutuos_build_file_url($file);
-  if ($url === NULL) {
-    $result['error'] = t('Unable to generate a URL for the uploaded photo.');
-    return $result;
-  }
-
-  $result['fid'] = $fid;
-  $result['url'] = $url;
-  return $result;
-}
-
-/**
- * Build a relative URL for a managed file.
- */
-function pds_recipe_fondos_mutuos_build_file_url(File $file): ?string {
-  //1.- Convert the stream wrapper URI into an absolute URL.
-  $generator = \Drupal::service('file_url_generator');
-  $absolute = $generator->generateAbsoluteString($file->getFileUri());
-  if (!is_string($absolute) || $absolute === '') {
-    return NULL;
-  }
-
-  //2.- Normalize to a relative path so configuration stays environment agnostic.
-  $relative = NULL;
-  if (method_exists($generator, 'transformRelative')) {
-    $relative = $generator->transformRelative($absolute);
-  }
-  if (!is_string($relative) || $relative === '') {
-    $relative = pds_recipe_fondos_mutuos_transform_relative_fallback($absolute);
-  }
-  if (!is_string($relative) || $relative === '') {
-    return NULL;
-  }
-
-  return $relative;
-}
-
-
-/**
- * Convert an absolute URL into a site-relative path when core helper is absent.
- */
-function pds_recipe_fondos_mutuos_transform_relative_fallback(string $absolute): ?string {
-  //1.- Abort when the provided value is not an absolute URL.
-  if (!UrlHelper::isValid($absolute, TRUE)) {
-    return NULL;
-  }
-
-  //2.- Extract path, query, and fragment components.
-  $parts = parse_url($absolute);
-  if ($parts === FALSE) {
-    return NULL;
-  }
-  $relative = $parts['path'] ?? '';
-  if (isset($parts['query']) && $parts['query'] !== '') {
-    $relative .= '?' . $parts['query'];
-  }
-  if (isset($parts['fragment']) && $parts['fragment'] !== '') {
-    $relative .= '#' . $parts['fragment'];
-  }
-  if ($relative === '') {
-    return NULL;
-  }
-
-  //3.- Remove the application's base path when available.
-  if (\Drupal::hasService('request_stack')) {
-    $request = \Drupal::service('request_stack')->getCurrentRequest();
-    if ($request) {
-      $base_path = $request->getBasePath();
-      if ($base_path !== '' && strpos($relative, $base_path) === 0) {
-        $relative = substr($relative, strlen($base_path));
-        if ($relative === '') {
-          $relative = '/';
-        }
-        elseif ($relative[0] !== '/') {
-          $relative = '/' . $relative;
-        }
-      }
-    }
-  }
-
-  return $relative;
-}
-
-/**
- * Mark uploaded files as permanent once the person payload is stored.
- */
-function pds_recipe_fondos_mutuos_finalize_photo_payload(array &$person): void {
-  if (!isset($person['photo_file_fid'])) {
-    return;
-  }
-
-  //1.- Capture and immediately unset the helper key so the snapshot mirrors production data.
-  $fid = (int) $person['photo_file_fid'];
-  unset($person['photo_file_fid']);
-  if ($fid <= 0) {
-    return;
-  }
-
-  //2.- Promote the temporary file to permanent storage.
-  $file = File::load($fid);
-  if (!$file) {
-    return;
-  }
-  if ($file->isTemporary()) {
-    $file->setPermanent();
-    $file->save();
-  }
-
-  //3.- Register usage so Drupal keeps the asset available for the block configuration.
-  if (\Drupal::hasService('file.usage')) {
-    $usage = \Drupal::service('file.usage');
-    if ($usage instanceof FileUsageInterface) {
-      $usage->add($file, 'pds_recipe_fondos_mutuos', 'pds_fondos_mutuos_photo', $file->id());
-    }
-  }
 }
