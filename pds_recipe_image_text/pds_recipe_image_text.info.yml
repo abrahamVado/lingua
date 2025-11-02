@@ -7,3 +7,4 @@ dependencies:
   - drupal:block
   - drupal:block_content
   - drupal:layout_builder
+  - drupal:file
