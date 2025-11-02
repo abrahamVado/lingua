@@ -1,6 +1,4 @@
-/* css/principal_educacion.css */
-
-/* Tipografía local (opcional). Coloca los OTF en themes/custom/tu_tema/fonts/ */
+/* //1.- Register the FS Eliot Pro font family in all available weights */
 @font-face {
   font-family: "FS Eliot Pro";
   src: url("../fonts/FSEliotProThin.otf") format("opentype");
@@ -72,63 +70,121 @@
   font-display: swap;
 }
 
-:root {
-  --principal-overlay: #003865CC;
-}
-
-* {
-  box-sizing: border-box;
-}
-
+/* //2.- Apply the brand typography and default reset styles */
 html,
 body {
   margin: 0;
   padding: 0;
-  font-family: "FS Eliot Pro", system-ui, -apple-system, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+  font-family: "FS Eliot Pro", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  color: #2f2f2f;
 }
 
+a {
+  color: inherit;
+}
+
+/* //3.- Provide reusable link and button styling helpers */
+.principal-link {
+  font-weight: 400;
+  text-decoration: underline;
+  color: #0061a0;
+  font-size: 16px;
+  transition: color 0.2s ease;
+}
+
+.principal-link:hover,
+.principal-link:focus,
+.principal-link:active {
+  color: #003865;
+}
+
+.principal-link--inverted {
+  color: #ffffff;
+}
+
+.principal-link--inverted:hover,
+.principal-link--inverted:focus,
+.principal-link--inverted:active {
+  color: #bbe6fc;
+}
+
+.principal-link--subtle {
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.principal-link--subtle:hover,
+.principal-link--subtle:focus {
+  border-bottom-color: currentColor;
+}
+
+.principal-link--strong {
+  font-weight: 600;
+}
+
+.principal-link--small {
+  font-size: 14px;
+}
+
+.principal-link--large {
+  font-size: 18px;
+}
+
+.principal-link--xlarge {
+  font-size: 20px;
+}
+
+.principal-button {
+  display: inline-block;
+  padding: 10px 32px;
+  border: 1px solid #0061a0;
+  border-radius: 16px;
+  color: #0061a0;
+  text-decoration: none;
+  font-weight: 700;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.principal-button:hover,
+.principal-button:focus {
+  border-color: #003865;
+  color: #003865;
+}
+
+/* //4.- Layout the image + text component */
 .principal-image-text {
-  position: relative;
   padding: 60px 0;
-  background-color: #003865;
-  color: #fff;
-}
-
-.principal-image-text::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--principal-overlay);
-  pointer-events: none;
+  background-color: #ffffff;
 }
 
 .principal-image-text .container {
-  position: relative;
-  z-index: 1;
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
-  padding: 0 30px;
+  padding: 0 20px;
 }
 
-.principal-row-container {
+.principal-image-text .principal-row-container {
   display: flex;
+  max-width: 1136px;
+  margin: 0 auto;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 48px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
 }
 
-.principal-row-container .image-column,
-.principal-row-container .text-column {
-  flex: 1 1 0;
-  min-width: 280px;
+.principal-image-text .image-column,
+.principal-image-text .text-column {
+  flex: 1 1 45%;
+  max-width: 45%;
 }
 
-.image-column .img-area {
-  width: 100%;
+.principal-image-text .image-column {
   text-align: center;
 }
 
-.image-column img {
+.principal-image-text .image-column .img-area img {
   max-width: 100%;
   height: auto;
   object-fit: contain;
@@ -136,91 +192,107 @@ body {
   margin: 0 auto;
 }
 
-.text-column {
-  color: #fff;
+.principal-image-text .text-column h2 {
+  font-size: 40px;
+  margin-top: 0;
+  margin-bottom: 24px;
+  font-weight: 200;
+  line-height: 48px;
+  color: #002855;
 }
 
-.text-column h2 {
-  margin: 0 0 20px;
-  font-size: 36px;
-  font-weight: 100;
-  line-height: 50px;
+.principal-image-text .text-column p {
+  font-size: 18px;
+  margin-bottom: 71px;
+  line-height: 28px;
 }
 
-.text-column p {
-  margin: 0 0 20px;
-  font-size: 22px;
-  line-height: 32px;
+.principal-image-text .button-area {
+  text-align: left;
 }
 
-.button-area {
-  margin-top: 20px;
+/* //5.- Handle the optional right aligned image variant */
+@media (min-width: 901px) {
+  .principal-image-text--image-right .image-column {
+    order: 2;
+  }
+
+  .principal-image-text--image-right .text-column {
+    order: 1;
+  }
 }
 
-.button-area .principal-button {
-  display: inline-block;
-  padding: 12px 24px;
-  border: 1px solid #fff;
-  border-radius: 24px;
-  color: #fff;
-  background-color: transparent;
-  text-decoration: none;
-  font-size: 15px;
-  font-weight: 600;
-  transition: all 0.2s ease;
-}
-
-.button-area .principal-button:hover,
-.button-area .principal-button:focus {
-  background: #fff;
-  color: #003865;
-  transform: translateY(-1px);
-}
-
-@media (max-width: 1024px) {
+/* //6.- Responsive adjustments for tablet screens */
+@media (max-width: 900px) {
   .principal-image-text {
     padding: 40px 0;
   }
 
-  .principal-row-container {
-    flex-direction: column;
-    gap: 32px;
+  .principal-image-text .principal-row-container {
+    gap: 20px;
+    flex-direction: column-reverse;
+    align-items: center;
   }
 
-  .text-column h2 {
-    font-size: 30px;
-    line-height: 40px;
-  }
-
-  .text-column p {
-    font-size: 18px;
-    line-height: 28px;
-  }
-
-  .button-area {
+  .principal-image-text .text-column,
+  .principal-image-text .image-column {
+    flex: 1 1 100%;
+    max-width: 100%;
     text-align: center;
   }
 
-  .button-area .principal-button {
-    font-size: 14px;
-    padding: 10px 20px;
+  .principal-image-text .text-column h2 {
+    font-size: 32px;
+    line-height: 40px;
+    margin-bottom: 18px;
+  }
+
+  .principal-image-text .text-column p {
+    font-size: 16px;
+    line-height: 24px;
+    margin-bottom: 28px;
+  }
+
+  .principal-image-text .image-column .img-area img {
+    max-width: 80%;
+  }
+
+  .principal-image-text .text-column .button-area a {
+    padding: 10px 28px;
   }
 }
 
-/* Swap only on desktop/tablet layout */
-@media (min-width: 901px) {
-  .principal-image-text--image-right .text-column {
-    order: 1;
+/* //7.- Responsive adjustments for mobile screens */
+@media (max-width: 600px) {
+  .principal-image-text {
+    padding: 24px 0;
   }
 
-  .principal-image-text--image-right .image-column {
-    order: 2;
+  .principal-image-text .container {
+    padding: 0 16px;
   }
-}
 
-.js-form-type-textarea,
-.js-form-type-textfield,
-.js-form-type-url,
-.js-form-type-select {
-  padding-left: 40px;
+  .principal-image-text .text-column {
+    text-align: left;
+  }
+
+  .principal-image-text .text-column h2 {
+    font-size: 24px;
+    line-height: 32px;
+    margin-bottom: 12px;
+  }
+
+  .principal-image-text .text-column p {
+    font-size: 15px;
+    line-height: 22px;
+    margin-bottom: 18px;
+  }
+
+  .principal-image-text .image-column .img-area img {
+    max-width: 100%;
+  }
+
+  .principal-image-text .text-column .button-area {
+    text-align: left;
+  }
 }
