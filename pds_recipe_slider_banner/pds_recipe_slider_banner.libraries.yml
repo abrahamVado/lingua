@@ -10,11 +10,15 @@ pds_slider_banner.admin:
 slider_banner:
   version: 1.x
   js:
-    js/pds-slider_banner.js: {}
+    https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.min.js: { type: external, minified: true }
+    assets/js/pds-slider_banner.public.js: {}
   css:
     theme:
+      https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick.css: { type: external }
+      https://cdn.jsdelivr.net/npm/slick-carousel@1.8.1/slick/slick-theme.css: { type: external }      
       assets/css/pds-slider_banner.public.css: {}
   dependencies:
+    - core/jquery
     - core/drupal
     - core/once
 
