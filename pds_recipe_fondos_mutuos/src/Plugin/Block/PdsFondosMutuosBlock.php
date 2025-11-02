@@ -6,7 +6,6 @@ namespace Drupal\pds_recipe_fondos_mutuos\Plugin\Block;
 
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\UrlHelper;
-use Drupal\Component\Utility\Xss;
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
@@ -29,8 +28,8 @@ final class PdsFondosMutuosBlock extends BlockBase {
   public function defaultConfiguration(): array { 
     return [
       'title' => '',
-      'section_id' => 'principal-fondos_mutuos',
-      'fondos_mutuos' => [],
+      'subtitle' => '',
+      'fondos' => [],
     ];
   }
 
@@ -39,49 +38,60 @@ final class PdsFondosMutuosBlock extends BlockBase {
    */
   public function build(): array {
     $cfg = $this->getConfiguration();
-    $fondos_mutuos_cfg = is_array($cfg['fondos_mutuos'] ?? NULL) ? $cfg['fondos_mutuos'] : [];
+    $raw_fondos = $cfg['fondos'] ?? ($cfg['fondos_mutuos'] ?? []);
+    $fondos_cfg = is_array($raw_fondos) ? $raw_fondos : [];
 
-    $fondos_mutuos = [];
+    $fondos = [];
 
-    //1.- Sanitize every configured executive before passing the data to Twig.
-    foreach ($fondos_mutuos_cfg as $index => $item) {
+    //1.- Sanitize every configured fondo before passing the data to Twig.
+    foreach ($fondos_cfg as $index => $item) {
       if (!is_array($item)) {
         continue;
       }
 
-      $name = trim((string) ($item['name'] ?? ''));
-      $title = trim((string) ($item['title'] ?? ''));
-      $photo = $this->sanitizeUrl($item['photo'] ?? '');
-      $linkedin = $this->sanitizeUrl($item['linkedin'] ?? '');
-      $cv_raw = (string) ($item['cv_html'] ?? '');
-      $cv_html = $this->sanitizeCv($cv_raw);
+      $name = $this->cleanText($item['name'] ?? '');
+      $desc = $this->cleanText($item['desc'] ?? '');
+      $url = $this->sanitizeUrl($item['url'] ?? '');
+      $icon_src = $this->sanitizeUrl($item['icon_src'] ?? '');
+      $icon_alt = $this->cleanText($item['icon_alt'] ?? '');
+      $arrow_src = $this->sanitizeUrl($item['arrow_src'] ?? '');
+      $arrow_alt = $this->cleanText($item['arrow_alt'] ?? '');
 
-      if ($name === '' && $title === '' && $photo === '' && $linkedin === '' && $cv_html === '') {
+      if ($name === '' && $desc === '' && $icon_src === '' && $url === '' && $arrow_src === '') {
         continue;
       }
 
-      $fondos_mutuos[] = [
+      $fondo = [
         'name' => $name,
-        'title' => $title,
-        'photo' => $photo,
-        'linkedin' => $linkedin,
-        'cv_html' => $cv_html,
+        'desc' => $desc,
       ];
+      if ($url !== '') {
+        $fondo['url'] = $url;
+      }
+      if ($icon_src !== '') {
+        $fondo['icon_src'] = $icon_src;
+      }
+      if ($icon_alt !== '') {
+        $fondo['icon_alt'] = $icon_alt;
+      }
+      if ($arrow_src !== '') {
+        $fondo['arrow_src'] = $arrow_src;
+      }
+      if ($arrow_alt !== '') {
+        $fondo['arrow_alt'] = $arrow_alt;
+      }
+
+      $fondos[] = $fondo;
     }
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
-    $section_id = trim((string) ($cfg['section_id'] ?? '')) ?: 'principal-fondos_mutuos';
+    $subtitle = trim((string) ($cfg['subtitle'] ?? ''));
 
     return [
       '#theme' => 'pds_fondos_mutuos',
       '#title' => $title,
-      '#section_id' => $section_id,
-      '#fondos_mutuos' => $fondos_mutuos,
-      '#attached' => [
-        'library' => [
-          'pds_recipe_fondos_mutuos/fondos_mutuos',
-        ],
-      ],
+      '#subtitle' => $subtitle,
+      '#fondos' => $fondos,
     ];
   }
 
@@ -90,7 +100,7 @@ final class PdsFondosMutuosBlock extends BlockBase {
    */
   public function blockForm($form, FormStateInterface $form_state) {
     $cfg = $this->getConfiguration();
-    $working = self::getWorkingFondosMutuos($form_state, $cfg['fondos_mutuos'] ?? []);
+    $working = self::getWorkingFondosMutuos($form_state, $cfg['fondos'] ?? ($cfg['fondos_mutuos'] ?? []));
     $editing_index = self::getEditingIndex($form_state);
 
     //1.- Track which tab is active so AJAX rebuilds preserve the author context.
@@ -109,8 +119,14 @@ final class PdsFondosMutuosBlock extends BlockBase {
     }
     $form_state->set('pds_recipe_fondos_mutuos_active_tab', $active_tab);
 
-    if (!$form_state->has('working_people')) {
-      $form_state->set('working_people', $working);
+    if (!$form_state->has('working_fondos')) {
+      $form_state->set('working_fondos', $working);
+    }
+    if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+      $parent_state = $form_state->getCompleteFormState();
+      if ($parent_state instanceof FormStateInterface && !$parent_state->has('working_fondos')) {
+        $parent_state->set('working_fondos', $working);
+      }
     }
 
     $form['#attached']['library'][] = 'pds_recipe_fondos_mutuos/admin.vertical_tabs';
@@ -213,7 +229,7 @@ final class PdsFondosMutuosBlock extends BlockBase {
     $form['fondos_mutuos_ui']['panes']['general']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Configure the section heading and optional HTML id.'),
+      '#value' => $this->t('Configure the section heading and optional subtitle.'),
     ];
     $form['fondos_mutuos_ui']['panes']['general']['title'] = [
       '#type' => 'textfield',
@@ -221,12 +237,11 @@ final class PdsFondosMutuosBlock extends BlockBase {
       '#default_value' => $cfg['title'] ?? '',
       '#parents' => ['title'],
     ];
-    $form['fondos_mutuos_ui']['panes']['general']['section_id'] = [
+    $form['fondos_mutuos_ui']['panes']['general']['subtitle'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Section ID'),
-      '#default_value' => $cfg['section_id'] ?? 'principal-fondos_mutuos',
-      '#description' => $this->t('DOM id attribute. Must be unique on the page.'),
-      '#parents' => ['section_id'],
+      '#title' => $this->t('Subtitle'),
+      '#default_value' => $cfg['subtitle'] ?? '',
+      '#parents' => ['subtitle'],
     ];
 
     //4.- Add pane lets authors create a new executive entry.
@@ -242,49 +257,51 @@ final class PdsFondosMutuosBlock extends BlockBase {
     $form['fondos_mutuos_ui']['panes']['add_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Provide the public information for a new executive card.'),
+      '#value' => $this->t('Provide the public information for a new fondo card.'),
     ];
 
-    $form['fondos_mutuos_ui']['panes']['add_person']['person_name'] = [
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Name'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
-    $form['fondos_mutuos_ui']['panes']['add_person']['person_title'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Title'),
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_desc'] = [
+      '#type' => 'textarea',
+      '#title' => $this->t('Description'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#rows' => 3,
     ];
-    $form['fondos_mutuos_ui']['panes']['add_person']['person_photo'] = [
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_url'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Photo URL'),
+      '#title' => $this->t('Destination URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
     ];
-    $form['fondos_mutuos_ui']['panes']['add_person']['person_photo_upload'] = [
-      '#type' => 'managed_file',
-      '#title' => $this->t('Photo upload'),
-      '#description' => $this->t('Upload an image instead of entering a URL.'),
-      '#upload_location' => 'public://pds-fondos_mutuos',
-      '#upload_validators' => [
-        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
-      ],
-    ];
-    $form['fondos_mutuos_ui']['panes']['add_person']['person_linkedin'] = [
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_icon_src'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('LinkedIn URL'),
-      '#description' => $this->t('Optional link for the modal action button.'),
+      '#title' => $this->t('Icon image URL'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#description' => $this->t('Provide an absolute or theme-relative URL for the icon.'),
     ];
-    $form['fondos_mutuos_ui']['panes']['add_person']['person_cv'] = [
-      '#type' => 'textarea',
-      '#title' => $this->t('Curriculum (HTML)'),
-      '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
-      '#rows' => 6,
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_icon_alt'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Icon alt text'),
+      '#description' => $this->t('Optional accessible description for the icon.'),
+    ];
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_arrow_src'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Arrow image URL'),
+      '#description' => $this->t('Optional absolute or theme-relative URL for the arrow graphic.'),
+    ];
+    $form['fondos_mutuos_ui']['panes']['add_person']['fondo_arrow_alt'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Arrow alt text'),
+      '#description' => $this->t('Optional accessible description for the arrow graphic.'),
     ];
 
     $form['fondos_mutuos_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
     $form['fondos_mutuos_ui']['panes']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Add executive'),
+      '#value' => $this->t('Add fondo'),
       '#name' => 'pds_recipe_fondos_mutuos_add_person',
       '#validate' => ['pds_recipe_fondos_mutuos_add_person_validate'],
       '#submit' => ['pds_recipe_fondos_mutuos_add_person_submit'],
@@ -297,7 +314,7 @@ final class PdsFondosMutuosBlock extends BlockBase {
       ],
     ];
 
-    //5.- People pane lists existing fondos_mutuos and exposes edit/remove actions.
+    //5.- People pane lists existing fondos cards and exposes edit/remove actions.
     $form['fondos_mutuos_ui']['panes']['people_list'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('people', 'tab-people', $active_tab),
@@ -318,30 +335,30 @@ final class PdsFondosMutuosBlock extends BlockBase {
       '#tree' => TRUE,
       '#header' => [
         $this->t('Name'),
-        $this->t('Title'),
-        $this->t('LinkedIn'),
+        $this->t('Description'),
+        $this->t('URL'),
         $this->t('Edit'),
         $this->t('Remove'),
       ],
-      '#empty' => $this->t('No fondos_mutuos yet. Add one using the Add New tab.'),
+      '#empty' => $this->t('No fondos yet. Add one using the Add New tab.'),
     ];
 
-    foreach ($working as $index => $person) {
-      if (!is_array($person)) {
+    foreach ($working as $index => $fondo) {
+      if (!is_array($fondo)) {
         continue;
       }
-      $name = trim((string) ($person['name'] ?? ''));
-      $title_value = trim((string) ($person['title'] ?? ''));
-      $linkedin_value = trim((string) ($person['linkedin'] ?? ''));
+      $name = trim((string) ($fondo['name'] ?? ''));
+      $desc_value = trim((string) ($fondo['desc'] ?? ''));
+      $url_value = trim((string) ($fondo['url'] ?? ''));
 
       $form['fondos_mutuos_ui']['panes']['people_list']['people'][$index]['name'] = [
         '#plain_text' => $name === '' ? $this->t('Unnamed @number', ['@number' => $index + 1]) : $name,
       ];
-      $form['fondos_mutuos_ui']['panes']['people_list']['people'][$index]['title'] = [
-        '#plain_text' => $title_value,
+      $form['fondos_mutuos_ui']['panes']['people_list']['people'][$index]['desc'] = [
+        '#plain_text' => $desc_value,
       ];
-      $form['fondos_mutuos_ui']['panes']['people_list']['people'][$index]['linkedin'] = [
-        '#plain_text' => $linkedin_value,
+      $form['fondos_mutuos_ui']['panes']['people_list']['people'][$index]['url'] = [
+        '#plain_text' => $url_value,
       ];
       $form['fondos_mutuos_ui']['panes']['people_list']['people'][$index]['edit'] = [
         '#type' => 'submit',
@@ -390,52 +407,56 @@ final class PdsFondosMutuosBlock extends BlockBase {
     $form['fondos_mutuos_ui']['panes']['edit_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Update the selected executive card.'),
+      '#value' => $this->t('Update the selected fondo card.'),
     ];
 
-    $editing_person = $editing_index !== NULL && isset($working[$editing_index]) && is_array($working[$editing_index])
+    $editing_fondo = $editing_index !== NULL && isset($working[$editing_index]) && is_array($working[$editing_index])
       ? $working[$editing_index]
       : NULL;
 
-    $form['fondos_mutuos_ui']['panes']['edit_person']['person_name'] = [
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Name'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['name'] ?? '') : '',
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['name'] ?? '') : '',
     ];
-    $form['fondos_mutuos_ui']['panes']['edit_person']['person_title'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Title'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['title'] ?? '') : '',
-    ];
-    $form['fondos_mutuos_ui']['panes']['edit_person']['person_photo'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Photo URL'),
-      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['photo'] ?? '') : '',
-    ];
-    $form['fondos_mutuos_ui']['panes']['edit_person']['person_photo_upload'] = [
-      '#type' => 'managed_file',
-      '#title' => $this->t('Photo upload'),
-      '#description' => $this->t('Upload a new image to replace the current photo.'),
-      '#upload_location' => 'public://pds-fondos_mutuos',
-      '#upload_validators' => [
-        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
-      ],
-    ];
-    $form['fondos_mutuos_ui']['panes']['edit_person']['person_linkedin'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('LinkedIn URL'),
-      '#description' => $this->t('Optional link for the modal action button.'),
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['linkedin'] ?? '') : '',
-    ];
-    $form['fondos_mutuos_ui']['panes']['edit_person']['person_cv'] = [
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_desc'] = [
       '#type' => 'textarea',
-      '#title' => $this->t('Curriculum (HTML)'),
-      '#description' => $this->t('Allowed tags: @tags', ['@tags' => implode(', ', $this->allowedCvTags())]),
-      '#rows' => 6,
-      '#default_value' => is_array($editing_person) ? (string) ($editing_person['cv_html'] ?? '') : '',
+      '#title' => $this->t('Description'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#rows' => 3,
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['desc'] ?? '') : '',
+    ];
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Destination URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['url'] ?? '') : '',
+    ];
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_icon_src'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Icon image URL'),
+      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+      '#description' => $this->t('Provide an absolute or theme-relative URL for the icon.'),
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['icon_src'] ?? '') : '',
+    ];
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_icon_alt'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Icon alt text'),
+      '#description' => $this->t('Optional accessible description for the icon.'),
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['icon_alt'] ?? '') : '',
+    ];
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_arrow_src'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Arrow image URL'),
+      '#description' => $this->t('Optional absolute or theme-relative URL for the arrow graphic.'),
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['arrow_src'] ?? '') : '',
+    ];
+    $form['fondos_mutuos_ui']['panes']['edit_person']['fondo_arrow_alt'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Arrow alt text'),
+      '#description' => $this->t('Optional accessible description for the arrow graphic.'),
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['arrow_alt'] ?? '') : '',
     ];
 
     $form['fondos_mutuos_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
@@ -475,34 +496,33 @@ final class PdsFondosMutuosBlock extends BlockBase {
     $cfg = $this->getConfiguration();
 
     $submitted_title = $this->extractSubmittedString($form_state, 'title');
-    $submitted_section_id = $this->extractSubmittedString($form_state, 'section_id');
+    $submitted_subtitle = $this->extractSubmittedString($form_state, 'subtitle');
 
     //1.- Persist the sanitized section heading while allowing empty titles to
     //    fall back to the default block label.
     $this->configuration['title'] = $submitted_title;
 
-    //2.- Guarantee a predictable DOM id even when the form omits the field.
-    $this->configuration['section_id'] = $submitted_section_id !== ''
-      ? $submitted_section_id
-      : 'principal-fondos_mutuos';
+    //2.- Store the optional subtitle exactly as entered.
+    $this->configuration['subtitle'] = $submitted_subtitle;
 
-    $fondos_mutuos = self::getWorkingFondosMutuos($form_state, $cfg['fondos_mutuos'] ?? []);
+    $fondos_mutuos = self::getWorkingFondosMutuos($form_state, $cfg['fondos'] ?? []);
     $clean = [];
 
-    //1.- Persist sanitized executive definitions.
-    foreach ($fondos_mutuos as $exec) {
-      if (!is_array($exec)) {
+    //1.- Persist sanitized fondo definitions.
+    foreach ($fondos_mutuos as $fondo) {
+      if (!is_array($fondo)) {
         continue;
       }
-      $clean_exec = $this->cleanExecutiveConfig($exec);
-      if ($clean_exec !== NULL) {
-        $clean[] = $clean_exec;
+      $clean_fondo = $this->cleanFondoConfig($fondo);
+      if ($clean_fondo !== NULL) {
+        $clean[] = $clean_fondo;
       }
     }
 
-    $this->configuration['fondos_mutuos'] = array_values($clean);
+    $this->configuration['fondos'] = array_values($clean);
+    unset($this->configuration['fondos_mutuos']);
 
-    $form_state->set('working_people', $this->configuration['fondos_mutuos']);
+    $form_state->set('working_fondos', $this->configuration['fondos']);
   }
 
   /**
@@ -531,13 +551,13 @@ final class PdsFondosMutuosBlock extends BlockBase {
   }
 
   /**
-   * Resolve the current list of fondos_mutuos during form interaction.
+   * Resolve the current list of fondos during form interaction.
    */
-  private static function getWorkingFondosMutuos(FormStateInterface $form_state, array $cfg_people): array {
+  private static function getWorkingFondosMutuos(FormStateInterface $form_state, array $cfg_fondos): array {
     $is_sub = $form_state instanceof SubformStateInterface;
 
-    if ($form_state->has('working_people')) {
-      $tmp = $form_state->get('working_people');
+    if ($form_state->has('working_fondos')) {
+      $tmp = $form_state->get('working_fondos');
       if (is_array($tmp)) {
         return array_values($tmp);
       }
@@ -545,15 +565,15 @@ final class PdsFondosMutuosBlock extends BlockBase {
 
     if ($is_sub && method_exists($form_state, 'getCompleteFormState')) {
       $parent = $form_state->getCompleteFormState();
-      if ($parent && $parent->has('working_people')) {
-        $tmp = $parent->get('working_people');
+      if ($parent && $parent->has('working_fondos')) {
+        $tmp = $parent->get('working_fondos');
         if (is_array($tmp)) {
           return array_values($tmp);
         }
       }
     }
 
-    return array_values(is_array($cfg_people) ? $cfg_people : []);
+    return array_values(is_array($cfg_fondos) ? $cfg_fondos : []);
   }
 
   /**
@@ -622,16 +642,18 @@ final class PdsFondosMutuosBlock extends BlockBase {
   }
 
   /**
-   * Clean up an executive array before saving it in configuration.
+   * Clean up a fondo array before saving it in configuration.
    */
-  private function cleanExecutiveConfig(array $exec): ?array {
-    $name = trim((string) ($exec['name'] ?? ''));
-    $title = trim((string) ($exec['title'] ?? ''));
-    $photo = $this->sanitizeUrl($exec['photo'] ?? '');
-    $linkedin = $this->sanitizeUrl($exec['linkedin'] ?? '');
-    $cv = trim((string) ($exec['cv_html'] ?? ''));
+  private function cleanFondoConfig(array $fondo): ?array {
+    $name = $this->cleanText($fondo['name'] ?? '');
+    $desc = $this->cleanText($fondo['desc'] ?? '');
+    $url = $this->sanitizeUrl($fondo['url'] ?? '');
+    $icon_src = $this->sanitizeUrl($fondo['icon_src'] ?? '');
+    $icon_alt = $this->cleanText($fondo['icon_alt'] ?? '');
+    $arrow_src = $this->sanitizeUrl($fondo['arrow_src'] ?? '');
+    $arrow_alt = $this->cleanText($fondo['arrow_alt'] ?? '');
 
-    if ($name === '' && $title === '' && $photo === '' && $linkedin === '' && $cv === '') {
+    if ($name === '' && $desc === '' && $icon_src === '' && $url === '' && $arrow_src === '') {
       return NULL;
     }
 
@@ -639,32 +661,33 @@ final class PdsFondosMutuosBlock extends BlockBase {
     if ($name !== '') {
       $clean['name'] = $name;
     }
-    if ($title !== '') {
-      $clean['title'] = $title;
+    if ($desc !== '') {
+      $clean['desc'] = $desc;
     }
-    if ($photo !== '') {
-      $clean['photo'] = $photo;
+    if ($url !== '') {
+      $clean['url'] = $url;
     }
-    if ($linkedin !== '') {
-      $clean['linkedin'] = $linkedin;
+    if ($icon_src !== '') {
+      $clean['icon_src'] = $icon_src;
     }
-    if ($cv !== '') {
-      $clean['cv_html'] = $cv;
+    if ($icon_alt !== '') {
+      $clean['icon_alt'] = $icon_alt;
+    }
+    if ($arrow_src !== '') {
+      $clean['arrow_src'] = $arrow_src;
+    }
+    if ($arrow_alt !== '') {
+      $clean['arrow_alt'] = $arrow_alt;
     }
 
     return $clean === [] ? NULL : $clean;
   }
 
   /**
-   * Sanitize and normalize CV markup.
+   * Normalize author-entered text values.
    */
-  private function sanitizeCv(string $cv_html): string {
-    $cv_html = trim($cv_html);
-    if ($cv_html === '') {
-      return '';
-    }
-    $filtered = Xss::filter($cv_html, $this->allowedCvTags());
-    return $filtered !== '' ? $filtered : Html::escape($cv_html);
+  private function cleanText($value): string {
+    return trim(is_string($value) ? $value : '');
   }
 
   /**
@@ -686,15 +709,6 @@ final class PdsFondosMutuosBlock extends BlockBase {
     }
 
     return '';
-  }
-
-  /**
-   * Allowed tags for the CV field.
-   */
-  private function allowedCvTags(): array {
-    return [
-      'a', 'p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'span', 'div', 'h3', 'h4', 'h5', 'h6', 'b', 'i', 'u'
-    ];
   }
 
 }
