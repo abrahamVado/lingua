@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Drupal\pds_recipe_avisos\Plugin\Block;
+namespace Drupal\pds_recipe_avisos_normativos\Plugin\Block;
 
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\UrlHelper;
@@ -13,15 +13,15 @@ use Drupal\Core\Form\SubformStateInterface;
 use Drupal\Core\Render\Markup;
 
 /**
- * Provides the "Principal Avisos" block.
+ * Provides the "Principal AvisosNormativos" block.
  *
  * @Block(
- *   id = "pds_avisos_block",
- *   admin_label = @Translation("PDS Avisos"),
+ *   id = "pds_avisos_normativos_block",
+ *   admin_label = @Translation("PDS AvisosNormativos"),
  *   category = @Translation("PDS Recipes")
  * )
  */
-final class PdsAvisosBlock extends BlockBase {
+final class PdsAvisosNormativosBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
@@ -38,31 +38,37 @@ final class PdsAvisosBlock extends BlockBase {
    */
   public function build(): array {
     $cfg = $this->getConfiguration();
-    $raw_fondos = $cfg['fondos'] ?? ($cfg['avisos'] ?? []);
+    $raw_fondos = $cfg['fondos'] ?? ($cfg['avisos_normativos'] ?? []);
     $fondos_cfg = is_array($raw_fondos) ? $raw_fondos : [];
 
     $fondos = [];
     $icon_url = $this->buildAssetUrl('assets/images/icon.png');
     $arrow_url = $this->buildAssetUrl('assets/images/flecha.png');
 
-    //1.- Sanitize every configured fondo before passing the data to Twig.
+    // Sanitize each fondo and convert allowed inline HTML to safe Markup.
     foreach ($fondos_cfg as $index => $item) {
       if (!is_array($item)) {
         continue;
       }
 
-      $name = $this->cleanText($item['title'] ?? ($item['name'] ?? ''));
-      $desc = $this->cleanText($item['description'] ?? ($item['desc'] ?? ''));
+      $name_raw = (string) ($item['title'] ?? ($item['name'] ?? ''));
+      $desc_raw = (string) ($item['description'] ?? ($item['desc'] ?? ''));
       $url = $this->sanitizeUrl($item['url'] ?? '');
+
+      $name = $this->cleanText($name_raw);
+      $desc = $this->cleanText($desc_raw);
 
       if ($name === '' && $desc === '' && $url === '') {
         continue;
       }
 
-      $fondo = [
-        'title' => $name,
-        'description' => $desc,
-      ];
+      $fondo = [];
+      if ($name !== '') {
+        $fondo['title'] = $this->safeInlineHtml($name);
+      }
+      if ($desc !== '') {
+        $fondo['description'] = $this->safeInlineHtml($desc);
+      }
       if ($url !== '') {
         $fondo['url'] = $url;
       }
@@ -70,28 +76,16 @@ final class PdsAvisosBlock extends BlockBase {
       $fondos[] = $fondo;
     }
 
-    $submitted_title = trim((string) ($cfg['title'] ?? ''));
-
-    //1.- Sanitize the configurable heading while allowing a curated subset of HTML tags.
-    $title_markup = $this->buildTitleMarkup($submitted_title);
-    if ($title_markup === '') {
-      $fallback_label = trim((string) ($this->label() ?? ''));
-      if ($fallback_label !== '') {
-        //2.- Escape the block label fallback so it remains safe even when rendered as raw markup.
-        $title_markup = Html::escape($fallback_label);
-      }
-    }
-
-    $render_title = $title_markup === '' ? '' : Markup::create($title_markup);
+    $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
 
     return [
-      '#theme' => 'pds_avisos',
-      '#title' => $render_title,
+      '#theme' => 'pds_avisos_normativos',
+      '#title' => $title,
       '#fondos' => $fondos,
       '#icon_url' => $icon_url,
       '#arrow_url' => $arrow_url,
       '#attached' => [
-        'library' => ['pds_recipe_avisos/avisos'],
+        'library' => ['pds_recipe_avisos_normativos/avisos_normativos'],
       ],
     ];
   }
@@ -101,24 +95,24 @@ final class PdsAvisosBlock extends BlockBase {
    */
   public function blockForm($form, FormStateInterface $form_state) {
     $cfg = $this->getConfiguration();
-    $working = self::getWorkingAvisos($form_state, $cfg['fondos'] ?? ($cfg['avisos'] ?? []));
+    $working = self::getWorkingAvisosNormativos($form_state, $cfg['fondos'] ?? ($cfg['avisos_normativos'] ?? []));
     $editing_index = self::getEditingIndex($form_state);
 
-    //1.- Track which tab is active so AJAX rebuilds preserve the author context.
+    // Active tab tracking.
     $input = $form_state->getUserInput();
-    $submitted_tab = is_array($input) && isset($input['avisos_ui_active_tab'])
-      ? trim((string) $input['avisos_ui_active_tab'])
+    $submitted_tab = is_array($input) && isset($input['avisos_normativos_ui_active_tab'])
+      ? trim((string) $input['avisos_normativos_ui_active_tab'])
       : '';
     $active_tab = $submitted_tab !== ''
       ? $submitted_tab
-      : ($form_state->get('pds_recipe_avisos_active_tab') ?? '');
+      : ($form_state->get('pds_recipe_avisos_normativos_active_tab') ?? '');
     if ($active_tab === '' && $editing_index !== NULL) {
       $active_tab = 'edit';
     }
     if ($active_tab === '') {
       $active_tab = 'general';
     }
-    $form_state->set('pds_recipe_avisos_active_tab', $active_tab);
+    $form_state->set('pds_recipe_avisos_normativos_active_tab', $active_tab);
 
     if (!$form_state->has('working_fondos')) {
       $form_state->set('working_fondos', $working);
@@ -130,7 +124,7 @@ final class PdsAvisosBlock extends BlockBase {
       }
     }
 
-    $form['#attached']['library'][] = 'pds_recipe_avisos/admin.vertical_tabs';
+    $form['#attached']['library'][] = 'pds_recipe_avisos_normativos/admin.vertical_tabs';
 
     $tabs = [
       'general' => [
@@ -148,7 +142,7 @@ final class PdsAvisosBlock extends BlockBase {
         'access' => TRUE,
       ],
       'people' => [
-        'label' => (string) $this->t('Avisos'),
+        'label' => (string) $this->t('AvisosNormativos'),
         'pane_key' => 'people',
         'tab_id' => 'tab-people',
         'pane_id' => 'pane-people',
@@ -166,10 +160,10 @@ final class PdsAvisosBlock extends BlockBase {
     $available_tabs = array_filter($tabs, static fn(array $tab) => !empty($tab['access']));
     if (!isset($available_tabs[$active_tab])) {
       $active_tab = array_key_first($available_tabs) ?: 'general';
-      $form_state->set('pds_recipe_avisos_active_tab', $active_tab);
+      $form_state->set('pds_recipe_avisos_normativos_active_tab', $active_tab);
     }
 
-    //2.- Render the Claro-inspired vertical tabs navigation used by other recipes.
+    // Vertical tabs nav.
     $menu_markup = '<ul class="pds-vertical-tabs__menu" role="tablist" aria-orientation="vertical" data-pds-vertical-tabs-menu="true">';
     foreach ($available_tabs as $machine_name => $tab) {
       $is_selected = $machine_name === $active_tab;
@@ -187,124 +181,120 @@ final class PdsAvisosBlock extends BlockBase {
     }
     $menu_markup .= '</ul>';
 
-    $form['avisos_ui'] = [
+    $form['avisos_normativos_ui'] = [
       '#type' => 'container',
       '#attributes' => [
-        'id' => 'pds-avisos-form',
+        'id' => 'pds-avisos_normativos-form',
         'class' => ['pds-vertical-tabs'],
         'data-pds-vertical-tabs' => 'true',
       ],
     ];
 
-    $form['avisos_ui']['active_tab'] = [
+    $form['avisos_normativos_ui']['active_tab'] = [
       '#type' => 'hidden',
       '#value' => $active_tab,
-      '#parents' => ['avisos_ui_active_tab'],
-      '#attributes' => [
-        'data-pds-vertical-tabs-active' => 'true',
-      ],
+      '#parents' => ['avisos_normativos_ui_active_tab'],
+      '#attributes' => ['data-pds-vertical-tabs-active' => 'true'],
     ];
 
-    $form['avisos_ui']['menu'] = [
+    $form['avisos_normativos_ui']['menu'] = [
       '#type' => 'markup',
       '#markup' => Markup::create($menu_markup),
     ];
 
-    $form['avisos_ui']['panes'] = [
+    $form['avisos_normativos_ui']['panes'] = [
       '#type' => 'container',
-      '#attributes' => [
-        'class' => ['pds-vertical-tabs__panes'],
-      ],
+      '#attributes' => ['class' => ['pds-vertical-tabs__panes']],
     ];
 
-    //3.- General pane exposes overall section settings.
-    $form['avisos_ui']['panes']['general'] = [
+    // General pane.
+    $form['avisos_normativos_ui']['panes']['general'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('general', 'tab-general', $active_tab),
     ];
-    $form['avisos_ui']['panes']['general']['heading'] = [
+    $form['avisos_normativos_ui']['panes']['general']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
       '#value' => $this->t('General'),
     ];
-    $form['avisos_ui']['panes']['general']['description'] = [
+    $form['avisos_normativos_ui']['panes']['general']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Configure the section heading shown above the avisos list.'),
+      '#value' => $this->t('Configure the section heading shown above the avisos_normativos list.'),
     ];
-    $form['avisos_ui']['panes']['general']['title'] = [
+    $form['avisos_normativos_ui']['panes']['general']['title'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
       '#default_value' => $cfg['title'] ?? '',
       '#parents' => ['title'],
     ];
 
-    //4.- Add pane lets authors create a new executive entry.
-    $form['avisos_ui']['panes']['add_person'] = [
+    // Add pane.
+    $form['avisos_normativos_ui']['panes']['add_person'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('add', 'tab-add', $active_tab),
     ];
-    $form['avisos_ui']['panes']['add_person']['heading'] = [
+    $form['avisos_normativos_ui']['panes']['add_person']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
       '#value' => $this->t('Add New'),
     ];
-    $form['avisos_ui']['panes']['add_person']['description'] = [
+    $form['avisos_normativos_ui']['panes']['add_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
       '#value' => $this->t('Provide the public information for a new fondo card.'),
     ];
 
-    $form['avisos_ui']['panes']['add_person']['fondo_name'] = [
+    $form['avisos_normativos_ui']['panes']['add_person']['fondo_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
     ];
-    $form['avisos_ui']['panes']['add_person']['fondo_desc'] = [
+    $form['avisos_normativos_ui']['panes']['add_person']['fondo_desc'] = [
       '#type' => 'textarea',
       '#title' => $this->t('Description'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
       '#rows' => 3,
     ];
-    $form['avisos_ui']['panes']['add_person']['fondo_url'] = [
+    $form['avisos_normativos_ui']['panes']['add_person']['fondo_url'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Destination URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
     ];
 
-    $form['avisos_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
-    $form['avisos_ui']['panes']['add_person']['actions']['add_person'] = [
+    $form['avisos_normativos_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
+    $form['avisos_normativos_ui']['panes']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
       '#value' => $this->t('Add fondo'),
-      '#name' => 'pds_recipe_avisos_add_person',
-      '#validate' => ['pds_recipe_avisos_add_person_validate'],
-      '#submit' => ['pds_recipe_avisos_add_person_submit'],
+      '#name' => 'pds_recipe_avisos_normativos_add_person',
+      '#validate' => ['pds_recipe_avisos_normativos_add_person_validate'],
+      '#submit' => ['pds_recipe_avisos_normativos_add_person_submit'],
       '#limit_validation_errors' => [
-        ['avisos_ui', 'panes', 'add_person'],
+        ['avisos_normativos_ui', 'panes', 'add_person'],
       ],
       '#ajax' => [
-        'callback' => 'pds_recipe_avisos_ajax_events',
-        'wrapper' => 'pds-avisos-form',
+        'callback' => 'pds_recipe_avisos_normativos_ajax_events',
+        'wrapper' => 'pds-avisos_normativos-form',
       ],
     ];
 
-    //5.- People pane lists existing fondos cards and exposes edit/remove actions.
-    $form['avisos_ui']['panes']['people_list'] = [
+    // List pane.
+    $form['avisos_normativos_ui']['panes']['people_list'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('people', 'tab-people', $active_tab),
     ];
-    $form['avisos_ui']['panes']['people_list']['heading'] = [
+    $form['avisos_normativos_ui']['panes']['people_list']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
-      '#value' => $this->t('Avisos'),
+      '#value' => $this->t('AvisosNormativos'),
     ];
-    $form['avisos_ui']['panes']['people_list']['description'] = [
+    $form['avisos_normativos_ui']['panes']['people_list']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
       '#value' => $this->t('Review, edit or remove existing cards.'),
     ];
 
-    $form['avisos_ui']['panes']['people_list']['people'] = [
+    $form['avisos_normativos_ui']['panes']['people_list']['people'] = [
       '#type' => 'table',
       '#tree' => TRUE,
       '#header' => [
@@ -325,60 +315,60 @@ final class PdsAvisosBlock extends BlockBase {
       $desc_value = trim((string) ($fondo['description'] ?? ($fondo['desc'] ?? '')));
       $url_value = trim((string) ($fondo['url'] ?? ''));
 
-      $form['avisos_ui']['panes']['people_list']['people'][$index]['name'] = [
+      $form['avisos_normativos_ui']['panes']['people_list']['people'][$index]['name'] = [
         '#plain_text' => $name === '' ? $this->t('Untitled @number', ['@number' => $index + 1]) : $name,
       ];
-      $form['avisos_ui']['panes']['people_list']['people'][$index]['desc'] = [
+      $form['avisos_normativos_ui']['panes']['people_list']['people'][$index]['desc'] = [
         '#plain_text' => $desc_value,
       ];
-      $form['avisos_ui']['panes']['people_list']['people'][$index]['url'] = [
+      $form['avisos_normativos_ui']['panes']['people_list']['people'][$index]['url'] = [
         '#plain_text' => $url_value,
       ];
-      $form['avisos_ui']['panes']['people_list']['people'][$index]['edit'] = [
+      $form['avisos_normativos_ui']['panes']['people_list']['people'][$index]['edit'] = [
         '#type' => 'submit',
         '#value' => $this->t('Edit'),
-        '#name' => 'pds_recipe_avisos_edit_person_' . $index,
-        '#submit' => ['pds_recipe_avisos_edit_person_prepare_submit'],
+        '#name' => 'pds_recipe_avisos_normativos_edit_person_' . $index,
+        '#submit' => ['pds_recipe_avisos_normativos_edit_person_prepare_submit'],
         '#limit_validation_errors' => [],
         '#ajax' => [
-          'callback' => 'pds_recipe_avisos_ajax_events',
-          'wrapper' => 'pds-avisos-form',
+          'callback' => 'pds_recipe_avisos_normativos_ajax_events',
+          'wrapper' => 'pds-avisos_normativos-form',
         ],
-        '#attributes' => ['class' => ['pds-recipe-avisos-edit-person']],
-        '#pds_recipe_avisos_edit_index' => $index,
+        '#attributes' => ['class' => ['pds-recipe-avisos-normativos-edit-person']],
+        '#pds_recipe_avisos_normativos_edit_index' => $index,
       ];
-      $form['avisos_ui']['panes']['people_list']['people'][$index]['remove'] = [
+      $form['avisos_normativos_ui']['panes']['people_list']['people'][$index]['remove'] = [
         '#type' => 'checkbox',
         '#title' => $this->t('Remove'),
       ];
     }
 
-    $form['avisos_ui']['panes']['people_list']['actions'] = ['#type' => 'actions'];
-    $form['avisos_ui']['panes']['people_list']['actions']['remove_people'] = [
+    $form['avisos_normativos_ui']['panes']['people_list']['actions'] = ['#type' => 'actions'];
+    $form['avisos_normativos_ui']['panes']['people_list']['actions']['remove_people'] = [
       '#type' => 'submit',
       '#value' => $this->t('Remove selected'),
-      '#name' => 'pds_recipe_avisos_remove_people',
-      '#submit' => ['pds_recipe_avisos_remove_people_submit'],
+      '#name' => 'pds_recipe_avisos_normativos_remove_people',
+      '#submit' => ['pds_recipe_avisos_normativos_remove_people_submit'],
       '#limit_validation_errors' => [
-        ['avisos_ui', 'panes', 'people_list', 'people'],
+        ['avisos_normativos_ui', 'panes', 'people_list', 'people'],
       ],
       '#ajax' => [
-        'callback' => 'pds_recipe_avisos_ajax_events',
-        'wrapper' => 'pds-avisos-form',
+        'callback' => 'pds_recipe_avisos_normativos_ajax_events',
+        'wrapper' => 'pds-avisos_normativos-form',
       ],
     ];
 
-    //6.- Edit pane mirrors the Add pane but pre-fills the selected executive.
-    $form['avisos_ui']['panes']['edit_person'] = [
+    // Edit pane.
+    $form['avisos_normativos_ui']['panes']['edit_person'] = [
       '#type' => 'container',
       '#attributes' => $this->buildPaneAttributes('edit', 'tab-edit', $active_tab),
     ];
-    $form['avisos_ui']['panes']['edit_person']['heading'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
       '#value' => $this->t('Edit'),
     ];
-    $form['avisos_ui']['panes']['edit_person']['description'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
       '#value' => $this->t('Update the selected fondo card.'),
@@ -388,50 +378,50 @@ final class PdsAvisosBlock extends BlockBase {
       ? $working[$editing_index]
       : NULL;
 
-    $form['avisos_ui']['panes']['edit_person']['fondo_name'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['fondo_name'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Title'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
       '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['title'] ?? ($editing_fondo['name'] ?? '')) : '',
     ];
-    $form['avisos_ui']['panes']['edit_person']['fondo_desc'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['fondo_desc'] = [
       '#type' => 'textarea',
       '#title' => $this->t('Description'),
       '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
       '#rows' => 3,
       '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['description'] ?? ($editing_fondo['desc'] ?? '')) : '',
     ];
-    $form['avisos_ui']['panes']['edit_person']['fondo_url'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['fondo_url'] = [
       '#type' => 'textfield',
       '#title' => $this->t('Destination URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
       '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['url'] ?? '') : '',
     ];
 
-    $form['avisos_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
-    $form['avisos_ui']['panes']['edit_person']['actions']['save_person'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
+    $form['avisos_normativos_ui']['panes']['edit_person']['actions']['save_person'] = [
       '#type' => 'submit',
       '#value' => $this->t('Save changes'),
-      '#name' => 'pds_recipe_avisos_save_person',
-      '#validate' => ['pds_recipe_avisos_edit_person_validate'],
-      '#submit' => ['pds_recipe_avisos_edit_person_submit'],
+      '#name' => 'pds_recipe_avisos_normativos_save_person',
+      '#validate' => ['pds_recipe_avisos_normativos_edit_person_validate'],
+      '#submit' => ['pds_recipe_avisos_normativos_edit_person_submit'],
       '#limit_validation_errors' => [
-        ['avisos_ui', 'panes', 'edit_person'],
+        ['avisos_normativos_ui', 'panes', 'edit_person'],
       ],
       '#ajax' => [
-        'callback' => 'pds_recipe_avisos_ajax_events',
-        'wrapper' => 'pds-avisos-form',
+        'callback' => 'pds_recipe_avisos_normativos_ajax_events',
+        'wrapper' => 'pds-avisos_normativos-form',
       ],
     ];
-    $form['avisos_ui']['panes']['edit_person']['actions']['cancel_edit'] = [
+    $form['avisos_normativos_ui']['panes']['edit_person']['actions']['cancel_edit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Cancel'),
-      '#name' => 'pds_recipe_avisos_cancel_edit',
+      '#name' => 'pds_recipe_avisos_normativos_cancel_edit',
       '#limit_validation_errors' => [],
-      '#submit' => ['pds_recipe_avisos_edit_person_cancel_submit'],
+      '#submit' => ['pds_recipe_avisos_normativos_edit_person_cancel_submit'],
       '#ajax' => [
-        'callback' => 'pds_recipe_avisos_ajax_events',
-        'wrapper' => 'pds-avisos-form',
+        'callback' => 'pds_recipe_avisos_normativos_ajax_events',
+        'wrapper' => 'pds-avisos_normativos-form',
       ],
     ];
 
@@ -445,16 +435,12 @@ final class PdsAvisosBlock extends BlockBase {
     $cfg = $this->getConfiguration();
 
     $submitted_title = $this->extractSubmittedString($form_state, 'title');
-
-    //1.- Persist the sanitized section heading while allowing empty titles to
-    //    fall back to the default block label.
     $this->configuration['title'] = $submitted_title;
 
-    $avisos = self::getWorkingAvisos($form_state, $cfg['fondos'] ?? []);
+    $avisos_normativos = self::getWorkingAvisosNormativos($form_state, $cfg['fondos'] ?? []);
     $clean = [];
 
-    //2.- Persist sanitized fondo definitions.
-    foreach ($avisos as $fondo) {
+    foreach ($avisos_normativos as $fondo) {
       if (!is_array($fondo)) {
         continue;
       }
@@ -465,16 +451,12 @@ final class PdsAvisosBlock extends BlockBase {
     }
 
     $this->configuration['fondos'] = array_values($clean);
-    unset($this->configuration['avisos']);
+    unset($this->configuration['avisos_normativos']);
 
     $form_state->set('working_fondos', $this->configuration['fondos']);
   }
 
-  /**
-   * Build a consistent attribute set for a tab pane.
-   */
   private function buildPaneAttributes(string $pane_key, string $tab_id, string $active_tab): array {
-    //1.- Seed default accessibility attributes shared by every pane.
     $attributes = [
       'id' => 'pane-' . $pane_key,
       'class' => ['pds-vertical-tabs__pane'],
@@ -482,8 +464,6 @@ final class PdsAvisosBlock extends BlockBase {
       'aria-labelledby' => $tab_id,
       'data-pds-vertical-pane' => $pane_key,
     ];
-
-    //2.- Hide panes that are not active so CSS can mimic Drupal Claro behavior.
     if ($pane_key !== $active_tab) {
       $attributes['hidden'] = 'hidden';
       $attributes['aria-hidden'] = 'true';
@@ -491,14 +471,10 @@ final class PdsAvisosBlock extends BlockBase {
     else {
       $attributes['aria-hidden'] = 'false';
     }
-
     return $attributes;
   }
 
-  /**
-   * Resolve the current list of fondos during form interaction.
-   */
-  private static function getWorkingAvisos(FormStateInterface $form_state, array $cfg_fondos): array {
+  private static function getWorkingAvisosNormativos(FormStateInterface $form_state, array $cfg_fondos): array {
     $is_sub = $form_state instanceof SubformStateInterface;
 
     if ($form_state->has('working_fondos')) {
@@ -521,12 +497,7 @@ final class PdsAvisosBlock extends BlockBase {
     return array_values(is_array($cfg_fondos) ? $cfg_fondos : []);
   }
 
-  /**
-   * Extract a scalar string value from the form state across nesting levels.
-   */
   private function extractSubmittedString(FormStateInterface $form_state, string $key): string {
-    //1.- Compile every plausible location for the requested value, accounting
-    //    for Layout Builder subforms that wrap configuration under settings.
     $candidates = [];
     $direct_value = $form_state->getValue($key);
     if ($direct_value !== NULL) {
@@ -549,25 +520,19 @@ final class PdsAvisosBlock extends BlockBase {
         }
       }
     }
-
-    //2.- Return the first string candidate after trimming whitespace.
     foreach ($candidates as $candidate) {
       if (is_string($candidate)) {
         return trim($candidate);
       }
     }
-
     return '';
   }
 
-  /**
-   * Determine which executive is currently being edited, if any.
-   */
   private static function getEditingIndex(FormStateInterface $form_state): ?int {
     $is_sub = $form_state instanceof SubformStateInterface;
 
-    if ($form_state->has('pds_recipe_avisos_editing_index')) {
-      $index = $form_state->get('pds_recipe_avisos_editing_index');
+    if ($form_state->has('pds_recipe_avisos_normativos_editing_index')) {
+      $index = $form_state->get('pds_recipe_avisos_normativos_editing_index');
       if (is_numeric($index)) {
         return (int) $index;
       }
@@ -575,8 +540,8 @@ final class PdsAvisosBlock extends BlockBase {
 
     if ($is_sub && method_exists($form_state, 'getCompleteFormState')) {
       $parent = $form_state->getCompleteFormState();
-      if ($parent && $parent->has('pds_recipe_avisos_editing_index')) {
-        $index = $parent->get('pds_recipe_avisos_editing_index');
+      if ($parent && $parent->has('pds_recipe_avisos_normativos_editing_index')) {
+        $index = $parent->get('pds_recipe_avisos_normativos_editing_index');
         if (is_numeric($index)) {
           return (int) $index;
         }
@@ -586,9 +551,6 @@ final class PdsAvisosBlock extends BlockBase {
     return NULL;
   }
 
-  /**
-   * Clean up a fondo array before saving it in configuration.
-   */
   private function cleanFondoConfig(array $fondo): ?array {
     $name = $this->cleanText($fondo['title'] ?? ($fondo['name'] ?? ''));
     $desc = $this->cleanText($fondo['description'] ?? ($fondo['desc'] ?? ''));
@@ -612,64 +574,41 @@ final class PdsAvisosBlock extends BlockBase {
     return $clean === [] ? NULL : $clean;
   }
 
-  /**
-   * Build an absolute-ish URL to a bundled asset.
-   */
   private function buildAssetUrl(string $relative_path): string {
-    //1.- Lazily resolve the module path once per request using Drupal services.
     static $module_path = NULL;
     if ($module_path === NULL) {
-      $module_path = \Drupal::service('extension.path.resolver')->getPath('module', 'pds_recipe_avisos');
+      $module_path = \Drupal::service('extension.path.resolver')->getPath('module', 'pds_recipe_avisos_normativos');
     }
-
-    //2.- Concatenate the site base path with the module-relative asset path.
     $base_path = base_path();
     $relative = ltrim($relative_path, '/');
-
     return $base_path . trim($module_path, '/') . '/' . $relative;
   }
 
-  /**
-   * Normalize author markup for the general tab title while enforcing safety.
-   */
-  private function buildTitleMarkup(string $value): string {
-    if ($value === '') {
-      return '';
-    }
-
-    //1.- Filter the markup to a predictable list of inline tags commonly used in headings.
-    $allowed_tags = ['a', 'br', 'em', 'span', 'strong', 'sub', 'sup', 'small'];
-    $filtered = Xss::filter($value, $allowed_tags);
-
-    return trim($filtered);
-  }
-
-  /**
-   * Normalize author-entered text values.
-   */
   private function cleanText($value): string {
     return trim(is_string($value) ? $value : '');
   }
 
-  /**
-   * Restrict links to safe URL schemes.
-   */
   private function sanitizeUrl($value): string {
     $value = is_string($value) ? trim($value) : '';
     if ($value === '') {
       return '';
     }
-
     $filtered = UrlHelper::filterBadProtocol($value);
     if (UrlHelper::isValid($filtered, TRUE) || UrlHelper::isValid($filtered, FALSE)) {
       return $filtered;
     }
-
     if (strpos($filtered, '/') === 0) {
       return $filtered;
     }
-
     return '';
+  }
+
+  /**
+   * Allow limited inline HTML and return safe Markup.
+   */
+  private function safeInlineHtml(string $value, array $allowed = ['strong','em','b','i','u','br','span','a','sup','sub']): Markup {
+    $filtered = Xss::filter($value, $allowed);
+    return Markup::create($filtered);
   }
 
 }

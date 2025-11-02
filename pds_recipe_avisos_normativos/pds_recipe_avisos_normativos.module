@@ -10,10 +10,10 @@ use Drupal\Core\Form\SubformStateInterface;
 /**
  * Implements hook_theme().
  */
-function pds_recipe_avisos_theme($existing, $type, $theme, $path) {
+function pds_recipe_avisos_normativos_theme($existing, $type, $theme, $path) {
   return [
-    'pds_avisos' => [
-      'template' => 'pds-avisos',
+    'pds_avisos_normativos' => [
+      'template' => 'pds-avisos_normativos',
       'path' => $path . '/templates',
       'variables' => [
         'title' => '',
@@ -26,14 +26,14 @@ function pds_recipe_avisos_theme($existing, $type, $theme, $path) {
 }
 
 /**
- * AJAX callback to return just the avisos_ui container.
+ * AJAX callback to return just the avisos_normativos_ui container.
  */
-function pds_recipe_avisos_ajax_events(array &$form, FormStateInterface $form_state) {
-  if (isset($form['settings']['avisos_ui'])) {
-    return $form['settings']['avisos_ui'];
+function pds_recipe_avisos_normativos_ajax_events(array &$form, FormStateInterface $form_state) {
+  if (isset($form['settings']['avisos_normativos_ui'])) {
+    return $form['settings']['avisos_normativos_ui'];
   }
-  if (isset($form['avisos_ui'])) {
-    return $form['avisos_ui'];
+  if (isset($form['avisos_normativos_ui'])) {
+    return $form['avisos_normativos_ui'];
   }
   return $form;
 }
@@ -41,32 +41,32 @@ function pds_recipe_avisos_ajax_events(array &$form, FormStateInterface $form_st
 /**
  * Persist the selected admin tab between AJAX rebuilds.
  */
-function pds_recipe_avisos_set_active_tab(FormStateInterface $form_state, string $tab): void {
+function pds_recipe_avisos_normativos_set_active_tab(FormStateInterface $form_state, string $tab): void {
   //1.- Store the choice on the current form state instance.
-  $form_state->set('pds_recipe_avisos_active_tab', $tab);
+  $form_state->set('pds_recipe_avisos_normativos_active_tab', $tab);
 
   //2.- Mirror the setting on the parent form state when nested in Layout Builder.
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_avisos_active_tab', $tab);
+    $parent_state->set('pds_recipe_avisos_normativos_active_tab', $tab);
   }
 
   //3.- Synchronize the hidden form value so the next rebuild honors the tab choice.
-  $form_state->setValue(['avisos_ui_active_tab'], $tab);
+  $form_state->setValue(['avisos_normativos_ui_active_tab'], $tab);
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  $user_input['avisos_ui_active_tab'] = $tab;
+  $user_input['avisos_normativos_ui_active_tab'] = $tab;
   $form_state->setUserInput($user_input);
 
   if ($parent_state) {
-    $parent_state->setValue(['avisos_ui_active_tab'], $tab);
+    $parent_state->setValue(['avisos_normativos_ui_active_tab'], $tab);
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    $parent_input['avisos_ui_active_tab'] = $tab;
+    $parent_input['avisos_normativos_ui_active_tab'] = $tab;
     $parent_state->setUserInput($parent_input);
   }
 }
@@ -74,9 +74,9 @@ function pds_recipe_avisos_set_active_tab(FormStateInterface $form_state, string
 /**
  * Validation for adding a new fondo card.
  */
-function pds_recipe_avisos_add_person_validate(array &$form, FormStateInterface $form_state): void {
-  $base_key = pds_recipe_avisos_base_key($form, $form_state, ['avisos_ui', 'panes', 'add_person']);
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
+function pds_recipe_avisos_normativos_add_person_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_avisos_normativos_base_key($form, $form_state, ['avisos_normativos_ui', 'panes', 'add_person']);
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
 
   //1.- Collect author input from the correct form tree branch.
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
@@ -92,15 +92,15 @@ function pds_recipe_avisos_add_person_validate(array &$form, FormStateInterface 
   }
 
   //3.- Enforce safe URL formats on the optional link field.
-  if ($url !== '' && !pds_recipe_avisos_is_allowed_url($url)) {
+  if ($url !== '' && !pds_recipe_avisos_normativos_is_allowed_url($url)) {
     $message = t('Destination URL must be absolute or start with /.');
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
   }
 
   if ($form_state->hasAnyErrors()) {
-    $form_state->set('pds_recipe_avisos_add_person_new_fondo', NULL);
+    $form_state->set('pds_recipe_avisos_normativos_add_person_new_fondo', NULL);
     if ($parent_state) {
-      $parent_state->set('pds_recipe_avisos_add_person_new_fondo', NULL);
+      $parent_state->set('pds_recipe_avisos_normativos_add_person_new_fondo', NULL);
     }
     return;
   }
@@ -114,21 +114,21 @@ function pds_recipe_avisos_add_person_validate(array &$form, FormStateInterface 
     $payload['url'] = $url;
   }
 
-  $form_state->set('pds_recipe_avisos_add_person_new_fondo', $payload);
+  $form_state->set('pds_recipe_avisos_normativos_add_person_new_fondo', $payload);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_avisos_add_person_new_fondo', $payload);
+    $parent_state->set('pds_recipe_avisos_normativos_add_person_new_fondo', $payload);
   }
 }
 
 /**
  * Submit handler that appends the validated fondo to the working list.
  */
-function pds_recipe_avisos_add_person_submit(array &$form, FormStateInterface $form_state): void {
-  $base_key = pds_recipe_avisos_base_key($form, $form_state, ['avisos_ui', 'panes', 'add_person']);
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
+function pds_recipe_avisos_normativos_add_person_submit(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_avisos_normativos_base_key($form, $form_state, ['avisos_normativos_ui', 'panes', 'add_person']);
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
 
   //1.- Retrieve sanitized information prepared by validation.
-  $new_fondo = $form_state->get('pds_recipe_avisos_add_person_new_fondo');
+  $new_fondo = $form_state->get('pds_recipe_avisos_normativos_add_person_new_fondo');
   if (!is_array($new_fondo)) {
     return;
   }
@@ -173,7 +173,7 @@ function pds_recipe_avisos_add_person_submit(array &$form, FormStateInterface $f
   }
 
   //4.- Reset checkboxes to avoid stale remove selections.
-  $table_key = pds_recipe_avisos_base_key($form, $form_state, ['avisos_ui', 'panes', 'people_list', 'people']);
+  $table_key = pds_recipe_avisos_normativos_base_key($form, $form_state, ['avisos_normativos_ui', 'panes', 'people_list', 'people']);
   $checkbox_rows = [];
   foreach ($normalized_fondos as $index => $_row) {
     $checkbox_rows[$index] = ['remove' => 0];
@@ -184,20 +184,20 @@ function pds_recipe_avisos_add_person_submit(array &$form, FormStateInterface $f
   }
 
   //5.- Clear temp storage and rebuild to refresh UI.
-  $form_state->set('pds_recipe_avisos_add_person_new_fondo', NULL);
+  $form_state->set('pds_recipe_avisos_normativos_add_person_new_fondo', NULL);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_avisos_add_person_new_fondo', NULL);
+    $parent_state->set('pds_recipe_avisos_normativos_add_person_new_fondo', NULL);
   }
   $form_state->setRebuild(TRUE);
-  pds_recipe_avisos_set_active_tab($form_state, 'people');
+  pds_recipe_avisos_normativos_set_active_tab($form_state, 'people');
 }
 
 /**
- * Remove selected avisos from the working snapshot.
+ * Remove selected avisos_normativos from the working snapshot.
  */
-function pds_recipe_avisos_remove_people_submit(array &$form, FormStateInterface $form_state): void {
-  $table_key = pds_recipe_avisos_base_key($form, $form_state, ['avisos_ui', 'panes', 'people_list', 'people']);
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
+function pds_recipe_avisos_normativos_remove_people_submit(array &$form, FormStateInterface $form_state): void {
+  $table_key = pds_recipe_avisos_normativos_base_key($form, $form_state, ['avisos_normativos_ui', 'panes', 'people_list', 'people']);
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
 
   $fondos = $form_state->get('working_fondos');
   if (!is_array($fondos)) {
@@ -257,29 +257,29 @@ function pds_recipe_avisos_remove_people_submit(array &$form, FormStateInterface
   }
 
   $form_state->setRebuild(TRUE);
-  pds_recipe_avisos_set_active_tab($form_state, 'people');
+  pds_recipe_avisos_normativos_set_active_tab($form_state, 'people');
 }
 
 /**
  * Prepare edit mode for a specific executive row.
  */
-function pds_recipe_avisos_edit_person_prepare_submit(array &$form, FormStateInterface $form_state): void {
+function pds_recipe_avisos_normativos_edit_person_prepare_submit(array &$form, FormStateInterface $form_state): void {
   $trigger = $form_state->getTriggeringElement();
-  $index = isset($trigger['#pds_recipe_avisos_edit_index']) && is_numeric($trigger['#pds_recipe_avisos_edit_index'])
-    ? (int) $trigger['#pds_recipe_avisos_edit_index']
+  $index = isset($trigger['#pds_recipe_avisos_normativos_edit_index']) && is_numeric($trigger['#pds_recipe_avisos_normativos_edit_index'])
+    ? (int) $trigger['#pds_recipe_avisos_normativos_edit_index']
     : NULL;
   if ($index === NULL) {
     return;
   }
 
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
-  $form_state->set('pds_recipe_avisos_editing_index', $index);
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
+  $form_state->set('pds_recipe_avisos_normativos_editing_index', $index);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_avisos_editing_index', $index);
+    $parent_state->set('pds_recipe_avisos_normativos_editing_index', $index);
   }
 
   //1.- Locate the edit pane keys so we can seed values for the rebuild.
-  $base_key = pds_recipe_avisos_base_key($form, $form_state, ['avisos_ui', 'panes', 'edit_person']);
+  $base_key = pds_recipe_avisos_normativos_base_key($form, $form_state, ['avisos_normativos_ui', 'panes', 'edit_person']);
   $fondos = $form_state->get('working_fondos');
   if (!is_array($fondos) && $parent_state) {
     $fondos = $parent_state->get('working_fondos');
@@ -325,15 +325,15 @@ function pds_recipe_avisos_edit_person_prepare_submit(array &$form, FormStateInt
   }
 
   $form_state->setRebuild(TRUE);
-  pds_recipe_avisos_set_active_tab($form_state, 'edit');
+  pds_recipe_avisos_normativos_set_active_tab($form_state, 'edit');
 }
 
 /**
  * Validate updated executive information.
  */
-function pds_recipe_avisos_edit_person_validate(array &$form, FormStateInterface $form_state): void {
-  $base_key = pds_recipe_avisos_base_key($form, $form_state, ['avisos_ui', 'panes', 'edit_person']);
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
+function pds_recipe_avisos_normativos_edit_person_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_avisos_normativos_base_key($form, $form_state, ['avisos_normativos_ui', 'panes', 'edit_person']);
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
 
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
@@ -346,15 +346,15 @@ function pds_recipe_avisos_edit_person_validate(array &$form, FormStateInterface
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
 
-  if ($url !== '' && !pds_recipe_avisos_is_allowed_url($url)) {
+  if ($url !== '' && !pds_recipe_avisos_normativos_is_allowed_url($url)) {
     $message = t('Destination URL must be absolute or start with /.');
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
   }
 
   if ($form_state->hasAnyErrors()) {
-    $form_state->set('pds_recipe_avisos_edit_person_payload', NULL);
+    $form_state->set('pds_recipe_avisos_normativos_edit_person_payload', NULL);
     if ($parent_state) {
-      $parent_state->set('pds_recipe_avisos_edit_person_payload', NULL);
+      $parent_state->set('pds_recipe_avisos_normativos_edit_person_payload', NULL);
     }
     return;
   }
@@ -367,25 +367,25 @@ function pds_recipe_avisos_edit_person_validate(array &$form, FormStateInterface
     $payload['url'] = $url;
   }
 
-  $form_state->set('pds_recipe_avisos_edit_person_payload', $payload);
+  $form_state->set('pds_recipe_avisos_normativos_edit_person_payload', $payload);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_avisos_edit_person_payload', $payload);
+    $parent_state->set('pds_recipe_avisos_normativos_edit_person_payload', $payload);
   }
 }
 
 /**
  * Save the edited executive back into the working list.
  */
-function pds_recipe_avisos_edit_person_submit(array &$form, FormStateInterface $form_state): void {
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
-  $updated_fondo = $form_state->get('pds_recipe_avisos_edit_person_payload');
+function pds_recipe_avisos_normativos_edit_person_submit(array &$form, FormStateInterface $form_state): void {
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
+  $updated_fondo = $form_state->get('pds_recipe_avisos_normativos_edit_person_payload');
   if (!is_array($updated_fondo)) {
     return;
   }
 
-  $index = $form_state->get('pds_recipe_avisos_editing_index');
+  $index = $form_state->get('pds_recipe_avisos_normativos_editing_index');
   if ($index === NULL && $parent_state) {
-    $index = $parent_state->get('pds_recipe_avisos_editing_index');
+    $index = $parent_state->get('pds_recipe_avisos_normativos_editing_index');
   }
   if (!is_numeric($index)) {
     return;
@@ -405,38 +405,38 @@ function pds_recipe_avisos_edit_person_submit(array &$form, FormStateInterface $
   $normalized_fondos = array_values($fondos);
 
   $form_state->set('working_fondos', $normalized_fondos);
-  $form_state->set('pds_recipe_avisos_editing_index', NULL);
-  $form_state->set('pds_recipe_avisos_edit_person_payload', NULL);
+  $form_state->set('pds_recipe_avisos_normativos_editing_index', NULL);
+  $form_state->set('pds_recipe_avisos_normativos_edit_person_payload', NULL);
 
   if ($parent_state) {
     $parent_state->set('working_fondos', $normalized_fondos);
-    $parent_state->set('pds_recipe_avisos_editing_index', NULL);
-    $parent_state->set('pds_recipe_avisos_edit_person_payload', NULL);
+    $parent_state->set('pds_recipe_avisos_normativos_editing_index', NULL);
+    $parent_state->set('pds_recipe_avisos_normativos_edit_person_payload', NULL);
   }
 
   $form_state->setRebuild(TRUE);
-  pds_recipe_avisos_set_active_tab($form_state, 'people');
+  pds_recipe_avisos_normativos_set_active_tab($form_state, 'people');
 }
 
 /**
  * Cancel edit mode and go back to the list tab.
  */
-function pds_recipe_avisos_edit_person_cancel_submit(array &$form, FormStateInterface $form_state): void {
-  $parent_state = pds_recipe_avisos_parent_state($form_state);
-  $form_state->set('pds_recipe_avisos_editing_index', NULL);
-  $form_state->set('pds_recipe_avisos_edit_person_payload', NULL);
+function pds_recipe_avisos_normativos_edit_person_cancel_submit(array &$form, FormStateInterface $form_state): void {
+  $parent_state = pds_recipe_avisos_normativos_parent_state($form_state);
+  $form_state->set('pds_recipe_avisos_normativos_editing_index', NULL);
+  $form_state->set('pds_recipe_avisos_normativos_edit_person_payload', NULL);
   if ($parent_state) {
-    $parent_state->set('pds_recipe_avisos_editing_index', NULL);
-    $parent_state->set('pds_recipe_avisos_edit_person_payload', NULL);
+    $parent_state->set('pds_recipe_avisos_normativos_editing_index', NULL);
+    $parent_state->set('pds_recipe_avisos_normativos_edit_person_payload', NULL);
   }
   $form_state->setRebuild(TRUE);
-  pds_recipe_avisos_set_active_tab($form_state, 'people');
+  pds_recipe_avisos_normativos_set_active_tab($form_state, 'people');
 }
 
 /**
  * Helper: determine the base form key for nested structures.
  */
-function pds_recipe_avisos_base_key(array &$form, FormStateInterface $form_state, array $segments): array {
+function pds_recipe_avisos_normativos_base_key(array &$form, FormStateInterface $form_state, array $segments): array {
   $trigger = $form_state->getTriggeringElement();
   $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
   if (in_array('settings', $parents, TRUE) || isset($form['settings'])) {
@@ -448,7 +448,7 @@ function pds_recipe_avisos_base_key(array &$form, FormStateInterface $form_state
 /**
  * Helper: locate the parent form state when inside a SubformState.
  */
-function pds_recipe_avisos_parent_state(FormStateInterface $form_state): ?FormStateInterface {
+function pds_recipe_avisos_normativos_parent_state(FormStateInterface $form_state): ?FormStateInterface {
   if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
     $parent = $form_state->getCompleteFormState();
     if ($parent instanceof FormStateInterface) {
@@ -461,7 +461,7 @@ function pds_recipe_avisos_parent_state(FormStateInterface $form_state): ?FormSt
 /**
  * Helper: determine if an URL is safe for configuration.
  */
-function pds_recipe_avisos_is_allowed_url(string $url): bool {
+function pds_recipe_avisos_normativos_is_allowed_url(string $url): bool {
   if ($url === '') {
     return TRUE;
   }

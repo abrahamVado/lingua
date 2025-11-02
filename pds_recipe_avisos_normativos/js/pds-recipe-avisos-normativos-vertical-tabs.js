@@ -1,5 +1,5 @@
 ((Drupal, once) => {
-  Drupal.behaviors.pdsRecipeAvisosVerticalTabs = {
+  Drupal.behaviors.pdsRecipeAvisosNormativosVerticalTabs = {
     attach(context) {
       //1.- Locate every vertical tab wrapper rendered by the admin form.
       once('pds-recipe-vertical-tabs', '[data-pds-vertical-tabs]', context).forEach((root) => {
@@ -36,7 +36,7 @@
 
         //3.- Provide a helper that cancels edits when abandoning the edit tab.
         const triggerEditCancel = () => {
-          const cancelButton = root.querySelector('[name="pds_recipe_avisos_cancel_edit"]');
+          const cancelButton = root.querySelector('[name="pds_recipe_avisos_normativos_cancel_edit"]');
           if (!cancelButton || cancelButton.disabled) {
             return false;
           }

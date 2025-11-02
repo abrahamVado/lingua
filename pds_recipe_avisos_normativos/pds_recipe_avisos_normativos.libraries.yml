@@ -1,0 +1,30 @@
+pds_avisos_normativos.admin:
+  version: 1.x
+  js:
+    assets/js/pds-avisos_normativos.admin.js: {}
+  css:
+    theme:
+      assets/css/pds-avisos_normativos.admin.css: {}
+  # Load only in admin routes. You attach this manually in hook_form_alter on the block config form.
+
+avisos_normativos:
+  version: 1.x
+  js:
+    assets/js/pds-avisos_normativos.js: {}
+  css:
+    theme:
+      assets/css/pds-avisos_normativos.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+admin.vertical_tabs:
+  version: 1.x
+  js:
+    js/pds-recipe-avisos-normativos-vertical-tabs.js: {}
+  css:
+    theme:
+      css/admin/pds-recipe-avisos-normativos-vertical-tabs.css: {}
+  dependencies:
+    - core/drupal
+    - core/once

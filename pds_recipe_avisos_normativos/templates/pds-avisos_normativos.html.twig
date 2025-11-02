@@ -1,6 +1,6 @@
-{# templates/pds-avisos.html.twig #}
+{# templates/pds-avisos_normativos.html.twig #}
 {#
-  Theme hook: pds_avisos
+  Theme hook: pds_avisos_normativos
   Vars:
     - title: string
     - fondos: [
@@ -13,11 +13,10 @@
 
 {% set has_fondos = fondos is iterable and fondos|length > 0 %}
 
-<section class="principal-avisos">
+<section class="principal-avisos_normativos">
   <div class="container">
     {% if title %}
-      {# //1.- Render the configurable heading with pre-sanitized markup support. #}
-      <h2>{{ title|raw }}</h2>
+      <h2>{{ title }}</h2>
     {% endif %}
 
     <div class="principal-row-container">
@@ -27,23 +26,13 @@
             <span class="vinyeta" aria-hidden="true"></span>
             <div class="normativa-info">
               {% if item.title %}
-                <h4>
-                  {% if icon_url %}
-                    <img class="normativa-info__icon" src="{{ icon_url }}" alt="" aria-hidden="true" />
-                  {% endif %}
-                  {{ item.title }}
-                </h4>
-              {% elseif icon_url %}
-                <h4>
-                  <img class="normativa-info__icon" src="{{ icon_url }}" alt="" aria-hidden="true" />
-                </h4>
+                {{ item.title|raw }}
               {% endif %}
-
               {% if item.description %}
-                <h3>{{ item.description }}</h3>
+                <h3>{{ item.description }}</h3> {# or: {{ item.description|raw }} #}
               {% endif %}
 
-              {% if item.url is defined %}
+              {% if item.url is defined and item.url %}
                 <div class="button-area">
                   <a
                     class="principal-link principal-link--subtle"
@@ -52,9 +41,6 @@
                     rel="noopener"
                   >
                     <span>{{ 'Ir a detalle'|t }}</span>
-                    {% if arrow_url %}
-                      <img class="button-area__icon" src="{{ arrow_url }}" alt="" aria-hidden="true" />
-                    {% endif %}
                   </a>
                 </div>
               {% endif %}
@@ -62,7 +48,7 @@
           </article>
         {% endfor %}
       {% else %}
-        <p class="principal-avisos__empty">{{ 'No hay avisos disponibles.'|t }}</p>
+        <p class="principal-avisos_normativos__empty">{{ 'No hay avisos_normativos disponibles.'|t }}</p>
       {% endif %}
     </div>
   </div>

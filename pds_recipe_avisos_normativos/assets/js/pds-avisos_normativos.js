@@ -1,8 +1,8 @@
 (function (Drupal, once) {
-  Drupal.behaviors.pdsAvisos = {
+  Drupal.behaviors.pdsAvisosNormativos = {
     attach(context) {
       // Make the whole card clickable if it contains a single link.
-      once('pds-avisos-click', '.principal-avisos .normativa-column', context).forEach((card) => {
+      once('pds-avisos_normativos-click', '.principal-avisos_normativos .normativa-column', context).forEach((card) => {
         const link = card.querySelector('.button-area a[href]');
         if (!link) return;
         card.style.userSelect = 'none';

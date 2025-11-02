@@ -36,36 +36,36 @@
 .principal-button:hover { border-color: #003865; color: #003865; }
 
 /* Component */
-.principal-avisos { padding: 60px 0; background-color: #F2F9FD; }
-.principal-avisos .container { max-width: 1440px; margin: 0 auto; }
-.principal-avisos .principal-row-container {
+.principal-avisos_normativos { padding: 60px 0; background-color: #F2F9FD; }
+.principal-avisos_normativos .container { max-width: 1440px; margin: 0 auto; }
+.principal-avisos_normativos .principal-row-container {
   display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center;
   max-width: 1124px; width: 100%; margin: 0 auto; gap: 32px 24px;
 }
-.principal-avisos h2 {
+.principal-avisos_normativos h2 {
   font-size: 40px; line-height: 48px; font-weight: 300; margin: 0; width: 100%; color: #002855;
 }
-.principal-avisos h2 span { font-weight: 400; }
+.principal-avisos_normativos h2 span { font-weight: 400; }
 
-.principal-avisos .normativa-column {
+.principal-avisos_normativos .normativa-column {
   display: flex; background-color: #fff; flex-direction: row; gap: 16px;
   width: 100%; max-width: 350px; box-shadow: 0 4px 8px rgba(0,0,0,.3);
   border-radius: 8px; cursor: pointer; transition: transform .2s ease;
 }
-.principal-avisos .normativa-column:hover { transform: scale(1.02); }
+.principal-avisos_normativos .normativa-column:hover { transform: scale(1.02); }
 
-.principal-avisos .vinyeta {
+.principal-avisos_normativos .vinyeta {
   width: 12px; height: auto; background-color: #0061A0; border-radius: 8px 0 0 8px;
 }
 
-.principal-avisos .normativa-info { padding: 8px; padding-left: 0; }
-.principal-avisos .normativa-info h4 {
+.principal-avisos_normativos .normativa-info { padding: 8px; padding-left: 0; }
+.principal-avisos_normativos .normativa-info h4 {
   font-size: 14px; font-weight: 400; line-height: 24px; text-transform: uppercase; margin: 0; color: #000;
 }
-.principal-avisos .normativa-info h3 {
+.principal-avisos_normativos .normativa-info h3 {
   font-size: 18px; font-weight: 400; line-height: 28px; margin: 8px 0; color: #000;
 }
 
-.principal-avisos .button-area {
+.principal-avisos_normativos .button-area {
   display: flex; flex-direction: row; align-items: center; gap: 8px; justify-content: flex-end;
 }
