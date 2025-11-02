@@ -10,10 +10,10 @@ pds_fondos_mutuos.admin:
 fondos_mutuos:
   version: 1.x
   js:
-    js/pds-fondos_mutuos.js: {}
+    assets/js/pds-fondos_mutuos.js: {}
   css:
     theme:
-      css/pds-fondos_mutuos.css: {}
+      assets/css/pds-fondos_mutuos.css: {}
   dependencies:
     - core/drupal
     - core/once
