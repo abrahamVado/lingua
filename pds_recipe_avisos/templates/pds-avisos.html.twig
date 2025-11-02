@@ -1,0 +1,53 @@
+{# templates/pds-fondos.html.twig #}
+{#
+  Theme hook: pds_fondos
+  Vars:
+    - avisos: [
+        { url: string, title: string, description: string },
+        ...
+      ]
+#}
+
+{# Optional: {{ attach_library('pds_recipe_avisos/avisos') }} #}
+
+<section class="pds-fondos-avisos">
+  {% if avisos is not empty %}
+    <ul class="pds-fondos-avisos__list" role="list">
+      {% for item in avisos %}
+        <li class="pds-fondos-avisos__item">
+          <article class="pds-fondos-avisos__card">
+            <h3 class="pds-fondos-avisos__title">
+              <a
+                class="pds-fondos-avisos__link"
+                href="{{ item.url }}"
+                target="_blank"
+                rel="noopener"
+              >
+                {{ item.title }}
+              </a>
+            </h3>
+
+            {% if item.description %}
+              <p class="pds-fondos-avisos__desc">
+                {{ item.description }}
+              </p>
+            {% endif %}
+
+            <p class="pds-fondos-avisos__cta">
+              <a
+                class="principal-link principal-link--subtle"
+                href="{{ item.url }}"
+                target="_blank"
+                rel="noopener"
+              >
+                {{ 'Ir a detalle'|t }}
+              </a>
+            </p>
+          </article>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="pds-fondos-avisos__empty">{{ 'No hay avisos disponibles.'|t }}</p>
+  {% endif %}
+</section>
