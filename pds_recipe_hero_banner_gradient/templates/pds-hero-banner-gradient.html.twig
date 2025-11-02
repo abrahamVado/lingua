@@ -1,0 +1,45 @@
+{#
+  Expects variables:
+  - eyebrow: string
+  - headline: string
+  - description: string
+  - primary_button_url: string
+  - primary_button_label: string
+  - doc_icon_url: string
+  - doc_link_url: string
+  - doc_link_label: string
+#}
+{{ attach_library('pds_hero_banner/hero') }}
+
+<section class="principal-hero-banner-gradient">
+  <div class="container">
+    <div class="principal-row-container">
+      <div class="hero-content">
+        {% if eyebrow %}<h3>{{ eyebrow }}</h3>{% endif %}
+        {% if headline %}<h2>{{ headline }}</h2>{% endif %}
+        {% if description %}<p>{{ description }}</p>{% endif %}
+
+        <div class="buttons-area">
+          {% if primary_button_url and primary_button_label %}
+            <div class="button-area">
+              <a class="principal-button-inverted" href="{{ primary_button_url }}">{{ primary_button_label }}</a>
+            </div>
+          {% endif %}
+
+          {% if doc_link_url and doc_link_label %}
+            <div class="button-area">
+              {% if doc_icon_url %}
+                <div class="img-area">
+                  <img src="{{ doc_icon_url }}" alt="" loading="lazy" decoding="async">
+                </div>
+              {% endif %}
+              <a class="principal-link principal-link--subtle principal-link--inverted" href="{{ doc_link_url }}">
+                {{ doc_link_label }}
+              </a>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
