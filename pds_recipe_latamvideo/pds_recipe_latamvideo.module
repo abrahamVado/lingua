@@ -1,0 +1,18 @@
+<?php
+/**
+ * Implements hook_theme().
+ */
+function pds_recipe_latamvideo_theme($existing, $type, $theme, $path) {
+  return [
+    'pds_latamvideo' => [
+      'variables' => [
+        'attributes' => [],
+        'heading' => NULL,
+        'subheading' => NULL,
+        'logo_url' => NULL
+      ],
+      'template' => 'pds-latamvideo',
+      'path' => $path . '/templates',
+    ],
+  ];
+}

@@ -1,0 +1,9 @@
+educacion:
+  css:
+    theme:
+      css/educacion.css: {}
+  js:
+    js/pds-embed-callout.js: {}
+  dependencies:
+    - core/drupal
+    - core/once

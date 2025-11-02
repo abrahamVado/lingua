@@ -1,0 +1,9 @@
+name: 'Recipe: Video Embedded'
+type: module
+description: 'Bloque editable para Layout Builder (grid Video Embedded).'
+core_version_requirement: ^10 || ^11
+package: 'PDS Recipes'
+dependencies:
+  - drupal:block
+  - drupal:block_content
+  - drupal:layout_builder
