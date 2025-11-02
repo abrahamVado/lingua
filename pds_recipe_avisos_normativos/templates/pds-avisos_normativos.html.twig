@@ -16,7 +16,7 @@
 <section class="principal-avisos_normativos">
   <div class="container">
     {% if title %}
-      <h2>{{ title }}</h2>
+      <h2>{{ title|raw }}</h2>
     {% endif %}
 
     <div class="principal-row-container">
@@ -26,7 +26,7 @@
             <span class="vinyeta" aria-hidden="true"></span>
             <div class="normativa-info">
               {% if item.title %}
-                {{ item.title|raw }}
+                <h4>{{ item.title }}</h4> 
               {% endif %}
               {% if item.description %}
                 <h3>{{ item.description }}</h3> {# or: {{ item.description|raw }} #}
