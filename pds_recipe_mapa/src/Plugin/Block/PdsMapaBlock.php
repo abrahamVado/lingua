@@ -359,46 +359,63 @@ final class PdsMapaBlock extends BlockBase {
       ? ['settings', 'pins_ui', 'pins']
       : ['pins_ui', 'pins'];
 
-    //2.- Gather checkbox submissions from the current form state and, when
-    //    editing inside Layout Builder, from the parent form state as well.
-    $pins_raw = $form_state->getValue($table_key);
+    //2.- Resolve parent form state when operating inside Layout Builder so the
+    //    handler can read values stored outside the immediate subform.
     $parent_state = $form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')
       ? $form_state->getCompleteFormState()
       : NULL;
-    if (!is_array($pins_raw) && $parent_state) {
-      $pins_raw = $parent_state->getValue($table_key);
-    }
 
-    //3.- Fall back to the raw user input when processed values are missing so
-    //    unchecked checkboxes do not block removal.
-    if (!is_array($pins_raw)) {
+    //3.- Load the current working snapshot that contains all stored fields for
+    //    each pin. This ensures we always start from the authoritative list
+    //    before applying removals.
+    $working = self::getWorkingPins($form_state, $cfg['pins'] ?? []);
+
+    //4.- Collect checkbox submissions from processed values or, if necessary,
+    //    from the raw user input so we know which indexes were selected.
+    $checkboxes = $form_state->getValue($table_key);
+    if (!is_array($checkboxes) && $parent_state) {
+      $checkboxes = $parent_state->getValue($table_key);
+    }
+    if (!is_array($checkboxes)) {
       $input = $form_state->getUserInput();
       if (is_array($input)) {
-        $pins_raw = NestedArray::getValue($input, $table_key);
+        $checkboxes = NestedArray::getValue($input, $table_key);
       }
     }
-    if (!is_array($pins_raw) && $parent_state) {
+    if (!is_array($checkboxes) && $parent_state) {
       $parent_input = $parent_state->getUserInput();
       if (is_array($parent_input)) {
-        $pins_raw = NestedArray::getValue($parent_input, $table_key);
+        $checkboxes = NestedArray::getValue($parent_input, $table_key);
       }
     }
-    if (!is_array($pins_raw)) {
-      //4.- As a final fallback preserve the previously working list so the
-      //    form continues to function when no submission data exists.
-      $pins_raw = self::getWorkingPins($form_state, $cfg['pins'] ?? []);
+    if (!is_array($checkboxes)) {
+      $checkboxes = [];
     }
 
-    //5.- Filter out rows whose checkbox was selected.
+    //5.- Filter out rows whose checkbox was selected, keeping ordering intact.
     $clean = [];
-    foreach ($pins_raw as $row) {
-      if (!is_array($row) || !empty($row['remove'])) {
+    foreach ($working as $index => $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      if (!empty($checkboxes[$index]['remove'])) {
         continue;
       }
       $clean[] = $row;
     }
 
-    //6.- Persist the filtered snapshot on both the current and parent form
+    //6.- Reset the checkbox selections so they do not persist after the
+    //    rebuild regardless of the editing context.
+    $reset_rows = [];
+    foreach ($clean as $idx => $_row) {
+      $reset_rows[$idx] = ['remove' => 0];
+    }
+    $form_state->setValue($table_key, $reset_rows);
+    if ($parent_state) {
+      $parent_state->setValue($table_key, $reset_rows);
+    }
+
+    //7.- Persist the filtered snapshot on both the current and parent form
     //    states so subsequent rebuilds render the updated table immediately.
     $form_state->set('working_pins', $clean);
     if ($parent_state) {
