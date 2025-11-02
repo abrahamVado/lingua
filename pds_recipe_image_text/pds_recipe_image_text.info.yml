@@ -1,6 +1,6 @@
-name: 'Recipe: Educación Financiera'
+name: 'Recipe: Imagen y Texto'
 type: module
-description: 'Bloque editable para Layout Builder (grid Educación Financiera).'
+description: 'Bloque editable para Layout Builder (grid Imagen y Texto).'
 core_version_requirement: ^10 || ^11
 package: 'PDS Recipes'
 dependencies:

@@ -8,7 +8,11 @@ use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 
 /**
- * Provides the Image + Text callout block.
+ * @Block(
+ *   id = "pds_image_text_block",
+ *   admin_label = @Translation("PDS Imagen + Texto"),
+ *   category = @Translation("PDS Recipes")
+ * )
  */
 final class PdsImageTextBlock extends BlockBase {
 
