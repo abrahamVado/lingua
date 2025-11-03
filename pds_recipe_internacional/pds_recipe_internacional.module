@@ -1,0 +1,472 @@
+<?php
+
+declare(strict_types=1);
+
+use Drupal\Component\Utility\NestedArray;
+use Drupal\Component\Utility\UrlHelper;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Form\SubformStateInterface;
+
+/**
+ * Implements hook_theme().
+ */
+function pds_recipe_internacional_theme($existing, $type, $theme, $path) {
+  return [
+    'pds_internacional' => [
+      'template' => 'pds-internacional',
+      'path' => $path . '/templates',
+      'variables' => [
+        'title' => '',
+        'fondos' => [],
+        'icon_url' => '',
+        'arrow_url' => '',
+      ],
+    ],
+  ];
+}
+
+/**
+ * AJAX callback to return just the internacional_ui container.
+ */
+function pds_recipe_internacional_ajax_events(array &$form, FormStateInterface $form_state) {
+  if (isset($form['settings']['internacional_ui'])) {
+    return $form['settings']['internacional_ui'];
+  }
+  if (isset($form['internacional_ui'])) {
+    return $form['internacional_ui'];
+  }
+  return $form;
+}
+
+/**
+ * Persist the selected admin tab between AJAX rebuilds.
+ */
+function pds_recipe_internacional_set_active_tab(FormStateInterface $form_state, string $tab): void {
+  //1.- Store the choice on the current form state instance.
+  $form_state->set('pds_recipe_internacional_active_tab', $tab);
+
+  //2.- Mirror the setting on the parent form state when nested in Layout Builder.
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_internacional_active_tab', $tab);
+  }
+
+  //3.- Synchronize the hidden form value so the next rebuild honors the tab choice.
+  $form_state->setValue(['internacional_ui_active_tab'], $tab);
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  $user_input['internacional_ui_active_tab'] = $tab;
+  $form_state->setUserInput($user_input);
+
+  if ($parent_state) {
+    $parent_state->setValue(['internacional_ui_active_tab'], $tab);
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    $parent_input['internacional_ui_active_tab'] = $tab;
+    $parent_state->setUserInput($parent_input);
+  }
+}
+
+/**
+ * Validation for adding a new fondo card.
+ */
+function pds_recipe_internacional_add_person_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'add_person']);
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+
+  //1.- Collect author input from the correct form tree branch.
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
+  $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
+  $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+
+  //2.- Validate minimal requirements for a card.
+  if ($name === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));
+  }
+  if ($desc === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
+  }
+
+  //3.- Enforce safe URL formats on the optional link field.
+  if ($url !== '' && !pds_recipe_internacional_is_allowed_url($url)) {
+    $message = t('Destination URL must be absolute or start with /.');
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
+  }
+
+  if ($form_state->hasAnyErrors()) {
+    $form_state->set('pds_recipe_internacional_add_person_new_fondo', NULL);
+    if ($parent_state) {
+      $parent_state->set('pds_recipe_internacional_add_person_new_fondo', NULL);
+    }
+    return;
+  }
+
+  //4.- Store a clean snapshot for the submit handler.
+  $payload = [
+    'title' => $name,
+    'description' => $desc,
+  ];
+  if ($url !== '') {
+    $payload['url'] = $url;
+  }
+
+  $form_state->set('pds_recipe_internacional_add_person_new_fondo', $payload);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_internacional_add_person_new_fondo', $payload);
+  }
+}
+
+/**
+ * Submit handler that appends the validated fondo to the working list.
+ */
+function pds_recipe_internacional_add_person_submit(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'add_person']);
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+
+  //1.- Retrieve sanitized information prepared by validation.
+  $new_fondo = $form_state->get('pds_recipe_internacional_add_person_new_fondo');
+  if (!is_array($new_fondo)) {
+    return;
+  }
+
+  //2.- Append the new fondo to the working list stored in form state.
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos)) {
+    $fondos = [];
+  }
+  $fondos[] = $new_fondo;
+  $normalized_fondos = array_values($fondos);
+
+  $form_state->set('working_fondos', $normalized_fondos);
+  if ($parent_state) {
+    $parent_state->set('working_fondos', $normalized_fondos);
+  }
+
+  //3.- Reset author-facing inputs for the next addition.
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+    $form_state->setValue(array_merge($base_key, [$key]), '');
+  }
+  $user_input = $form_state->getUserInput();
+  if (!is_array($user_input)) {
+    $user_input = [];
+  }
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+    NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
+  }
+  $form_state->setUserInput($user_input);
+  if ($parent_state) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+      $parent_state->setValue(array_merge($base_key, [$key]), '');
+    }
+    $parent_input = $parent_state->getUserInput();
+    if (!is_array($parent_input)) {
+      $parent_input = [];
+    }
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+      NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
+    }
+    $parent_state->setUserInput($parent_input);
+  }
+
+  //4.- Reset checkboxes to avoid stale remove selections.
+  $table_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'people_list', 'people']);
+  $checkbox_rows = [];
+  foreach ($normalized_fondos as $index => $_row) {
+    $checkbox_rows[$index] = ['remove' => 0];
+  }
+  $form_state->setValue($table_key, $checkbox_rows);
+  if ($parent_state) {
+    $parent_state->setValue($table_key, $checkbox_rows);
+  }
+
+  //5.- Clear temp storage and rebuild to refresh UI.
+  $form_state->set('pds_recipe_internacional_add_person_new_fondo', NULL);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_internacional_add_person_new_fondo', NULL);
+  }
+  $form_state->setRebuild(TRUE);
+  pds_recipe_internacional_set_active_tab($form_state, 'people');
+}
+
+/**
+ * Remove selected internacional from the working snapshot.
+ */
+function pds_recipe_internacional_remove_people_submit(array &$form, FormStateInterface $form_state): void {
+  $table_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'people_list', 'people']);
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos)) {
+    $fondos = [];
+  }
+
+  //1.- Gather checkbox values from processed values or raw input.
+  $values = $form_state->getValue($table_key);
+  if (!is_array($values) && $parent_state) {
+    $values = $parent_state->getValue($table_key);
+  }
+  if (!is_array($values)) {
+    $input = $form_state->getUserInput();
+    if (is_array($input)) {
+      $raw_values = NestedArray::getValue($input, $table_key);
+      if (is_array($raw_values)) {
+        $values = $raw_values;
+      }
+    }
+  }
+  if (!is_array($values) && $parent_state) {
+    $parent_input = $parent_state->getUserInput();
+    if (is_array($parent_input)) {
+      $raw_values = NestedArray::getValue($parent_input, $table_key);
+      if (is_array($raw_values)) {
+        $values = $raw_values;
+      }
+    }
+  }
+  if (!is_array($values)) {
+    $values = [];
+  }
+
+  //2.- Filter out rows flagged for removal.
+  $kept = [];
+  foreach ($fondos as $index => $fondo) {
+    $should_remove = !empty($values[$index]['remove']);
+    if ($should_remove) {
+      continue;
+    }
+    $kept[] = $fondo;
+  }
+
+  $form_state->set('working_fondos', $kept);
+  if ($parent_state) {
+    $parent_state->set('working_fondos', $kept);
+  }
+
+  //3.- Reset checkboxes after deletion.
+  $reset_rows = [];
+  foreach ($kept as $index => $_row) {
+    $reset_rows[$index] = ['remove' => 0];
+  }
+  $form_state->setValue($table_key, $reset_rows);
+  if ($parent_state) {
+    $parent_state->setValue($table_key, $reset_rows);
+  }
+
+  $form_state->setRebuild(TRUE);
+  pds_recipe_internacional_set_active_tab($form_state, 'people');
+}
+
+/**
+ * Prepare edit mode for a specific executive row.
+ */
+function pds_recipe_internacional_edit_person_prepare_submit(array &$form, FormStateInterface $form_state): void {
+  $trigger = $form_state->getTriggeringElement();
+  $index = isset($trigger['#pds_recipe_internacional_edit_index']) && is_numeric($trigger['#pds_recipe_internacional_edit_index'])
+    ? (int) $trigger['#pds_recipe_internacional_edit_index']
+    : NULL;
+  if ($index === NULL) {
+    return;
+  }
+
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+  $form_state->set('pds_recipe_internacional_editing_index', $index);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_internacional_editing_index', $index);
+  }
+
+  //1.- Locate the edit pane keys so we can seed values for the rebuild.
+  $base_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'edit_person']);
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos) && $parent_state) {
+    $fondos = $parent_state->get('working_fondos');
+  }
+
+  if (is_array($fondos) && isset($fondos[$index]) && is_array($fondos[$index])) {
+    //2.- Extract the stored fondo details and normalize them for the form API.
+    $fondo = $fondos[$index];
+    $normalized = [
+      'fondo_name' => (string) ($fondo['title'] ?? ($fondo['name'] ?? '')),
+      'fondo_desc' => (string) ($fondo['description'] ?? ($fondo['desc'] ?? '')),
+      'fondo_url' => (string) ($fondo['url'] ?? ''),
+    ];
+
+    //3.- Push the normalized values into both the form state and user input so
+    //     Drupal prefers them over the empty submission payload we just sent.
+    foreach ($normalized as $key => $value) {
+      $full_key = array_merge($base_key, [$key]);
+      $form_state->setValue($full_key, $value);
+    }
+    $user_input = $form_state->getUserInput();
+    if (!is_array($user_input)) {
+      $user_input = [];
+    }
+    foreach ($normalized as $key => $value) {
+      NestedArray::setValue($user_input, array_merge($base_key, [$key]), $value);
+    }
+    $form_state->setUserInput($user_input);
+
+    if ($parent_state) {
+      foreach ($normalized as $key => $value) {
+        $parent_state->setValue(array_merge($base_key, [$key]), $value);
+      }
+      $parent_input = $parent_state->getUserInput();
+      if (!is_array($parent_input)) {
+        $parent_input = [];
+      }
+      foreach ($normalized as $key => $value) {
+        NestedArray::setValue($parent_input, array_merge($base_key, [$key]), $value);
+      }
+      $parent_state->setUserInput($parent_input);
+    }
+  }
+
+  $form_state->setRebuild(TRUE);
+  pds_recipe_internacional_set_active_tab($form_state, 'edit');
+}
+
+/**
+ * Validate updated executive information.
+ */
+function pds_recipe_internacional_edit_person_validate(array &$form, FormStateInterface $form_state): void {
+  $base_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'edit_person']);
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+
+  $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
+  $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
+  $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+
+  if ($name === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));
+  }
+  if ($desc === '') {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
+  }
+
+  if ($url !== '' && !pds_recipe_internacional_is_allowed_url($url)) {
+    $message = t('Destination URL must be absolute or start with /.');
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
+  }
+
+  if ($form_state->hasAnyErrors()) {
+    $form_state->set('pds_recipe_internacional_edit_person_payload', NULL);
+    if ($parent_state) {
+      $parent_state->set('pds_recipe_internacional_edit_person_payload', NULL);
+    }
+    return;
+  }
+
+  $payload = [
+    'title' => $name,
+    'description' => $desc,
+  ];
+  if ($url !== '') {
+    $payload['url'] = $url;
+  }
+
+  $form_state->set('pds_recipe_internacional_edit_person_payload', $payload);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_internacional_edit_person_payload', $payload);
+  }
+}
+
+/**
+ * Save the edited executive back into the working list.
+ */
+function pds_recipe_internacional_edit_person_submit(array &$form, FormStateInterface $form_state): void {
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+  $updated_fondo = $form_state->get('pds_recipe_internacional_edit_person_payload');
+  if (!is_array($updated_fondo)) {
+    return;
+  }
+
+  $index = $form_state->get('pds_recipe_internacional_editing_index');
+  if ($index === NULL && $parent_state) {
+    $index = $parent_state->get('pds_recipe_internacional_editing_index');
+  }
+  if (!is_numeric($index)) {
+    return;
+  }
+  $index = (int) $index;
+
+  $fondos = $form_state->get('working_fondos');
+  if (!is_array($fondos)) {
+    $fondos = [];
+  }
+
+  if (!isset($fondos[$index])) {
+    return;
+  }
+
+  $fondos[$index] = $updated_fondo;
+  $normalized_fondos = array_values($fondos);
+
+  $form_state->set('working_fondos', $normalized_fondos);
+  $form_state->set('pds_recipe_internacional_editing_index', NULL);
+  $form_state->set('pds_recipe_internacional_edit_person_payload', NULL);
+
+  if ($parent_state) {
+    $parent_state->set('working_fondos', $normalized_fondos);
+    $parent_state->set('pds_recipe_internacional_editing_index', NULL);
+    $parent_state->set('pds_recipe_internacional_edit_person_payload', NULL);
+  }
+
+  $form_state->setRebuild(TRUE);
+  pds_recipe_internacional_set_active_tab($form_state, 'people');
+}
+
+/**
+ * Cancel edit mode and go back to the list tab.
+ */
+function pds_recipe_internacional_edit_person_cancel_submit(array &$form, FormStateInterface $form_state): void {
+  $parent_state = pds_recipe_internacional_parent_state($form_state);
+  $form_state->set('pds_recipe_internacional_editing_index', NULL);
+  $form_state->set('pds_recipe_internacional_edit_person_payload', NULL);
+  if ($parent_state) {
+    $parent_state->set('pds_recipe_internacional_editing_index', NULL);
+    $parent_state->set('pds_recipe_internacional_edit_person_payload', NULL);
+  }
+  $form_state->setRebuild(TRUE);
+  pds_recipe_internacional_set_active_tab($form_state, 'people');
+}
+
+/**
+ * Helper: determine the base form key for nested structures.
+ */
+function pds_recipe_internacional_base_key(array &$form, FormStateInterface $form_state, array $segments): array {
+  $trigger = $form_state->getTriggeringElement();
+  $parents = is_array($trigger['#parents'] ?? NULL) ? $trigger['#parents'] : [];
+  if (in_array('settings', $parents, TRUE) || isset($form['settings'])) {
+    array_unshift($segments, 'settings');
+  }
+  return $segments;
+}
+
+/**
+ * Helper: locate the parent form state when inside a SubformState.
+ */
+function pds_recipe_internacional_parent_state(FormStateInterface $form_state): ?FormStateInterface {
+  if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
+    $parent = $form_state->getCompleteFormState();
+    if ($parent instanceof FormStateInterface) {
+      return $parent;
+    }
+  }
+  return NULL;
+}
+
+/**
+ * Helper: determine if an URL is safe for configuration.
+ */
+function pds_recipe_internacional_is_allowed_url(string $url): bool {
+  if ($url === '') {
+    return TRUE;
+  }
+  if (UrlHelper::isValid($url, TRUE) || UrlHelper::isValid($url, FALSE)) {
+    return TRUE;
+  }
+  return strpos($url, '/') === 0;
+}

@@ -1,0 +1,30 @@
+pds_internacional.admin:
+  version: 1.x
+  js:
+    assets/js/pds-internacional.admin.js: {}
+  css:
+    theme:
+      assets/css/pds-internacional.admin.css: {}
+  # Load only in admin routes. You attach this manually in hook_form_alter on the block config form.
+
+internacional:
+  version: 1.x
+  js:
+    assets/js/pds-internacional.js: {}
+  css:
+    theme:
+      assets/css/pds-internacional.css: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
+admin.vertical_tabs:
+  version: 1.x
+  js:
+    js/pds-recipe-internacional-vertical-tabs.js: {}
+  css:
+    theme:
+      css/admin/pds-recipe-internacional-vertical-tabs.css: {}
+  dependencies:
+    - core/drupal
+    - core/once

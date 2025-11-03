@@ -1,0 +1,34 @@
+{#
+  Expects:
+  - title: string (e.g., "Más de <span>145 años...</span> y respaldo internacional")
+  - nations: array of {
+      img_url: string,
+      name: string,
+      info_html: string (allows <br>)
+    }
+#}
+
+
+<section class="principal-internacional">
+  <div class="container">
+    <div class="principal-row-container">
+      {% if title %}<h2>{{ title|raw }}</h2>{% endif %}
+
+      {% for n in nations %}
+        <div class="nation-column">
+          <div class="nation">
+            <div class="img-area">
+              <img src="{{ n.img_url }}" alt="{{ n.name|e }}" loading="lazy" decoding="async">
+            </div>
+            <h3>{{ n.name }}</h3>
+          </div>
+          <div class="nation-info">
+            {% if n.info_html %}
+              <p>{{ n.info_html|raw }}</p>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
