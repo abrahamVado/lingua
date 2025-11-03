@@ -4,8 +4,15 @@
   - nations: array of {
       img_url: string,
       name: string,
-      info_html: string (allows <br>)
+      info_html: string (allows <br>),
+      link_url?: string
     }
+#}
+
+{#
+  //1.- Render the Internacional recipe using the sanitized payload provided by
+  //2.- PdsInternacionalBlock. Each nation may include an optional link and
+  //3.- image URL (including uploaded assets) that should surface in the markup.
 #}
 
 
@@ -15,13 +22,22 @@
       {% if title %}<h2>{{ title|raw }}</h2>{% endif %}
 
       {% for n in nations %}
+        {% set has_link = n.link_url is defined and n.link_url %}
         <div class="nation-column">
-          <div class="nation">
-            <div class="img-area">
-              <img src="{{ n.img_url }}" alt="{{ n.name|e }}" loading="lazy" decoding="async">
+          {% if has_link %}
+            <a class="nation" href="{{ n.link_url }}">
+          {% else %}
+            <div class="nation">
+          {% endif %}
+              <div class="img-area">
+                <img src="{{ n.img_url }}" alt="{{ n.name|e }}" loading="lazy" decoding="async">
+              </div>
+              <h3>{{ n.name|e }}</h3>
+          {% if has_link %}
+            </a>
+          {% else %}
             </div>
-            <h3>{{ n.name }}</h3>
-          </div>
+          {% endif %}
           <div class="nation-info">
             {% if n.info_html %}
               <p>{{ n.info_html|raw }}</p>
