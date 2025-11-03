@@ -6,6 +6,8 @@ use Drupal\Component\Utility\NestedArray;
 use Drupal\Component\Utility\UrlHelper;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
+use Drupal\file\Entity\File;
+use Drupal\file\FileUsage\FileUsageInterface;
 
 /**
  * Implements hook_theme().
@@ -80,6 +82,9 @@ function pds_recipe_internacional_add_person_validate(array &$form, FormStateInt
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
   $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+  $image_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_image'])));
+  $image_upload = $form_state->getValue(array_merge($base_key, ['fondo_image_upload']));
+  $image_upload_info = pds_recipe_internacional_extract_uploaded_image($image_upload);
 
   //2.- Validate minimal requirements for a card.
   if ($name === '') {
@@ -89,10 +94,17 @@ function pds_recipe_internacional_add_person_validate(array &$form, FormStateInt
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
 
-  //3.- Enforce safe URL formats on the optional link field.
+  //3.- Enforce safe URL formats on the optional link and image fields.
   if ($url !== '' && !pds_recipe_internacional_is_allowed_url($url)) {
     $message = t('Destination URL must be absolute or start with /.');
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
+  }
+  if ($image_src !== '' && !pds_recipe_internacional_is_allowed_url($image_src)) {
+    $message = t('Image URL must be absolute or start with /.');
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_image'])), $message);
+  }
+  if ($image_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_image_upload'])), $image_upload_info['error']);
   }
 
   if ($form_state->hasAnyErrors()) {
@@ -110,6 +122,13 @@ function pds_recipe_internacional_add_person_validate(array &$form, FormStateInt
   ];
   if ($url !== '') {
     $payload['url'] = $url;
+  }
+  if ($image_upload_info['fid'] !== NULL) {
+    $payload['image_url'] = $image_upload_info['url'];
+    $payload['image_upload_fid'] = $image_upload_info['fid'];
+  }
+  elseif ($image_src !== '') {
+    $payload['image_url'] = $image_src;
   }
 
   $form_state->set('pds_recipe_internacional_add_person_new_fondo', $payload);
@@ -131,6 +150,8 @@ function pds_recipe_internacional_add_person_submit(array &$form, FormStateInter
     return;
   }
 
+  pds_recipe_internacional_finalize_fondo_payload($new_fondo);
+
   //2.- Append the new fondo to the working list stored in form state.
   $fondos = $form_state->get('working_fondos');
   if (!is_array($fondos)) {
@@ -145,28 +166,32 @@ function pds_recipe_internacional_add_person_submit(array &$form, FormStateInter
   }
 
   //3.- Reset author-facing inputs for the next addition.
-  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_image'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
+  $form_state->setValue(array_merge($base_key, ['fondo_image_upload']), []);
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_image'] as $key) {
     NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
+  NestedArray::setValue($user_input, array_merge($base_key, ['fondo_image_upload']), []);
   $form_state->setUserInput($user_input);
   if ($parent_state) {
-    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_image'] as $key) {
       $parent_state->setValue(array_merge($base_key, [$key]), '');
     }
+    $parent_state->setValue(array_merge($base_key, ['fondo_image_upload']), []);
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_image'] as $key) {
       NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
+    NestedArray::setValue($parent_input, array_merge($base_key, ['fondo_image_upload']), []);
     $parent_state->setUserInput($parent_input);
   }
 
@@ -290,6 +315,7 @@ function pds_recipe_internacional_edit_person_prepare_submit(array &$form, FormS
       'fondo_name' => (string) ($fondo['title'] ?? ($fondo['name'] ?? '')),
       'fondo_desc' => (string) ($fondo['description'] ?? ($fondo['desc'] ?? '')),
       'fondo_url' => (string) ($fondo['url'] ?? ''),
+      'fondo_image' => (string) ($fondo['image_url'] ?? ($fondo['image'] ?? '')),
     ];
 
     //3.- Push the normalized values into both the form state and user input so
@@ -333,10 +359,15 @@ function pds_recipe_internacional_edit_person_validate(array &$form, FormStateIn
   $base_key = pds_recipe_internacional_base_key($form, $form_state, ['internacional_ui', 'panes', 'edit_person']);
   $parent_state = pds_recipe_internacional_parent_state($form_state);
 
+  //1.- Collect updated values from the edit pane.
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
   $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+  $image_src = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_image'])));
+  $image_upload = $form_state->getValue(array_merge($base_key, ['fondo_image_upload']));
+  $image_upload_info = pds_recipe_internacional_extract_uploaded_image($image_upload);
 
+  //2.- Validate required text fields.
   if ($name === '') {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));
   }
@@ -344,9 +375,17 @@ function pds_recipe_internacional_edit_person_validate(array &$form, FormStateIn
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
 
+  //3.- Enforce safe URL formats on the optional link and image fields.
   if ($url !== '' && !pds_recipe_internacional_is_allowed_url($url)) {
     $message = t('Destination URL must be absolute or start with /.');
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
+  }
+  if ($image_src !== '' && !pds_recipe_internacional_is_allowed_url($image_src)) {
+    $message = t('Image URL must be absolute or start with /.');
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_image'])), $message);
+  }
+  if ($image_upload_info['error'] !== NULL) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_image_upload'])), $image_upload_info['error']);
   }
 
   if ($form_state->hasAnyErrors()) {
@@ -357,12 +396,20 @@ function pds_recipe_internacional_edit_person_validate(array &$form, FormStateIn
     return;
   }
 
+  //4.- Prepare the sanitized payload for the submit handler.
   $payload = [
     'title' => $name,
     'description' => $desc,
   ];
   if ($url !== '') {
     $payload['url'] = $url;
+  }
+  if ($image_upload_info['fid'] !== NULL) {
+    $payload['image_url'] = $image_upload_info['url'];
+    $payload['image_upload_fid'] = $image_upload_info['fid'];
+  }
+  elseif ($image_src !== '') {
+    $payload['image_url'] = $image_src;
   }
 
   $form_state->set('pds_recipe_internacional_edit_person_payload', $payload);
@@ -380,6 +427,8 @@ function pds_recipe_internacional_edit_person_submit(array &$form, FormStateInte
   if (!is_array($updated_fondo)) {
     return;
   }
+
+  pds_recipe_internacional_finalize_fondo_payload($updated_fondo);
 
   $index = $form_state->get('pds_recipe_internacional_editing_index');
   if ($index === NULL && $parent_state) {
@@ -467,4 +516,152 @@ function pds_recipe_internacional_is_allowed_url(string $url): bool {
     return TRUE;
   }
   return strpos($url, '/') === 0;
+}
+
+/**
+ * Extract the managed file selection from the image upload widget.
+ */
+function pds_recipe_internacional_extract_uploaded_image($value): array {
+  //1.- Provide a predictable response structure for callers.
+  $result = [
+    'url' => NULL,
+    'fid' => NULL,
+    'error' => NULL,
+  ];
+
+  //2.- Normalize managed_file values into a single numeric fid.
+  if (!is_array($value)) {
+    return $result;
+  }
+  $candidates = array_filter($value, static function ($candidate): bool {
+    return is_numeric($candidate) && (int) $candidate > 0;
+  });
+  if ($candidates === []) {
+    return $result;
+  }
+  $fid = (int) reset($candidates);
+  if ($fid <= 0) {
+    return $result;
+  }
+
+  //3.- Load the file and derive the public URL used by the rendered card.
+  $file = File::load($fid);
+  if (!$file) {
+    $result['error'] = t('Unable to load the uploaded image.');
+    return $result;
+  }
+  $url = pds_recipe_internacional_build_file_url($file);
+  if ($url === NULL) {
+    $result['error'] = t('Unable to generate a URL for the uploaded image.');
+    return $result;
+  }
+
+  $result['fid'] = $fid;
+  $result['url'] = $url;
+  return $result;
+}
+
+/**
+ * Build a relative URL for a managed file.
+ */
+function pds_recipe_internacional_build_file_url(File $file): ?string {
+  //1.- Convert the stream wrapper URI into an absolute URL.
+  $generator = \Drupal::service('file_url_generator');
+  $absolute = $generator->generateAbsoluteString($file->getFileUri());
+  if (!is_string($absolute) || $absolute === '') {
+    return NULL;
+  }
+
+  //2.- Normalize to a relative path so configuration stays environment agnostic.
+  $relative = NULL;
+  if (method_exists($generator, 'transformRelative')) {
+    $relative = $generator->transformRelative($absolute);
+  }
+  if (!is_string($relative) || $relative === '') {
+    $relative = pds_recipe_internacional_transform_relative_fallback($absolute);
+  }
+  if (!is_string($relative) || $relative === '') {
+    return NULL;
+  }
+
+  return $relative;
+}
+
+/**
+ * Convert an absolute URL into a site-relative path when core helper is absent.
+ */
+function pds_recipe_internacional_transform_relative_fallback(string $absolute): ?string {
+  //1.- Abort when the provided value is not an absolute URL.
+  if (!UrlHelper::isValid($absolute, TRUE)) {
+    return NULL;
+  }
+
+  //2.- Extract path, query, and fragment components.
+  $parts = parse_url($absolute);
+  if ($parts === FALSE) {
+    return NULL;
+  }
+  $relative = $parts['path'] ?? '';
+  if (isset($parts['query']) && $parts['query'] !== '') {
+    $relative .= '?' . $parts['query'];
+  }
+  if (isset($parts['fragment']) && $parts['fragment'] !== '') {
+    $relative .= '#' . $parts['fragment'];
+  }
+  if ($relative === '') {
+    return NULL;
+  }
+
+  //3.- Remove the application's base path when available.
+  if (\Drupal::hasService('request_stack')) {
+    $request = \Drupal::service('request_stack')->getCurrentRequest();
+    if ($request) {
+      $base_path = $request->getBasePath();
+      if ($base_path !== '' && strpos($relative, $base_path) === 0) {
+        $relative = substr($relative, strlen($base_path));
+        if ($relative === '') {
+          $relative = '/';
+        }
+        elseif ($relative[0] !== '/') {
+          $relative = '/' . $relative;
+        }
+      }
+    }
+  }
+
+  return $relative;
+}
+
+/**
+ * Mark uploaded files as permanent once the fondo payload is stored.
+ */
+function pds_recipe_internacional_finalize_fondo_payload(array &$fondo): void {
+  if (!isset($fondo['image_upload_fid'])) {
+    return;
+  }
+
+  //1.- Capture and immediately unset the helper key so the snapshot mirrors production data.
+  $fid = (int) $fondo['image_upload_fid'];
+  unset($fondo['image_upload_fid']);
+  if ($fid <= 0) {
+    return;
+  }
+
+  //2.- Promote the temporary file to permanent storage.
+  $file = File::load($fid);
+  if (!$file) {
+    return;
+  }
+  if ($file->isTemporary()) {
+    $file->setPermanent();
+    $file->save();
+  }
+
+  //3.- Register usage so Drupal keeps the asset available for the block configuration.
+  if (\Drupal::hasService('file.usage')) {
+    $usage = \Drupal::service('file.usage');
+    if ($usage instanceof FileUsageInterface) {
+      $usage->add($file, 'pds_recipe_internacional', 'pds_internacional_image', $file->id());
+    }
+  }
 }
