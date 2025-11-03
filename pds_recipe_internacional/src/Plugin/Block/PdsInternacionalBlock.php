@@ -665,7 +665,13 @@ final class PdsInternacionalBlock extends BlockBase {
    * Allow limited inline HTML and return safe Markup.
    */
   private function safeInlineHtml(string $value, array $allowed = ['strong','em','b','i','u','br','span','a','sup','sub']): Markup {
-    $filtered = Xss::filter($value, $allowed);
+    //1.- Normalize author-entered line breaks into HTML <br> tags so multi-line
+    //2.- descriptions render exactly as captured in the admin UI.
+    $normalized = preg_replace('/\r\n|\r|\n/', '<br>', $value);
+
+    //3.- Filter the normalized markup, allowing only safe inline tags before
+    //4.- returning it to Twig for rendering.
+    $filtered = Xss::filter($normalized, $allowed);
     return Markup::create($filtered);
   }
 
