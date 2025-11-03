@@ -41,11 +41,11 @@ final class PdsInternacionalBlock extends BlockBase {
     $raw_fondos = $cfg['fondos'] ?? ($cfg['internacional'] ?? []);
     $fondos_cfg = is_array($raw_fondos) ? $raw_fondos : [];
 
-    $fondos = [];
-    $icon_url = $this->buildAssetUrl('assets/images/icon.png');
-    $arrow_url = $this->buildAssetUrl('assets/images/flecha.png');
+    //1.- Prepare sanitized card information before exposing it to Twig.
+    $nations = [];
+    $fallback_icon = $this->buildAssetUrl('assets/images/icon.png');
 
-    // Sanitize each fondo and convert allowed inline HTML to safe Markup.
+    //2.- Sanitize each fondo and convert allowed inline HTML to safe Markup.
     foreach ($fondos_cfg as $index => $item) {
       if (!is_array($item)) {
         continue;
@@ -62,18 +62,19 @@ final class PdsInternacionalBlock extends BlockBase {
         continue;
       }
 
-      $fondo = [];
-      if ($name !== '') {
-        $fondo['title'] = $this->safeInlineHtml($name);
-      }
+      //3.- Map the sanitized fondo to the structure expected by the Twig template.
+      $nation = [
+        'name' => $name,
+        'img_url' => $url !== '' ? $url : $fallback_icon,
+      ];
       if ($desc !== '') {
-        $fondo['description'] = $this->safeInlineHtml($desc);
+        $nation['info_html'] = $this->safeInlineHtml($desc);
       }
       if ($url !== '') {
-        $fondo['url'] = $url;
+        $nation['link_url'] = $url;
       }
 
-      $fondos[] = $fondo;
+      $nations[] = $nation;
     }
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
@@ -81,9 +82,7 @@ final class PdsInternacionalBlock extends BlockBase {
     return [
       '#theme' => 'pds_internacional',
       '#title' => $title,
-      '#fondos' => $fondos,
-      '#icon_url' => $icon_url,
-      '#arrow_url' => $arrow_url,
+      '#nations' => $nations,
       '#attached' => [
         'library' => ['pds_recipe_internacional/internacional'],
       ],
