@@ -10,7 +10,7 @@
   - doc_link_label: string
   - document_url: string
 #}
-{{ attach_library('pds_hero_banner_gradient/educacion') }}
+{{ attach_library('pds_recipe_hero_banner_gradient/educacion') }}
 
 <section class="principal-hero-banner-gradient">
   <div class="container">
@@ -27,16 +27,19 @@
             </div>
           {% endif %}
 
-          {% if doc_link_url and doc_link_label %}
+          {% set has_doc_link = doc_link_url and doc_link_label %}
+          {% if has_doc_link or document_url %}
             <div class="button-area">
               {% if document_url %}
                 <div class="img-area">
                   <img src="{{ document_url }}" alt="" loading="lazy" decoding="async">
                 </div>
               {% endif %}
-              <a class="principal-link principal-link--subtle principal-link--inverted" href="{{ doc_link_url }}">
-                {{ doc_link_label }}
-              </a>
+              {% if has_doc_link %}
+                <a class="principal-link principal-link--subtle principal-link--inverted" href="{{ doc_link_url }}">
+                  {{ doc_link_label }}
+                </a>
+              {% endif %}
             </div>
           {% endif %}
         </div>
