@@ -54,18 +54,19 @@ final class PdsInternacionalBlock extends BlockBase {
       $name_raw = (string) ($item['title'] ?? ($item['name'] ?? ''));
       $desc_raw = (string) ($item['description'] ?? ($item['desc'] ?? ''));
       $url = $this->sanitizeUrl($item['url'] ?? '');
+      $image_url = $this->resolveImageUrl($item, $fallback_icon);
 
       $name = $this->cleanText($name_raw);
       $desc = $this->cleanText($desc_raw);
 
-      if ($name === '' && $desc === '' && $url === '') {
+      if ($name === '' && $desc === '' && $url === '' && $image_url === $fallback_icon) {
         continue;
       }
 
       //3.- Map the sanitized fondo to the structure expected by the Twig template.
       $nation = [
         'name' => $name,
-        'img_url' => $url !== '' ? $url : $fallback_icon,
+        'img_url' => $image_url,
       ];
       if ($desc !== '') {
         $nation['info_html'] = $this->safeInlineHtml($desc);
@@ -260,6 +261,20 @@ final class PdsInternacionalBlock extends BlockBase {
       '#title' => $this->t('Destination URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
     ];
+    $form['internacional_ui']['panes']['add_person']['fondo_image'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Image URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+    ];
+    $form['internacional_ui']['panes']['add_person']['fondo_image_upload'] = [
+      '#type' => 'managed_file',
+      '#title' => $this->t('Image upload'),
+      '#description' => $this->t('Upload an image instead of entering a URL.'),
+      '#upload_location' => 'public://pds-internacional',
+      '#upload_validators' => [
+        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
+      ],
+    ];
 
     $form['internacional_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
     $form['internacional_ui']['panes']['add_person']['actions']['add_person'] = [
@@ -395,6 +410,21 @@ final class PdsInternacionalBlock extends BlockBase {
       '#title' => $this->t('Destination URL'),
       '#description' => $this->t('Provide an absolute or theme-relative URL.'),
       '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['url'] ?? '') : '',
+    ];
+    $form['internacional_ui']['panes']['edit_person']['fondo_image'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Image URL'),
+      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#default_value' => is_array($editing_fondo) ? (string) ($editing_fondo['image_url'] ?? ($editing_fondo['image'] ?? '')) : '',
+    ];
+    $form['internacional_ui']['panes']['edit_person']['fondo_image_upload'] = [
+      '#type' => 'managed_file',
+      '#title' => $this->t('Image upload'),
+      '#description' => $this->t('Upload a new image to replace the current one.'),
+      '#upload_location' => 'public://pds-internacional',
+      '#upload_validators' => [
+        'file_validate_extensions' => ['png jpg jpeg gif webp svg'],
+      ],
     ];
 
     $form['internacional_ui']['panes']['edit_person']['actions'] = ['#type' => 'actions'];
@@ -554,8 +584,9 @@ final class PdsInternacionalBlock extends BlockBase {
     $name = $this->cleanText($fondo['title'] ?? ($fondo['name'] ?? ''));
     $desc = $this->cleanText($fondo['description'] ?? ($fondo['desc'] ?? ''));
     $url = $this->sanitizeUrl($fondo['url'] ?? '');
+    $image_url = $this->sanitizeUrl($fondo['image_url'] ?? ($fondo['image'] ?? ''));
 
-    if ($name === '' && $desc === '' && $url === '') {
+    if ($name === '' && $desc === '' && $url === '' && $image_url === '') {
       return NULL;
     }
 
@@ -569,8 +600,36 @@ final class PdsInternacionalBlock extends BlockBase {
     if ($url !== '') {
       $clean['url'] = $url;
     }
+    if ($image_url !== '') {
+      $clean['image_url'] = $image_url;
+    }
 
     return $clean === [] ? NULL : $clean;
+  }
+
+  private function resolveImageUrl(array $item, string $fallback_icon): string {
+    //1.- Collect possible image sources prioritizing the explicit upload/url.
+    $candidates = [];
+    if (isset($item['image_url'])) {
+      $candidates[] = $item['image_url'];
+    }
+    if (isset($item['image'])) {
+      $candidates[] = $item['image'];
+    }
+    if (isset($item['url'])) {
+      $candidates[] = $item['url'];
+    }
+
+    //2.- Sanitize and return the first usable candidate.
+    foreach ($candidates as $candidate) {
+      $clean = $this->sanitizeUrl($candidate);
+      if ($clean !== '') {
+        return $clean;
+      }
+    }
+
+    //3.- Fall back to the bundled icon when no custom image is available.
+    return $fallback_icon;
   }
 
   private function buildAssetUrl(string $relative_path): string {
