@@ -15,6 +15,7 @@ function pds_recipe_hero_banner_gradient_theme($existing, $type, $theme, $path) 
         'doc_icon_url' => NULL,
         'doc_link_url' => NULL,
         'doc_link_label' => NULL,
+        'document_url' => NULL,
       ],
       'template' => 'pds-hero-banner-gradient',
       'path' => $path . '/templates',
