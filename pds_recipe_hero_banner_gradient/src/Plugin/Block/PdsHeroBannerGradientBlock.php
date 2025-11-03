@@ -41,71 +41,109 @@ final class PdsHeroBannerGradientBlock extends BlockBase implements ContainerFac
 
   public function defaultConfiguration(): array {
     return [
-      'title_html' => 'Educação financeira para Ensino Fundamental e Médio.',
-      'body_text'  => 'Desde 2016, mais de 12 mil alunos já participaram das aulas ministradas por nossos colaboradores e parceiros voluntários.',
-      'link_text'  => 'Conheça o programa',
-      'link_url'   => '',
+      'eyebrow' => '',
+      'headline' => '',
+      'description' => '',
+      'primary_button_label' => '',
+      'primary_button_url' => '',
+      'doc_icon_url' => '',
+      'doc_link_url' => '',
+      'doc_link_label' => '',
     ];
   }
 
   public function blockForm($form, FormStateInterface $form_state): array {
     $cfg = $this->getConfiguration();
 
-    $form['title_html'] = [
+    //1.- Capture the eyebrow text displayed above the headline.
+    $form['eyebrow'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Título'),
-      '#default_value' => $cfg['title_html'] ?? '',
-      '#required' => TRUE,
-      '#description' => $this->t('Texto del encabezado. Se renderiza como HTML simple.'),
+      '#title' => $this->t('Eyebrow'),
+      '#default_value' => $cfg['eyebrow'] ?? '',
+      '#maxlength' => 255,
+      '#description' => $this->t('Texto breve que aparece encima del titular.'),
     ];
 
-    $form['body_text'] = [
+    //2.- Manage the main headline copy.
+    $form['headline'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Titular'),
+      '#default_value' => $cfg['headline'] ?? '',
+      '#maxlength' => 255,
+      '#description' => $this->t('Texto principal del banner.'),
+    ];
+
+    //3.- Handle the descriptive paragraph.
+    $form['description'] = [
       '#type' => 'textarea',
-      '#title' => $this->t('Texto'),
-      '#default_value' => $cfg['body_text'] ?? '',
+      '#title' => $this->t('Descripción'),
+      '#default_value' => $cfg['description'] ?? '',
       '#rows' => 3,
-      '#required' => TRUE,
+      '#description' => $this->t('Texto descriptivo que acompaña al titular.'),
     ];
 
-    $form['link_text'] = [
+    //4.- Configure the primary button label.
+    $form['primary_button_label'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Texto del botón'),
-      '#default_value' => $cfg['link_text'] ?? '',
-      '#required' => TRUE,
+      '#title' => $this->t('Texto del botón principal'),
+      '#default_value' => $cfg['primary_button_label'] ?? '',
+      '#maxlength' => 255,
     ];
 
-    $form['link_url'] = [
+    //5.- Configure the primary button destination.
+    $form['primary_button_url'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('URL del botón'),
-      '#default_value' => $cfg['link_url'] ?? '',
-      '#description' => $this->t('Vacío para desactivar. Acepta https://... o rutas internas como /mi/página.'),
+      '#title' => $this->t('URL del botón principal'),
+      '#default_value' => $cfg['primary_button_url'] ?? '',
+      '#description' => $this->t('Vacío para desactivar. Acepta https://..., rutas internas como /mi/pagina o esquemas module://.'),
+    ];
+
+    //6.- Capture an optional icon for the documento link.
+    $form['doc_icon_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Icono del enlace secundario'),
+      '#default_value' => $cfg['doc_icon_url'] ?? '',
+      '#description' => $this->t('URL absoluta, ruta interna o esquema module:// para el ícono.'),
+    ];
+
+    //7.- Configure the secondary link URL.
+    $form['doc_link_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('URL del enlace secundario'),
+      '#default_value' => $cfg['doc_link_url'] ?? '',
+      '#description' => $this->t('Vacío para ocultar. Acepta https://..., rutas internas o module://.'),
+    ];
+
+    //8.- Configure the secondary link label.
+    $form['doc_link_label'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Texto del enlace secundario'),
+      '#default_value' => $cfg['doc_link_label'] ?? '',
+      '#maxlength' => 255,
     ];
 
     return $form;
   }
 
   public function validateConfigurationForm(array &$form, FormStateInterface $form_state): void {
-    $url = trim((string) $form_state->getValue('link_url') ?? '');
-    if ($url === '') {
-      return;
-    }
-
-    // Allow absolute http(s) or internal paths starting with '/'.
-    $is_abs = str_starts_with($url, 'http://') || str_starts_with($url, 'https://');
-    $is_internal = str_starts_with($url, '/');
-
-    if (!$is_abs && !$is_internal) {
-      $form_state->setErrorByName('link_url', $this->t('Use una URL absoluta (https://...) o una ruta interna que inicie con /.'));
-    }
+    //1.- Validate that the button URL follows expected schemes.
+    $this->assertValidUrl($form_state, 'primary_button_url');
+    //2.- Validate that the document URL follows expected schemes.
+    $this->assertValidUrl($form_state, 'doc_link_url');
   }
 
   public function blockSubmit($form, FormStateInterface $form_state): void {
+    //1.- Persist the submitted values into the block configuration.
     $v = $form_state->getValues();
     $this->setConfiguration([
-      'title_html' => (string) $v['title_html'],
-      'body_text'  => (string) $v['body_text'],
-      'link_text'  => (string) $v['link_text'],
-      'link_url'   => trim((string) ($v['link_url'] ?? '')),
+      'eyebrow' => (string) ($v['eyebrow'] ?? ''),
+      'headline' => (string) ($v['headline'] ?? ''),
+      'description' => (string) ($v['description'] ?? ''),
+      'primary_button_label' => (string) ($v['primary_button_label'] ?? ''),
+      'primary_button_url' => trim((string) ($v['primary_button_url'] ?? '')),
+      'doc_icon_url' => trim((string) ($v['doc_icon_url'] ?? '')),
+      'doc_link_url' => trim((string) ($v['doc_link_url'] ?? '')),
+      'doc_link_label' => (string) ($v['doc_link_label'] ?? ''),
     ]);
   }
 
@@ -146,24 +184,45 @@ final class PdsHeroBannerGradientBlock extends BlockBase implements ContainerFac
     return Url::fromUri('base:' . ltrim($raw, '/'))->toString();
   }
 
+  /**
+   * Ensure URLs entered in the form respect supported schemes.
+   */
+  private function assertValidUrl(FormStateInterface $form_state, string $field_name): void {
+    //1.- Obtain and trim the target value.
+    $value = trim((string) ($form_state->getValue($field_name) ?? ''));
+    if ($value === '') {
+      return;
+    }
+
+    //2.- Allow absolute URLs, internal routes or module scheme assets.
+    $is_abs = str_starts_with($value, 'http://') || str_starts_with($value, 'https://');
+    $is_internal = str_starts_with($value, '/');
+    $is_module = str_starts_with($value, 'module://');
+
+    if (!$is_abs && !$is_internal && !$is_module) {
+      $form_state->setErrorByName($field_name, $this->t('Use una URL absoluta (https://...), una ruta interna que inicie con / o el esquema module://.'));
+    }
+  }
+
   public function build(): array {
-    // Static logo from this module.
-    $logo_url = $this->resolveModuleUri('module://pds_recipe_hero_banner_gradient/images/logo.png');
-
+    //1.- Prepare configuration and transform URLs for Twig consumption.
     $cfg = $this->getConfiguration();
-    $link_url = $this->buildLinkUrl((string) ($cfg['link_url'] ?? ''));
+    $primary_url = $this->buildLinkUrl((string) ($cfg['primary_button_url'] ?? ''));
+    $doc_url = $this->buildLinkUrl((string) ($cfg['doc_link_url'] ?? ''));
+    $doc_icon = $this->resolveModuleUri((string) ($cfg['doc_icon_url'] ?? ''));
 
+    //2.- Return render array that maps directly to Twig variables.
     return [
       '#theme' => 'pds_hero_banner_gradient',
-      '#attributes' => ['class' => ['pds-educacion']],
-      // Keep original structure.
-      '#heading' => ['#markup' => $cfg['title_html'] ?? ''],
-      '#subheading' => $cfg['body_text'] ?? '',
-      '#logo_url' => $logo_url,
-      '#link_text' => $cfg['link_text'] ?? '',
-      '#link_url' => $link_url,
+      '#eyebrow' => $cfg['eyebrow'] ?? '',
+      '#headline' => $cfg['headline'] ?? '',
+      '#description' => $cfg['description'] ?? '',
+      '#primary_button_label' => $cfg['primary_button_label'] ?? '',
+      '#primary_button_url' => $primary_url,
+      '#doc_icon_url' => $doc_icon,
+      '#doc_link_url' => $doc_url,
+      '#doc_link_label' => $cfg['doc_link_label'] ?? '',
       '#attached' => ['library' => ['pds_recipe_hero_banner_gradient/educacion']],
-      // Preserved caching behavior.
       '#cache' => ['max-age' => 0],
     ];
   }
