@@ -8,6 +8,7 @@
   - doc_icon_url: string
   - doc_link_url: string
   - doc_link_label: string
+  - document_url: string
 #}
 {{ attach_library('pds_hero_banner_gradient/educacion') }}
 
@@ -28,9 +29,9 @@
 
           {% if doc_link_url and doc_link_label %}
             <div class="button-area">
-              {% if doc_icon_url %}
+              {% if document_url %}
                 <div class="img-area">
-                  <img src="{{ doc_icon_url }}" alt="" loading="lazy" decoding="async">
+                  <img src="{{ document_url }}" alt="" loading="lazy" decoding="async">
                 </div>
               {% endif %}
               <a class="principal-link principal-link--subtle principal-link--inverted" href="{{ doc_link_url }}">

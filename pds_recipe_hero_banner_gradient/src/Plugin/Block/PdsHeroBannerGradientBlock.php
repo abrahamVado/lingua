@@ -204,7 +204,20 @@ final class PdsHeroBannerGradientBlock extends BlockBase implements ContainerFac
     }
   }
 
+
+  private function buildAssetUrl(string $relative_path): string {
+    static $module_path = NULL;
+    if ($module_path === NULL) {
+      $module_path = \Drupal::service('extension.path.resolver')->getPath('module', 'pds_recipe_hero_banner_gradient');
+    }
+    $base_path = base_path();
+    $relative = ltrim($relative_path, '/');
+    return $base_path . trim($module_path, '/') . '/' . $relative;
+  }
+
   public function build(): array {
+    $document_url = $this->buildAssetUrl('images/document.svg');
+
     //1.- Prepare configuration and transform URLs for Twig consumption.
     $cfg = $this->getConfiguration();
     $primary_url = $this->buildLinkUrl((string) ($cfg['primary_button_url'] ?? ''));
@@ -222,6 +235,7 @@ final class PdsHeroBannerGradientBlock extends BlockBase implements ContainerFac
       '#doc_icon_url' => $doc_icon,
       '#doc_link_url' => $doc_url,
       '#doc_link_label' => $cfg['doc_link_label'] ?? '',
+      '#document_url' => $document_url,
       '#attached' => ['library' => ['pds_recipe_hero_banner_gradient/educacion']],
       '#cache' => ['max-age' => 0],
     ];

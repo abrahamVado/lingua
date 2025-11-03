@@ -1,0 +1,7 @@
+name: 'Recipe: Slider Banner'
+type: 'Site'
+install:
+  - pds_recipe_slider_banner
+  - block
+  - layout_builder
+  - layout_discovery

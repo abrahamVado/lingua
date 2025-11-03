@@ -1,0 +1,7 @@
+name: 'Recipe: Hero Banner Gradient'
+type: 'Site'
+install:
+  - pds_recipe_hero_banner_gradient
+  - block
+  - layout_builder
+  - layout_discovery

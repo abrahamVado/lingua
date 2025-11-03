@@ -1,0 +1,7 @@
+name: 'Recipe: Mapa'
+type: 'Site'
+install:
+  - pds_recipe_mapa
+  - block
+  - layout_builder
+  - layout_discovery

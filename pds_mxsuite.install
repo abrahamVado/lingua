@@ -292,7 +292,7 @@ function _pds_mxsuite_build_schema_repairer(?LoggerChannelInterface $logger = NU
  *
  * This is your existing update 8013.
  */
-function pds_mxsuite_update_10004(): void {
+function pds_mxsuite_update_10005(): void {
   $dups = ['pds_recipe_fondos_mutuos.settings']; // la que choca
   foreach ($dups as $name) {
     $conf = \Drupal::config($name);
@@ -322,6 +322,7 @@ function pds_mxsuite_update_10004(): void {
       'pds_recipe_latamvideo',
       'pds_recipe_timeline',
       'pds_recipe_internacional',     
+      'pds_recipe_hero_banner_gradient',     
     ] as $dir) {
       $path = $base . '/' . $dir;
       if (is_dir($path)) {
@@ -344,6 +345,7 @@ function pds_mxsuite_update_10004(): void {
       'pds_recipe_latamvideo',
       'pds_recipe_timeline',      
       'pds_recipe_internacional',      
+      'pds_recipe_hero_banner_gradient',      
     ], TRUE);
   }
 }
