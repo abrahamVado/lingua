@@ -17,9 +17,7 @@ function pds_recipe_internacional_theme($existing, $type, $theme, $path) {
       'path' => $path . '/templates',
       'variables' => [
         'title' => '',
-        'fondos' => [],
-        'icon_url' => '',
-        'arrow_url' => '',
+        'nations' => [],
       ],
     ],
   ];
