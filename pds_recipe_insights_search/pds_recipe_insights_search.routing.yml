@@ -1,0 +1,10 @@
+pds_recipe_insights_search.api.search:
+  path: '/api/insights-search'
+  defaults:
+    _controller: '\Drupal\pds_recipe_insights_search\Controller\InsightsSearchController::search'
+    _title: 'Insights search'
+    _format: 'json'
+  requirements:
+    _permission: 'access content'
+  options:
+    _auth: ['cookie']
