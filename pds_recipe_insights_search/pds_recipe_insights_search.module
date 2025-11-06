@@ -12,18 +12,50 @@ use Drupal\Core\Form\SubformStateInterface;
  */
 function pds_recipe_insights_search_theme($existing, $type, $theme, $path) {
   return [
+    // Theme hook used by your Twig: templates/pds-insights_search.html.twig
     'pds_insights_search' => [
       'template' => 'pds-insights_search',
       'path' => $path . '/templates',
       'variables' => [
+        // Page heading and data are optional; Twig sets fallbacks.
         'title' => '',
         'fondos' => [],
+        // Per-icon URLs are optional; preprocess fills them using icons_path.
         'icon_url' => '',
         'arrow_url' => '',
+        // Allow overriding icons base path from render arrays if desired.
+        'icons_path' => '',
       ],
     ],
   ];
 }
+
+/**
+ * Preprocess for 'pds_insights_search'.
+ *
+ * Provides:
+ *  - icons_path: /modules/custom/.../assets/images/icons
+ *  - icon_url:   {icons_path}/search.svg
+ *  - arrow_url:  {icons_path}/arrow-right.svg
+ * Also exports iconsPath to JS via drupalSettings.
+ */
+
+function pds_recipe_insights_search_preprocess_pds_insights_search(array &$vars): void {
+  // Module relative path, e.g. modules/custom/.../pds_recipe_insights_search
+  $module_rel = \Drupal::service('extension.list.module')->getPath('pds_recipe_insights_search');
+  // Site base path, handles subdirs.
+  $base = \Drupal::request()->getBasePath();
+
+  $icons_path = $base . '/' . $module_rel . '/assets/images/icons';
+
+  $vars['icons_path'] = $vars['icons_path'] ?: $icons_path;
+  $vars['icon_url']   = $vars['icon_url']   ?: ($vars['icons_path'] . '/search.svg');
+  $vars['arrow_url']  = $vars['arrow_url']  ?: ($vars['icons_path'] . '/arrow-right.svg');
+
+  $vars['#attached']['drupalSettings']['pdsInsightsSearch']['iconsPath'] = $vars['icons_path'];
+}
+
+
 
 /**
  * AJAX callback to return just the insights_search_ui container.
@@ -42,16 +74,16 @@ function pds_recipe_insights_search_ajax_events(array &$form, FormStateInterface
  * Persist the selected admin tab between AJAX rebuilds.
  */
 function pds_recipe_insights_search_set_active_tab(FormStateInterface $form_state, string $tab): void {
-  //1.- Store the choice on the current form state instance.
+  // 1) Store on current state.
   $form_state->set('pds_recipe_insights_search_active_tab', $tab);
 
-  //2.- Mirror the setting on the parent form state when nested in Layout Builder.
+  // 2) Mirror on parent state in Layout Builder subforms.
   $parent_state = pds_recipe_insights_search_parent_state($form_state);
   if ($parent_state) {
     $parent_state->set('pds_recipe_insights_search_active_tab', $tab);
   }
 
-  //3.- Synchronize the hidden form value so the next rebuild honors the tab choice.
+  // 3) Sync hidden value and user input.
   $form_state->setValue(['insights_search_ui_active_tab'], $tab);
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
@@ -78,14 +110,12 @@ function pds_recipe_insights_search_add_person_validate(array &$form, FormStateI
   $base_key = pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'add_person']);
   $parent_state = pds_recipe_insights_search_parent_state($form_state);
 
-  //1.- Collect author input from the correct form tree branch.
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
   $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
   $source = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_source'])));
   $source_id = ctype_digit($source) ? (int) $source : 0;
 
-  //2.- Validate minimal requirements for a card.
   if ($name === '' || $source_id <= 0) {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Select an insight from the search results.'));
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_source'])), t('Select an insight from the search results.'));
@@ -94,7 +124,6 @@ function pds_recipe_insights_search_add_person_validate(array &$form, FormStateI
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
 
-  //3.- Enforce safe URL formats on the optional link field.
   if ($url !== '' && !pds_recipe_insights_search_is_allowed_url($url)) {
     $message = t('Destination URL must be absolute or start with /.');
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_url'])), $message);
@@ -108,7 +137,6 @@ function pds_recipe_insights_search_add_person_validate(array &$form, FormStateI
     return;
   }
 
-  //4.- Store a clean snapshot for the submit handler.
   $payload = [
     'title' => $name,
     'description' => $desc,
@@ -133,13 +161,11 @@ function pds_recipe_insights_search_add_person_submit(array &$form, FormStateInt
   $base_key = pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'add_person']);
   $parent_state = pds_recipe_insights_search_parent_state($form_state);
 
-  //1.- Retrieve sanitized information prepared by validation.
   $new_fondo = $form_state->get('pds_recipe_insights_search_add_person_new_fondo');
   if (!is_array($new_fondo)) {
     return;
   }
 
-  //2.- Append the new fondo to the working list stored in form state.
   $fondos = $form_state->get('working_fondos');
   if (!is_array($fondos)) {
     $fondos = [];
@@ -152,7 +178,6 @@ function pds_recipe_insights_search_add_person_submit(array &$form, FormStateInt
     $parent_state->set('working_fondos', $normalized_fondos);
   }
 
-  //3.- Reset author-facing inputs for the next addition.
   foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_source'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
@@ -178,7 +203,6 @@ function pds_recipe_insights_search_add_person_submit(array &$form, FormStateInt
     $parent_state->setUserInput($parent_input);
   }
 
-  //4.- Reset checkboxes to avoid stale remove selections.
   $table_key = pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'people_list', 'people']);
   $checkbox_rows = [];
   foreach ($normalized_fondos as $index => $_row) {
@@ -189,7 +213,6 @@ function pds_recipe_insights_search_add_person_submit(array &$form, FormStateInt
     $parent_state->setValue($table_key, $checkbox_rows);
   }
 
-  //5.- Clear temp storage and rebuild to refresh UI.
   $form_state->set('pds_recipe_insights_search_add_person_new_fondo', NULL);
   if ($parent_state) {
     $parent_state->set('pds_recipe_insights_search_add_person_new_fondo', NULL);
@@ -199,7 +222,7 @@ function pds_recipe_insights_search_add_person_submit(array &$form, FormStateInt
 }
 
 /**
- * Remove selected insights_search from the working snapshot.
+ * Remove selected rows from the working snapshot.
  */
 function pds_recipe_insights_search_remove_people_submit(array &$form, FormStateInterface $form_state): void {
   $table_key = pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'people_list', 'people']);
@@ -210,7 +233,6 @@ function pds_recipe_insights_search_remove_people_submit(array &$form, FormState
     $fondos = [];
   }
 
-  //1.- Gather checkbox values from processed values or raw input.
   $values = $form_state->getValue($table_key);
   if (!is_array($values) && $parent_state) {
     $values = $parent_state->getValue($table_key);
@@ -237,7 +259,6 @@ function pds_recipe_insights_search_remove_people_submit(array &$form, FormState
     $values = [];
   }
 
-  //2.- Filter out rows flagged for removal.
   $kept = [];
   foreach ($fondos as $index => $fondo) {
     $should_remove = !empty($values[$index]['remove']);
@@ -252,7 +273,6 @@ function pds_recipe_insights_search_remove_people_submit(array &$form, FormState
     $parent_state->set('working_fondos', $kept);
   }
 
-  //3.- Reset checkboxes after deletion.
   $reset_rows = [];
   foreach ($kept as $index => $_row) {
     $reset_rows[$index] = ['remove' => 0];
@@ -284,7 +304,6 @@ function pds_recipe_insights_search_edit_person_prepare_submit(array &$form, For
     $parent_state->set('pds_recipe_insights_search_editing_index', $index);
   }
 
-  //1.- Locate the edit pane keys so we can seed values for the rebuild.
   $base_key = pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'edit_person']);
   $fondos = $form_state->get('working_fondos');
   if (!is_array($fondos) && $parent_state) {
@@ -292,16 +311,13 @@ function pds_recipe_insights_search_edit_person_prepare_submit(array &$form, For
   }
 
   if (is_array($fondos) && isset($fondos[$index]) && is_array($fondos[$index])) {
-    //2.- Extract the stored fondo details and normalize them for the form API.
     $fondo = $fondos[$index];
     $normalized = [
       'fondo_name' => (string) ($fondo['title'] ?? ($fondo['name'] ?? '')),
       'fondo_desc' => (string) ($fondo['description'] ?? ($fondo['desc'] ?? '')),
-      'fondo_url' => (string) ($fondo['url'] ?? ''),
+      'fondo_url'  => (string) ($fondo['url'] ?? ''),
     ];
 
-    //3.- Push the normalized values into both the form state and user input so
-    //     Drupal prefers them over the empty submission payload we just sent.
     foreach ($normalized as $key => $value) {
       $full_key = array_merge($base_key, [$key]);
       $form_state->setValue($full_key, $value);
@@ -343,7 +359,7 @@ function pds_recipe_insights_search_edit_person_validate(array &$form, FormState
 
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
-  $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+  $url  = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
 
   if ($name === '') {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));

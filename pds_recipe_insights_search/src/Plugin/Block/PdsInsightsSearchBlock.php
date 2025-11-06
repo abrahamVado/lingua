@@ -13,6 +13,7 @@ use Drupal\Core\Form\SubformStateInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Template\Attribute;
 use Drupal\Core\Url;
+use Drupal\node\NodeInterface;
 
 /**
  * Provides the "Principal InsightsSearch" block.
@@ -37,106 +38,183 @@ final class PdsInsightsSearchBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
-  */
+   */
   public function build(): array {
     $cfg = $this->getConfiguration();
-    $raw_fondos = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
-    $fondos_cfg = is_array($raw_fondos) ? $raw_fondos : [];
 
-    $fondos = [];
-    $initial_cards = [];
-    $icon_url = $this->buildAssetUrl('assets/images/icon.png');
-    $arrow_url = $this->buildAssetUrl('assets/images/flecha.png');
+    // Read saved entries from config (supports legacy key "insights_search").
+    $stored = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
+    $stored = is_array($stored) ? $stored : [];
+
     $link_text = (string) $this->t('Get our perspective');
 
-    //1.- Sanitize stored cards and capture plain-text variants for the frontend.
-    foreach ($fondos_cfg as $index => $item) {
-      if (!is_array($item)) {
-        continue;
-      }
-
-      $name_raw = (string) ($item['title'] ?? ($item['name'] ?? ''));
-      $desc_raw = (string) ($item['description'] ?? ($item['desc'] ?? ''));
-      $url = $this->sanitizeUrl($item['url'] ?? '');
-
-      $name = $this->cleanText($name_raw);
-      $desc = $this->cleanText($desc_raw);
-
-      if ($name === '' && $desc === '' && $url === '') {
-        continue;
-      }
-
-      $fondo = [];
-      if ($name !== '') {
-        $fondo['title'] = $this->safeInlineHtml($name);
-      }
-      if ($desc !== '') {
-        $fondo['description'] = $this->safeInlineHtml($desc);
-      }
-      if ($url !== '') {
-        $fondo['url'] = $url;
-      }
-      $source_nid = isset($item['source_nid']) ? (int) $item['source_nid'] : 0;
-      if ($source_nid > 0) {
-        $fondo['source_nid'] = $source_nid;
-      }
-
-      $fondos[] = $fondo;
-
-      $title_plain = Html::decodeEntities(strip_tags($name));
-      $summary_plain = Html::decodeEntities(strip_tags($desc));
-      if ($title_plain === '' && $name !== '') {
-        $title_plain = $name;
-      }
-      if ($summary_plain === '' && $desc !== '') {
-        $summary_plain = $desc;
-      }
-
-      $initial_cards[] = [
-        'id' => 'admin-' . ($index + 1),
-        'theme_id' => 'admin',
-        'theme_label' => '',
-        'title' => $title_plain,
-        'summary' => $summary_plain,
-        'author' => '',
-        'read_time' => '',
-        'url' => $url !== '' ? $url : '#',
-        'link_text' => $link_text,
-        'source_nid' => $source_nid > 0 ? $source_nid : NULL,
-      ];
-    }
+    // Map saved config → frontend items (node-backed preferred).
+    [$items, $cache_tags] = $this->buildItemsFromSavedFondos($stored, $link_text);
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
     $component_id = Html::getUniqueId('pds-insights-search');
-    $attributes = new Attribute([
-      'data-pds-insights-search-id' => $component_id,
-    ]);
+    $attributes = new Attribute(['data-pds-insights-search-id' => $component_id]);
+
+    // Frontend search endpoint for live results.
     $search_url = Url::fromRoute('pds_recipe_insights_search.api.search')->toString();
 
-    //2.- Compose render array with metadata and front-end configuration.
     return [
       '#theme' => 'pds_insights_search',
       '#title' => $title,
-      '#fondos' => $fondos,
-      '#items' => $initial_cards,
-      '#initial_items' => $initial_cards,
-      '#total' => count($initial_cards),
+      '#items' => $items,
+      '#initial_items' => $items,
+      '#total' => count($items),
       '#component_id' => $component_id,
       '#attributes' => $attributes,
-      '#icon_url' => $icon_url,
-      '#arrow_url' => $arrow_url,
+      '#icons_path' => $this->buildAssetUrl('assets/images/icons'),
       '#attached' => [
         'library' => ['pds_recipe_insights_search/insights_search'],
         'drupalSettings' => [
           'pdsInsightsSearch' => [
             $component_id => [
-              'initialItems' => $initial_cards,
+              'initialItems' => $items,
               'searchUrl' => $search_url,
               'linkText' => $link_text,
             ],
           ],
         ],
       ],
+      '#cache' => [
+        'tags' => array_values(array_unique(array_merge($cache_tags, ['config:block_list']))),
+      ],
+    ];
+  }
+
+  /**
+   * Turn saved fondos[] into renderable items. Returns [items, cache_tags].
+   *
+   * Each item matches Twig:
+   *  - theme_id, theme_label, title, summary, author, read_time, url, link_text
+   *
+   * Accepts rows with or without source_nid. Preserves saved order.
+   */
+  private function buildItemsFromSavedFondos(array $fondos_cfg, string $link_text): array {
+    $items = [];
+    $cache_tags = [];
+
+    // 1) Collect referenced node IDs in the order they first appear.
+    $nids = [];
+    foreach ($fondos_cfg as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+      if (isset($row['source_nid'])) {
+        $nid = is_numeric($row['source_nid']) ? (int) $row['source_nid'] : 0;
+        if ($nid > 0 && !in_array($nid, $nids, true)) {
+          $nids[] = $nid;
+        }
+      }
+    }
+
+    // 2) Load nodes once. Optional: translate to current language.
+    /** @var \Drupal\node\NodeInterface[] $loaded */
+    $loaded = $nids
+      ? \Drupal::entityTypeManager()->getStorage('node')->loadMultiple($nids)
+      : [];
+    $current_lang = \Drupal::languageManager()->getCurrentLanguage()->getId();
+    foreach ($loaded as $nid => $node) {
+      if ($node->hasTranslation($current_lang)) {
+        $loaded[$nid] = $node->getTranslation($current_lang);
+      }
+    }
+
+    // 3) Map each saved row to a card, preferring live node data.
+    foreach ($fondos_cfg as $row) {
+      if (!is_array($row)) {
+        continue;
+      }
+
+      $source_nid = isset($row['source_nid']) && is_numeric($row['source_nid'])
+        ? (int) $row['source_nid']
+        : 0;
+
+      if ($source_nid > 0 && isset($loaded[$source_nid])) {
+        $node = $loaded[$source_nid];
+        $items[] = $this->itemFromNode($node, $link_text);
+        $cache_tags[] = "node:{$node->id()}";
+        continue;
+      }
+
+      // Fallback to saved snapshot when node missing or not set.
+      $title = $this->cleanText($row['title'] ?? ($row['name'] ?? ''));
+      $summary = $this->cleanText($row['description'] ?? ($row['desc'] ?? ''));
+      $url = $this->sanitizeUrl($row['url'] ?? '');
+
+      if ($title === '' && $summary === '' && $url === '') {
+        continue;
+      }
+
+      $items[] = [
+        'id'         => 'saved-' . (count($items) + 1),
+        'theme_id'   => 'saved',
+        'theme_label'=> '',
+        'title'      => $title,
+        'summary'    => $summary,
+        'author'     => '',
+        'read_time'  => '',
+        'url'        => $url !== '' ? $url : '#',
+        'link_text'  => $link_text,
+      ];
+    }
+
+    return [$items, array_values(array_unique($cache_tags))];
+  }
+
+
+  /**
+   * Build a card item from a Node.
+   */
+  private function itemFromNode(NodeInterface $node, string $link_text): array {
+    $title = $node->label() ?? '';
+
+    // Summary: prefer dedicated summary fields, fallback to body summary/value.
+    $summary = '';
+    foreach (['field_summary','field_resumen','field_short_description'] as $f) {
+      if ($node->hasField($f) && !$node->get($f)->isEmpty()) {
+        $summary = trim((string) $node->get($f)->value);
+        break;
+      }
+    }
+    if ($summary === '' && $node->hasField('body') && !$node->get('body')->isEmpty()) {
+      $item = $node->get('body')->first();
+      $summary = $item ? trim((string) (($item->summary ?? '') ?: ($item->value ?? ''))) : '';
+    }
+
+    // Theme taxonomy if present.
+    $theme_id = '';
+    $theme_label = '';
+    foreach (['field_theme','field_tema'] as $f) {
+      if ($node->hasField($f) && !$node->get($f)->isEmpty() && ($term = $node->get($f)->entity)) {
+        $theme_id = (string) $term->id();
+        $theme_label = $term->label();
+        break;
+      }
+    }
+
+    // Read time if present.
+    $read_time = '';
+    foreach (['field_read_time','field_tiempo_de_lectura'] as $f) {
+      if ($node->hasField($f) && !$node->get($f)->isEmpty()) {
+        $read_time = trim((string) $node->get($f)->value);
+        break;
+      }
+    }
+
+    return [
+      'id' => (int) $node->id(),
+      'theme_id' => $theme_id ?: 'node',
+      'theme_label' => $theme_label,
+      'title' => $title,
+      'summary' => $summary,
+      'author' => $node->getOwner()?->getDisplayName() ?? '',
+      'read_time' => $read_time,
+      'url' => $node->toUrl('canonical', ['absolute' => TRUE])->toString(),
+      'link_text' => $link_text,
     ];
   }
 
@@ -148,7 +226,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $working = self::getWorkingInsightsSearch($form_state, $cfg['fondos'] ?? ($cfg['insights_search'] ?? []));
     $editing_index = self::getEditingIndex($form_state);
 
-    // Active tab tracking.
+    // Track active tab.
     $input = $form_state->getUserInput();
     $submitted_tab = is_array($input) && isset($input['insights_search_ui_active_tab'])
       ? trim((string) $input['insights_search_ui_active_tab'])
@@ -178,7 +256,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $form['#attached']['library'][] = 'pds_recipe_insights_search/admin.search';
 
     $search_route = Url::fromRoute('pds_recipe_insights_search.api.search')->setAbsolute();
-    //3.- Expose the search endpoint and helper strings to the Drupal behavior.
     $form['#attached']['drupalSettings']['pdsRecipeInsightsSearchAdmin'] = [
       'searchUrl' => $search_route->toString(),
       'strings' => [
@@ -229,7 +306,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
       $form_state->set('pds_recipe_insights_search_active_tab', $active_tab);
     }
 
-    // Vertical tabs nav.
+    // Vertical tabs shell.
     $menu_markup = '<ul class="pds-vertical-tabs__menu" role="tablist" aria-orientation="vertical" data-pds-vertical-tabs-menu="true">';
     foreach ($available_tabs as $machine_name => $tab) {
       $is_selected = $machine_name === $active_tab;
@@ -286,7 +363,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $form['insights_search_ui']['panes']['general']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Configure the section heading shown above the insights_search list.'),
+      '#value' => $this->t('Configure the section heading shown above the insights list.'),
     ];
     $form['insights_search_ui']['panes']['general']['title'] = [
       '#type' => 'textfield',
@@ -311,7 +388,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#value' => $this->t('Search for existing Insights content and add it to the featured list.'),
     ];
 
-    //1.- Provide the container consumed by the admin-side search behavior.
     $search_wrapper_id = Html::getUniqueId('pds-insights-search-admin');
     $form['insights_search_ui']['panes']['add_person']['search_wrapper'] = [
       '#type' => 'container',
@@ -358,7 +434,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#markup' => $this->t('No insight selected.'),
     ];
 
-    //2.- Add hidden fields that the JS behavior will populate on selection.
+    // Hidden fields filled by the admin JS when selecting a result.
     $add_base_key = \pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'add_person']);
     $form['insights_search_ui']['panes']['add_person']['search_wrapper']['fields'] = [
       '#type' => 'container',
@@ -497,6 +573,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#value' => $this->t('Update the selected fondo card.'),
     ];
 
+    $editing_index = self::getEditingIndex($form_state);
     $editing_fondo = $editing_index !== NULL && isset($working[$editing_index]) && is_array($working[$editing_index])
       ? $working[$editing_index]
       : NULL;

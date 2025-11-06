@@ -1,4 +1,3 @@
-{# templates/insights/insights.html.twig #}
 {{ attach_library('pds_recipe_insights_search/insights_search') }}
 
 {# Inputs (all optional)
@@ -19,7 +18,7 @@
   {% set attributes = attributes.setAttribute('data-pds-insights-search-id', component_id) %}
 {% endif %}
 {% set _heading = heading|default(title|default('Latest insights')) %}
-{% set _icons = icons_path|default('/icons') %}
+{% set _icons = icons_path %}
 {% set _initial_items = initial_items|default(items|default([])) %}
 {% set _items = items|default(_initial_items) %}
 {% set _total = total|default(_initial_items|length) %}
