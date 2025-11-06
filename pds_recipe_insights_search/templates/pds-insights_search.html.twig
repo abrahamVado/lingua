@@ -1,5 +1,5 @@
 {# templates/insights/insights.html.twig #}
-{{ attach_library('pds_insights/insights') }}
+{{ attach_library('pds_recipe_insights_search/insights_search') }}
 
 {# Inputs (all optional)
   - heading: string
@@ -72,7 +72,7 @@
         {% for item in items|default([]) %}
           <div class="insight-card" data-theme="{{ item.theme_id|e }}">
             {% if item.theme_label %}
-              <span class="insight-badge">{{ item.theme_label }}</span>
+              <span class="insight-badge {{ item.theme_id|e }}">{{ item.theme_label }}</span>
             {% endif %}
 
             <h3 class="insight-card-title">{{ item.title }}</h3>
