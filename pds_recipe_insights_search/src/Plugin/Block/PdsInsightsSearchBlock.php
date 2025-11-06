@@ -76,6 +76,10 @@ final class PdsInsightsSearchBlock extends BlockBase {
       if ($url !== '') {
         $fondo['url'] = $url;
       }
+      $source_nid = isset($item['source_nid']) ? (int) $item['source_nid'] : 0;
+      if ($source_nid > 0) {
+        $fondo['source_nid'] = $source_nid;
+      }
 
       $fondos[] = $fondo;
 
@@ -98,6 +102,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
         'read_time' => '',
         'url' => $url !== '' ? $url : '#',
         'link_text' => $link_text,
+        'source_nid' => $source_nid > 0 ? $source_nid : NULL,
       ];
     }
 
@@ -170,6 +175,22 @@ final class PdsInsightsSearchBlock extends BlockBase {
     }
 
     $form['#attached']['library'][] = 'pds_recipe_insights_search/admin.vertical_tabs';
+    $form['#attached']['library'][] = 'pds_recipe_insights_search/admin.search';
+
+    $search_route = Url::fromRoute('pds_recipe_insights_search.api.search')->setAbsolute();
+    //3.- Expose the search endpoint and helper strings to the Drupal behavior.
+    $form['#attached']['drupalSettings']['pdsRecipeInsightsSearchAdmin'] = [
+      'searchUrl' => $search_route->toString(),
+      'strings' => [
+        'resultsEmpty' => (string) $this->t('No insights found. Try a different search.'),
+        'error' => (string) $this->t('An unexpected error occurred. Please try again.'),
+        'loading' => (string) $this->t('Searching…'),
+        'add' => (string) $this->t('Select'),
+        'selected' => (string) $this->t('Selected insight: @title'),
+        'selectionEmpty' => (string) $this->t('No insight selected.'),
+        'minimum' => (string) $this->t('Enter at least three characters to search.'),
+      ],
+    ];
 
     $tabs = [
       'general' => [
@@ -287,30 +308,87 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $form['insights_search_ui']['panes']['add_person']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Provide the public information for a new fondo card.'),
+      '#value' => $this->t('Search for existing Insights content and add it to the featured list.'),
     ];
 
-    $form['insights_search_ui']['panes']['add_person']['fondo_name'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Title'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
+    //1.- Provide the container consumed by the admin-side search behavior.
+    $search_wrapper_id = Html::getUniqueId('pds-insights-search-admin');
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'id' => $search_wrapper_id,
+        'class' => ['pds-recipe-insights-search-admin'],
+        'data-pds-insights-search-admin' => 'wrapper',
+      ],
     ];
-    $form['insights_search_ui']['panes']['add_person']['fondo_desc'] = [
-      '#type' => 'textarea',
-      '#title' => $this->t('Description'),
-      '#title_attributes' => ['class' => ['js-form-required', 'form-required']],
-      '#rows' => 3,
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['search_controls'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['pds-recipe-insights-search-admin__controls']],
     ];
-    $form['insights_search_ui']['panes']['add_person']['fondo_url'] = [
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['search_controls']['search'] = [
       '#type' => 'textfield',
-      '#title' => $this->t('Destination URL'),
-      '#description' => $this->t('Provide an absolute or theme-relative URL.'),
+      '#title' => $this->t('Search by title'),
+      '#attributes' => [
+        'data-pds-insights-search-admin' => 'input',
+        'placeholder' => $this->t('Type at least 3 characters'),
+        'autocomplete' => 'off',
+      ],
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['search_controls']['button'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Search'),
+      '#attributes' => [
+        'class' => ['button'],
+        'data-pds-insights-search-admin' => 'button',
+      ],
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['results'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['pds-recipe-insights-search-admin__results'],
+        'data-pds-insights-search-admin' => 'results',
+      ],
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['selected'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['pds-recipe-insights-search-admin__selection'],
+        'data-pds-insights-search-admin' => 'selection',
+      ],
+      '#markup' => $this->t('No insight selected.'),
+    ];
+
+    //2.- Add hidden fields that the JS behavior will populate on selection.
+    $add_base_key = \pds_recipe_insights_search_base_key($form, $form_state, ['insights_search_ui', 'panes', 'add_person']);
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['fields'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['pds-recipe-insights-search-admin__fields']],
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['fields']['fondo_name'] = [
+      '#type' => 'hidden',
+      '#attributes' => ['data-pds-insights-search-admin-selected' => 'title'],
+      '#parents' => array_merge($add_base_key, ['fondo_name']),
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['fields']['fondo_desc'] = [
+      '#type' => 'hidden',
+      '#attributes' => ['data-pds-insights-search-admin-selected' => 'summary'],
+      '#parents' => array_merge($add_base_key, ['fondo_desc']),
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['fields']['fondo_url'] = [
+      '#type' => 'hidden',
+      '#attributes' => ['data-pds-insights-search-admin-selected' => 'url'],
+      '#parents' => array_merge($add_base_key, ['fondo_url']),
+    ];
+    $form['insights_search_ui']['panes']['add_person']['search_wrapper']['fields']['fondo_source'] = [
+      '#type' => 'hidden',
+      '#attributes' => ['data-pds-insights-search-admin-selected' => 'source'],
+      '#parents' => array_merge($add_base_key, ['fondo_source']),
     ];
 
     $form['insights_search_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
     $form['insights_search_ui']['panes']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Add Featured Insight'),
+      '#value' => $this->t('Add selected insight'),
       '#name' => 'pds_recipe_insights_search_add_person',
       '#validate' => ['pds_recipe_insights_search_add_person_validate'],
       '#submit' => ['pds_recipe_insights_search_add_person_submit'],
@@ -600,8 +678,9 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $name = $this->cleanText($fondo['title'] ?? ($fondo['name'] ?? ''));
     $desc = $this->cleanText($fondo['description'] ?? ($fondo['desc'] ?? ''));
     $url = $this->sanitizeUrl($fondo['url'] ?? '');
+    $source = isset($fondo['source_nid']) ? (int) $fondo['source_nid'] : 0;
 
-    if ($name === '' && $desc === '' && $url === '') {
+    if ($name === '' && $desc === '' && $url === '' && $source <= 0) {
       return NULL;
     }
 
@@ -614,6 +693,9 @@ final class PdsInsightsSearchBlock extends BlockBase {
     }
     if ($url !== '') {
       $clean['url'] = $url;
+    }
+    if ($source > 0) {
+      $clean['source_nid'] = $source;
     }
 
     return $clean === [] ? NULL : $clean;
