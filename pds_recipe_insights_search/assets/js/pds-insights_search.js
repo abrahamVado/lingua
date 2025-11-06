@@ -7,7 +7,7 @@
 
   Drupal.behaviors.pdsInsights = {
     attach(context) {
-      // Bind once per section
+      //1.- Bind once per insights section and capture shared DOM references.
       once('pds-insights', '.principal-insights', context).forEach((section) => {
         const qInput      = section.querySelector('.search-input');
         const themeBtns   = Array.from(section.querySelectorAll('.theme-tag'));
@@ -22,7 +22,7 @@
         const btnNext     = section.querySelector('.page-next');
         const btnLast     = section.querySelector('.page-last');
 
-        // --- Filters ---
+        //2.- Collect active themes and evaluate if each card passes the applied filters.
         const activeThemes = () =>
           themeBtns.filter(b => b.classList.contains('active'))
                    .map(b => (b.dataset.theme || '').toLowerCase());
@@ -40,6 +40,7 @@
           return matchesSearch && matchesTheme;
         }
 
+        //3.- Apply filters, toggle card visibility, and refresh total + pagination state.
         function applyFilters() {
           let visible = 0;
           cards().forEach(card => {
@@ -54,7 +55,7 @@
           updatePagerButtons();
         }
 
-        // --- Events: themes, search, reset, entries ---
+        //4.- Wire up interactions for theme toggles, live search, reset, and entries selection.
         themeBtns.forEach(btn => {
           btn.addEventListener('click', () => {
             btn.classList.toggle('active');
@@ -79,7 +80,7 @@
           applyFilters();
         });
 
-        // --- Pagination (client-side, cosmetic) ---
+        //5.- Manage pagination button state for the static front-end demonstration.
         function activePageIndex() {
           const active = section.querySelector('.page-number.active');
           return pageNumsBtn().indexOf(active);
@@ -101,6 +102,7 @@
           if (btnNext) btnNext.disabled = i === -1 || i >= pages.length - 1;
         }
 
+        //6.- Attach handlers to individual pagination buttons and navigation controls.
         pageNumsBtn().forEach((b, i) => {
           b.addEventListener('click', () => setActivePage(i));
         });
@@ -116,7 +118,7 @@
           if (i < pageNumsBtn().length - 1) setActivePage(i + 1);
         });
 
-        // Init
+        //7.- Initialize pagination state and apply filters on first render.
         updatePagerButtons();
         applyFilters();
       });
