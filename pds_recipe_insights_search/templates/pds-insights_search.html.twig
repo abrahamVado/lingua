@@ -19,9 +19,17 @@
 {% endif %}
 {% set _heading = heading|default(title|default('Latest insights')) %}
 {% set _icons = icons_path %}
-{% set _featured_items = featured_items|default(items|default([])) %}
-{% set _initial_items = initial_items|default(_featured_items) %}
-{% set _items = items|default(_initial_items) %}
+{% set _featured_items = featured_items|default([]) %}
+{% if _featured_items is empty and items is defined and items|length > 0 %}
+  {% set _featured_items = items %}
+{% endif %}
+
+{% set _initial_items = initial_items|default([]) %}
+{% if _initial_items is empty %}
+  {% set _initial_items = _featured_items %}
+{% endif %}
+
+{% set _items = _initial_items %}
 {% set _total = total|default(_initial_items|length) %}
 
 <section class="principal-insights" {{ attributes|default('') }}>

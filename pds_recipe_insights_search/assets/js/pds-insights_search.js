@@ -70,6 +70,51 @@
           };
         };
 
+        const readItemsFromMarkup = () => {
+          if (!cardsContainer) {
+            return [];
+          }
+
+          const cards = Array.from(cardsContainer.querySelectorAll('.insight-card'));
+          if (!cards.length) {
+            return [];
+          }
+
+          return cards.map((card) => {
+            const themeId = (card.getAttribute('data-theme') || '').toLowerCase();
+            const badge = card.querySelector('.insight-badge');
+            const title = card.querySelector('.insight-card-title');
+            const summary = card.querySelector('.insight-summary');
+            const time = card.querySelector('.insight-time');
+            const author = card.querySelector('.insight-author');
+            const link = card.querySelector('.button-area a');
+
+            let authorText = '';
+            if (author) {
+              const label = author.querySelector('span');
+              authorText = author.textContent || '';
+              if (label) {
+                const labelText = label.textContent || '';
+                if (labelText !== '') {
+                  authorText = authorText.replace(labelText, '');
+                }
+              }
+              authorText = authorText.trim();
+            }
+
+            return normalizeItem({
+              theme_id: themeId,
+              theme_label: badge ? (badge.textContent || '').trim() : '',
+              title: title ? (title.textContent || '').trim() : '',
+              summary: summary ? (summary.textContent || '').trim() : '',
+              read_time: time ? (time.textContent || '').replace('🕒', '').trim() : '',
+              author: authorText,
+              url: link ? link.getAttribute('href') || '' : '',
+              link_text: link ? (link.textContent || '').trim() : defaultLinkText,
+            });
+          });
+        };
+
         const makeDebounce = (fn, delay) => {
           let timer = null;
           const debounced = (...args) => {
@@ -102,8 +147,12 @@
           return items.filter((item) => active.includes((item.theme_id || '').toLowerCase()));
         };
 
-        const initialLimit = entriesSel ? parseLimit(entriesSel.value) : (rawInitialItems.length || 10);
-        const normalizedInitial = rawInitialItems.map(normalizeItem);
+        const baseInitialItems = rawInitialItems.length ? rawInitialItems : rawFeaturedItems;
+        const initialLimit = entriesSel ? parseLimit(entriesSel.value) : (baseInitialItems.length || 10);
+        let normalizedInitial = baseInitialItems.map(normalizeItem);
+        if (!normalizedInitial.length) {
+          normalizedInitial = readItemsFromMarkup();
+        }
 
         const state = {
           componentId,
