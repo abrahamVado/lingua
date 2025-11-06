@@ -41,12 +41,28 @@
           ? settings.linkText
           : Drupal.t('Get our perspective');
         //2.- Extend dataset detection to honor the featuredItems alias delivered by the Twig layer.
-        const rawFeaturedItems = Array.isArray(settings.featuredItems) ? settings.featuredItems : [];
+        const parseDatasetItems = (attribute) => {
+          if (!attribute) {
+            return [];
+          }
+          try {
+            const parsed = JSON.parse(attribute);
+            return Array.isArray(parsed) ? parsed : [];
+          }
+          catch (error) {
+            return [];
+          }
+        };
+
+        const datasetFeaturedItems = cardsContainer ? parseDatasetItems(cardsContainer.dataset.featuredItems) : [];
+        const rawFeaturedItems = Array.isArray(settings.featuredItems) && settings.featuredItems.length
+          ? settings.featuredItems
+          : datasetFeaturedItems;
         const rawInitialItems = Array.isArray(settings.initialItems) && settings.initialItems.length
           ? settings.initialItems
           : rawFeaturedItems;
 
-        //2.- Define helper utilities used by both rendering and network layers.
+        //3.- Define helper utilities used by both rendering and network layers.
         const parseLimit = (value) => {
           const parsed = parseInt(value, 10);
           return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
@@ -169,12 +185,16 @@
         };
 
         let requestToken = 0;
+        let hasUserInteracted = false;
+        const markInteracted = () => {
+          hasUserInteracted = true;
+        };
         const debouncedSearch = makeDebounce((value) => {
           state.page = 0;
           performSearch(value, 0);
         }, 300);
 
-        //3.- Rendering helpers that rebuild the cards list, totals, and pagination controls.
+        //4.- Rendering helpers that rebuild the cards list, totals, and pagination controls.
         function renderCards(items) {
           cardsContainer.innerHTML = '';
           if (!items.length) {
@@ -355,10 +375,23 @@
           renderPagination(pagesRemote, currentRemote, true);
         }
 
-        //4.- Orchestrate server-backed searches with debouncing and race protection.
+        //5.- Orchestrate server-backed searches with debouncing and race protection.
         function performSearch(term, page = 0) {
           const query = typeof term === 'string' ? term.trim() : '';
           state.query = query;
+
+          if (!hasUserInteracted && query === '') {
+            state.results = state.initialItems.slice();
+            state.meta = {
+              total: state.initialItems.length,
+              pages: Math.max(1, Math.ceil((state.initialItems.length || 1) / Math.max(state.limit, 1))),
+              page: 0,
+            };
+            state.page = 0;
+            section.removeAttribute('aria-busy');
+            render();
+            return;
+          }
 
           if (query === '' || !searchUrl) {
             state.results = state.initialItems.slice();
@@ -450,8 +483,9 @@
           render();
         }
 
-        //5.- Wire interactive controls: live search, reset, theme toggles, entries, and pagination.
+        //6.- Wire interactive controls: live search, reset, theme toggles, entries, and pagination.
         qInput?.addEventListener('input', (event) => {
+          markInteracted();
           debouncedSearch(event.target.value || '');
         });
 
@@ -459,6 +493,7 @@
           if (event.key === 'Enter') {
             event.preventDefault();
             debouncedSearch.cancel();
+            markInteracted();
             performSearch(qInput.value || '', 0);
           }
         });
@@ -466,12 +501,14 @@
         searchButton?.addEventListener('click', (event) => {
           event.preventDefault();
           debouncedSearch.cancel();
+          markInteracted();
           performSearch(qInput?.value || '', 0);
         });
 
         resetButton?.addEventListener('click', (event) => {
           event.preventDefault();
           debouncedSearch.cancel();
+          markInteracted();
           if (qInput) {
             qInput.value = '';
           }
@@ -495,6 +532,7 @@
           const nextLimit = parseLimit(event.target.value);
           state.limit = nextLimit;
           state.page = 0;
+          markInteracted();
           if (state.query === '') {
             render();
           }
@@ -504,7 +542,7 @@
           }
         });
 
-        //6.- Render the admin-provided dataset on first load.
+        //7.- Render the admin-provided dataset on first load.
         if (entriesSel) {
           entriesSel.value = String(state.limit);
         }

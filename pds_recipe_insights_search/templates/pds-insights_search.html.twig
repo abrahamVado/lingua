@@ -31,6 +31,8 @@
 
 {% set _items = _initial_items %}
 {% set _total = total|default(_initial_items|length) %}
+{% set _featured_json = _featured_items is empty ? '[]' : _featured_items|json_encode %}
+{% set _featured_attr = _featured_json ? _featured_json|e('html_attr') : '[]' %}
 
 <section class="principal-insights" {{ attributes|default('') }}>
   <div class="container">
@@ -84,7 +86,12 @@
         </div>
       </div>
 
-      <div class="insights-cards" data-empty-message="{{ 'No results found.'|t }}" data-icons-path="{{ _icons }}">
+      <div
+        class="insights-cards"
+        data-empty-message="{{ 'No results found.'|t }}"
+        data-icons-path="{{ _icons }}"
+        data-featured-items="{{ _featured_attr }}"
+      >
         {% for item in _items %}
           <div class="insight-card" data-theme="{{ item.theme_id|e }}">
             {% if item.theme_label %}

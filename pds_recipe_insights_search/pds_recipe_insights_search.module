@@ -65,6 +65,12 @@ function pds_recipe_insights_search_preprocess_pds_insights_search(array &$vars)
   //3.- Surface the curated dataset to drupalSettings for the front-end behavior when the block build omitted it.
   $component_id = isset($vars['component_id']) ? (string) $vars['component_id'] : '';
   if ($component_id !== '') {
+    if (!isset($vars['#attached'])) {
+      $vars['#attached'] = [];
+    }
+    if (!isset($vars['#attached']['drupalSettings'])) {
+      $vars['#attached']['drupalSettings'] = [];
+    }
     if (!isset($vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id])) {
       $vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id] = [];
     }
