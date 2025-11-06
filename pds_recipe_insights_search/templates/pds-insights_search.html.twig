@@ -14,8 +14,15 @@
   - icons_path: '/themes/custom/your_theme/icons'
 #}
 
-{% set _heading = heading|default('Latest insights') %}
+{% set attributes = attributes|default(create_attribute()) %}
+{% if component_id|default('') %}
+  {% set attributes = attributes.setAttribute('data-pds-insights-search-id', component_id) %}
+{% endif %}
+{% set _heading = heading|default(title|default('Latest insights')) %}
 {% set _icons = icons_path|default('/icons') %}
+{% set _initial_items = initial_items|default(items|default([])) %}
+{% set _items = items|default(_initial_items) %}
+{% set _total = total|default(_initial_items|length) %}
 
 <section class="principal-insights" {{ attributes|default('') }}>
   <div class="container">
@@ -49,7 +56,7 @@
         </div>
 
         <div class="total-results" data-total>
-          {% if total is defined %}{{ total }} {{ 'total results'|t }}{% endif %}
+          {{ _total }} {{ 'total results'|t }}
         </div>
 
         <div class="explore-themes">
@@ -68,8 +75,8 @@
         </div>
       </div>
 
-      <div class="insights-cards">
-        {% for item in items|default([]) %}
+      <div class="insights-cards" data-empty-message="{{ 'No results found.'|t }}" data-icons-path="{{ _icons }}">
+        {% for item in _items %}
           <div class="insight-card" data-theme="{{ item.theme_id|e }}">
             {% if item.theme_label %}
               <span class="insight-badge {{ item.theme_id|e }}">{{ item.theme_label }}</span>
