@@ -62,6 +62,20 @@ function pds_recipe_insights_search_preprocess_pds_insights_search(array &$vars)
     $vars['initial_items'] = $vars['featured_items'];
   }
 
+  //3.- Surface the curated dataset to drupalSettings for the front-end behavior when the block build omitted it.
+  $component_id = isset($vars['component_id']) ? (string) $vars['component_id'] : '';
+  if ($component_id !== '') {
+    if (!isset($vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id])) {
+      $vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id] = [];
+    }
+    if (!isset($vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id]['featuredItems'])) {
+      $vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id]['featuredItems'] = $vars['featured_items'];
+    }
+    if (!isset($vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id]['initialItems'])) {
+      $vars['#attached']['drupalSettings']['pdsInsightsSearch'][$component_id]['initialItems'] = $vars['initial_items'];
+    }
+  }
+
   // Module relative path, e.g. modules/custom/.../pds_recipe_insights_search
   $module_rel = \Drupal::service('extension.list.module')->getPath('pds_recipe_insights_search');
   // Site base path, handles subdirs.
