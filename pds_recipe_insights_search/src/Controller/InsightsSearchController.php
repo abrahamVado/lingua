@@ -15,26 +15,12 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
-/**
- * Provides JSON search results for Insights content.
- */
 final class InsightsSearchController extends ControllerBase {
 
-  /**
-   * Maximum number of results returned per request.
-   */
   private const MAX_PAGE_SIZE = 50;
-
-  /**
-   * Default number of results returned per request.
-   */
   private const DEFAULT_PAGE_SIZE = 10;
 
-  /**
-   * Cached field definitions for the Insights bundle.
-   *
-   * @var array<string, \Drupal\Core\Field\FieldDefinitionInterface>
-   */
+  /** @var array<string, \Drupal\Core\Field\FieldDefinitionInterface> */
   private array $fieldDefinitions = [];
 
   public function __construct(
@@ -42,9 +28,6 @@ final class InsightsSearchController extends ControllerBase {
     private readonly EntityFieldManagerInterface $entityFieldManager,
   ) {}
 
-  /**
-   * {@inheritdoc}
-   */
   public static function create(ContainerInterface $container): static {
     return new static(
       $container->get('date.formatter'),
@@ -52,28 +35,20 @@ final class InsightsSearchController extends ControllerBase {
     );
   }
 
-  /**
-   * Returns search results for the Insights content type.
-   */
   public function search(Request $request): JsonResponse {
-    // 1) Ensure the "insights" content type exists.
+    // Ensure bundle exists.
     $nodeTypeStorage = $this->entityTypeManager()->getStorage('node_type');
     if (!$nodeTypeStorage->load('insights')) {
-      return new JsonResponse([
-        'error' => 'The "insights" content type is not available.',
-      ], JsonResponse::HTTP_NOT_FOUND);
+      return new JsonResponse(['error' => 'The "insights" content type is not available.'], 404);
     }
 
-    // 2) Normalize pagination and search params.
+    // Params.
     $keywords = trim((string) $request->query->get('q', ''));
-    $limit = (int) $request->query->get('limit', self::DEFAULT_PAGE_SIZE);
-    $limit = max(1, min(self::MAX_PAGE_SIZE, $limit));
-    $pageParam = $request->query->get('page', 0);
-    $page = is_numeric($pageParam) ? (int) $pageParam : 0;
-    $page = max(0, $page);
-    $offset = $page * $limit;
+    $limit    = max(1, min(self::MAX_PAGE_SIZE, (int) $request->query->get('limit', self::DEFAULT_PAGE_SIZE)));
+    $page     = max(0, (int) ($request->query->get('page', 0)));
+    $offset   = $page * $limit;
 
-    // 3) Build the EntityQuery for published Insights.
+    // Query.
     $storage = $this->entityTypeManager()->getStorage('node');
     $query = $storage->getQuery()
       ->accessCheck(TRUE)
@@ -82,41 +57,53 @@ final class InsightsSearchController extends ControllerBase {
       ->sort('created', 'DESC');
 
     if ($keywords !== '') {
-      $group = $query->orConditionGroup()
-        ->condition('title', $keywords, 'CONTAINS');
+      $group = $query->orConditionGroup()->condition('title', $keywords, 'CONTAINS');
       if ($this->hasField('body')) {
         $group->condition('body.value', $keywords, 'CONTAINS');
       }
       $query->condition($group);
     }
 
-    // 4) Count total before paging.
     $total = (int) (clone $query)->count()->execute();
-
-    // 5) Apply range and load nodes.
     $query->range($offset, $limit);
-    $nids = $query->execute();
+    $nids  = $query->execute();
     $nodes = $nids ? $storage->loadMultiple($nids) : [];
 
-    // 6) Map entities to lightweight items.
+    // Base cacheability.
+    $cacheability = (new CacheableMetadata())
+      ->setCacheMaxAge(300)
+      ->addCacheContexts(['url.query_args:q', 'url.query_args:limit', 'url.query_args:page'])
+      ->addCacheTags(['node_list', 'node:insights']);
+
+    // Build items. Capture bubbleable metadata from URLs explicitly.
     $items = [];
     foreach ($nodes as $node) {
       if (!$node instanceof NodeInterface) {
         continue;
       }
+
+      $generated = $node->toUrl('canonical', ['absolute' => TRUE])->toString(TRUE);
+      $url = $generated->getGeneratedUrl();
+
+      // Add bubbleable dependencies explicitly. This prevents “leaked metadata”.
+      $cacheability->addCacheableDependency($generated);
+      $cacheability->addCacheableDependency($node);
+      if ($owner = $node->getOwner()) {
+        $cacheability->addCacheableDependency($owner);
+      }
+
       $items[] = [
         'id'        => (int) $node->id(),
         'title'     => $node->label(),
         'summary'   => $this->extractSummary($node),
-        'author'    => $node->getOwner()?->getDisplayName() ?? '',
+        'author'    => $owner?->getDisplayName() ?? '',
         'created'   => $this->dateFormatter->format($node->getCreatedTime(), 'custom', DATE_ATOM),
-        'url'       => $node->toUrl('canonical', ['absolute' => TRUE])->toString(),
+        'url'       => $url,
         'theme'     => $this->extractTheme($node),
         'read_time' => $this->extractReadTime($node),
       ];
     }
 
-    // 7) Cache-aware JSON response.
     $payload = [
       'meta' => [
         'query' => $keywords,
@@ -128,28 +115,14 @@ final class InsightsSearchController extends ControllerBase {
       'data' => $items,
     ];
 
-    $response = new CacheableJsonResponse($payload);
-    $cacheability = (new CacheableMetadata())
-      ->setCacheMaxAge(300)
-      ->addCacheContexts([
-        'url.query_args:q',
-        'url.query_args:limit',
-        'url.query_args:page',
-      ])
-      ->addCacheTags([
-        'node_list',
-        'node:insights',
-      ]);
+    $response = new CacheableJsonResponse($payload, 200, [
+      'Cache-Control' => 'public, max-age=300',
+    ]);
     $response->addCacheableDependency($cacheability);
-
     return $response;
   }
 
-  /**
-   * Extracts a summary for the node.
-   */
   private function extractSummary(NodeInterface $node): string {
-    // Prefer explicit summary-type fields.
     foreach (['field_summary', 'field_resumen', 'field_short_description'] as $field) {
       if ($node->hasField($field) && !$node->get($field)->isEmpty()) {
         $value = (string) $node->get($field)->value;
@@ -159,8 +132,6 @@ final class InsightsSearchController extends ControllerBase {
         }
       }
     }
-
-    // Fallback to body.
     if ($node->hasField('body') && !$node->get('body')->isEmpty()) {
       $item = $node->get('body')->first();
       if ($item) {
@@ -172,29 +143,18 @@ final class InsightsSearchController extends ControllerBase {
     return '';
   }
 
-  /**
-   * Extracts theme info if present.
-   *
-   * @return array{ id: int|null, label: string }
-   */
   private function extractTheme(NodeInterface $node): array {
     foreach (['field_theme', 'field_tema'] as $field) {
       if ($node->hasField($field) && !$node->get($field)->isEmpty()) {
         $term = $node->get($field)->entity;
         if ($term) {
-          return [
-            'id' => (int) $term->id(),
-            'label' => $term->label(),
-          ];
+          return ['id' => (int) $term->id(), 'label' => $term->label()];
         }
       }
     }
     return ['id' => null, 'label' => ''];
   }
 
-  /**
-   * Extracts read time if available.
-   */
   private function extractReadTime(NodeInterface $node): string {
     foreach (['field_read_time', 'field_tiempo_de_lectura'] as $field) {
       if ($node->hasField($field) && !$node->get($field)->isEmpty()) {
@@ -204,9 +164,6 @@ final class InsightsSearchController extends ControllerBase {
     return '';
   }
 
-  /**
-   * Checks if the Insights bundle has a field.
-   */
   private function hasField(string $fieldName): bool {
     if ($this->fieldDefinitions === []) {
       $definitions = $this->entityFieldManager->getFieldDefinitions('node', 'insights');
@@ -214,5 +171,4 @@ final class InsightsSearchController extends ControllerBase {
     }
     return isset($this->fieldDefinitions[$fieldName]);
   }
-
 }
