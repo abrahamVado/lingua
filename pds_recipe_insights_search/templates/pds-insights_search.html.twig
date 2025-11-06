@@ -1,0 +1,144 @@
+{# templates/insights/insights.html.twig #}
+{{ attach_library('pds_insights/insights') }}
+
+{# Inputs (all optional)
+  - heading: string
+  - search_placeholder: string
+  - total: int
+  - themes: [{ id: 'global', label: 'Global', active: true }, ...]
+  - items: [{
+      theme_id, theme_label, title, read_time, summary, author, url, link_text
+    }, ...]
+  - pages: [1,2,3,...]
+  - entries: 8|16|24
+  - icons_path: '/themes/custom/your_theme/icons'
+#}
+
+{% set _heading = heading|default('Latest insights') %}
+{% set _icons = icons_path|default('/icons') %}
+
+<section class="principal-insights" {{ attributes|default('') }}>
+  <div class="container">
+    <div class="principal-row-container">
+
+      <div class="head-row">
+        <h2>{{ _heading }}</h2>
+
+        <div class="insights-filters">
+          <div class="search-bar">
+            <input
+              type="text"
+              class="search-input"
+              placeholder="{{ search_placeholder|default('Search') }}"
+              aria-label="{{ 'Search insights'|t }}"
+            />
+            <button class="search-button" aria-label="{{ 'Search'|t }}">
+              <img src="{{ _icons }}/search.svg" alt="" aria-hidden="true" />
+            </button>
+          </div>
+
+          <div class="filter-actions">
+            <button class="filter-button" aria-haspopup="true" aria-expanded="false">
+              {{ 'Filter by'|t }}
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+                <path d="M3 5L6 8L9 5" stroke="#0071B3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button class="reset-button reset-abs" aria-label="{{ 'Reset all filters'|t }}">{{ 'Reset All'|t }}</button>
+          </div>
+        </div>
+
+        <div class="total-results" data-total>
+          {% if total is defined %}{{ total }} {{ 'total results'|t }}{% endif %}
+        </div>
+
+        <div class="explore-themes">
+          <h3>{{ 'Explore themes'|t }}</h3>
+          <div class="theme-tags">
+            {% for theme in themes|default([
+              {'id':'global','label':'Global','active':true},
+              {'id':'latam','label':'LATAM','active':false}
+            ]) %}
+              <button
+                class="theme-tag {{ theme.active ? 'active' }}"
+                data-theme="{{ theme.id|e }}"
+              >{{ theme.label }}</button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="insights-cards">
+        {% for item in items|default([]) %}
+          <div class="insight-card" data-theme="{{ item.theme_id|e }}">
+            {% if item.theme_label %}
+              <span class="insight-badge">{{ item.theme_label }}</span>
+            {% endif %}
+
+            <h3 class="insight-card-title">{{ item.title }}</h3>
+
+            <div class="insight-meta">
+              {% if item.read_time %}
+                <span class="insight-time">🕒 {{ item.read_time }}</span>
+              {% endif %}
+            </div>
+
+            {% if item.summary %}
+              <p class="insight-summary">{{ item.summary }}</p>
+            {% endif %}
+
+            {% if item.author %}
+              <div class="insight-author"><span>{{ 'By'|t }}</span> {{ item.author }}</div>
+            {% endif %}
+
+            <div class="button-area">
+              <a href="{{ item.url|default('#') }}" class="principal-link principal-link--subtle">
+                {{ item.link_text|default('Get our perspective'|t) }}
+              </a>
+              <div class="img-area">
+                <img src="{{ _icons }}/arrow-right.svg" alt="" aria-hidden="true" />
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <p>{{ 'No results found.'|t }}</p>
+        {% endfor %}
+      </div>
+
+      <div class="insights-pagination">
+        <div class="pagination-entries">
+          <label for="entries-select">{{ 'Show'|t }}</label>
+          <select class="entries-select" id="entries-select">
+            {% for n in [8,16,24] %}
+              <option value="{{ n }}" {{ n == (entries|default(8)) ? 'selected' }}>{{ n }}</option>
+            {% endfor %}
+          </select>
+          <span>{{ 'entries'|t }}</span>
+        </div>
+
+        <div class="pagination-controls">
+          <button class="page-first" aria-label="{{ 'First page'|t }}">
+            <img src="{{ _icons }}/first-page.svg" alt="" aria-hidden="true" />
+          </button>
+          <button class="page-prev" aria-label="{{ 'Previous page'|t }}" disabled>
+            <img src="{{ _icons }}/left-filter.png" alt="" aria-hidden="true" />
+          </button>
+
+          <div class="page-numbers">
+            {% for p in pages|default([1,2,3]) %}
+              <button class="page-number {{ loop.first ? 'active' }}">{{ p }}</button>
+            {% endfor %}
+          </div>
+
+          <button class="page-next" aria-label="{{ 'Next page'|t }}">
+            <img src="{{ _icons }}/next-page.svg" alt="" aria-hidden="true" />
+          </button>
+          <button class="page-last" aria-label="{{ 'Last page'|t }}">
+            <img src="{{ _icons }}/last-page.svg" alt="" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
