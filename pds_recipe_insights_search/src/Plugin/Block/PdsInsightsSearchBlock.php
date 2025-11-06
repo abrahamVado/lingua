@@ -187,7 +187,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
         'access' => TRUE,
       ],
       'people' => [
-        'label' => (string) $this->t('InsightsSearch'),
+        'label' => (string) $this->t('Featured Insights'),
         'pane_key' => 'people',
         'tab_id' => 'tab-people',
         'pane_id' => 'pane-people',
@@ -310,7 +310,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $form['insights_search_ui']['panes']['add_person']['actions'] = ['#type' => 'actions'];
     $form['insights_search_ui']['panes']['add_person']['actions']['add_person'] = [
       '#type' => 'submit',
-      '#value' => $this->t('Add fondo'),
+      '#value' => $this->t('Add Featured Insight'),
       '#name' => 'pds_recipe_insights_search_add_person',
       '#validate' => ['pds_recipe_insights_search_add_person_validate'],
       '#submit' => ['pds_recipe_insights_search_add_person_submit'],
@@ -331,12 +331,12 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $form['insights_search_ui']['panes']['people_list']['heading'] = [
       '#type' => 'html_tag',
       '#tag' => 'h2',
-      '#value' => $this->t('InsightsSearch'),
+      '#value' => $this->t('Featured Insights'),
     ];
     $form['insights_search_ui']['panes']['people_list']['description'] = [
       '#type' => 'html_tag',
       '#tag' => 'p',
-      '#value' => $this->t('Review, edit or remove existing cards.'),
+      '#value' => $this->t('Manage the list of featured insights shown in the frontend.'),
     ];
 
     $form['insights_search_ui']['panes']['people_list']['people'] = [
@@ -349,7 +349,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
         $this->t('Edit'),
         $this->t('Remove'),
       ],
-      '#empty' => $this->t('No fondos yet. Add one using the Add New tab.'),
+      '#empty' => $this->t('No insights yet. Add one using the Add New tab.'),
     ];
 
     foreach ($working as $index => $fondo) {
