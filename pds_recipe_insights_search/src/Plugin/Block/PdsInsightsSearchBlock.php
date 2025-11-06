@@ -11,6 +11,8 @@ use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Form\SubformStateInterface;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Template\Attribute;
+use Drupal\Core\Url;
 
 /**
  * Provides the "Principal InsightsSearch" block.
@@ -35,17 +37,19 @@ final class PdsInsightsSearchBlock extends BlockBase {
 
   /**
    * {@inheritdoc}
-   */
+  */
   public function build(): array {
     $cfg = $this->getConfiguration();
     $raw_fondos = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
     $fondos_cfg = is_array($raw_fondos) ? $raw_fondos : [];
 
     $fondos = [];
+    $initial_cards = [];
     $icon_url = $this->buildAssetUrl('assets/images/icon.png');
     $arrow_url = $this->buildAssetUrl('assets/images/flecha.png');
+    $link_text = (string) $this->t('Get our perspective');
 
-    // Sanitize each fondo and convert allowed inline HTML to safe Markup.
+    //1.- Sanitize stored cards and capture plain-text variants for the frontend.
     foreach ($fondos_cfg as $index => $item) {
       if (!is_array($item)) {
         continue;
@@ -74,18 +78,59 @@ final class PdsInsightsSearchBlock extends BlockBase {
       }
 
       $fondos[] = $fondo;
+
+      $title_plain = Html::decodeEntities(strip_tags($name));
+      $summary_plain = Html::decodeEntities(strip_tags($desc));
+      if ($title_plain === '' && $name !== '') {
+        $title_plain = $name;
+      }
+      if ($summary_plain === '' && $desc !== '') {
+        $summary_plain = $desc;
+      }
+
+      $initial_cards[] = [
+        'id' => 'admin-' . ($index + 1),
+        'theme_id' => 'admin',
+        'theme_label' => '',
+        'title' => $title_plain,
+        'summary' => $summary_plain,
+        'author' => '',
+        'read_time' => '',
+        'url' => $url !== '' ? $url : '#',
+        'link_text' => $link_text,
+      ];
     }
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
+    $component_id = Html::getUniqueId('pds-insights-search');
+    $attributes = new Attribute([
+      'data-pds-insights-search-id' => $component_id,
+    ]);
+    $search_url = Url::fromRoute('pds_recipe_insights_search.api.search')->toString();
 
+    //2.- Compose render array with metadata and front-end configuration.
     return [
       '#theme' => 'pds_insights_search',
       '#title' => $title,
       '#fondos' => $fondos,
+      '#items' => $initial_cards,
+      '#initial_items' => $initial_cards,
+      '#total' => count($initial_cards),
+      '#component_id' => $component_id,
+      '#attributes' => $attributes,
       '#icon_url' => $icon_url,
       '#arrow_url' => $arrow_url,
       '#attached' => [
         'library' => ['pds_recipe_insights_search/insights_search'],
+        'drupalSettings' => [
+          'pdsInsightsSearch' => [
+            $component_id => [
+              'initialItems' => $initial_cards,
+              'searchUrl' => $search_url,
+              'linkText' => $link_text,
+            ],
+          ],
+        ],
       ],
     ];
   }

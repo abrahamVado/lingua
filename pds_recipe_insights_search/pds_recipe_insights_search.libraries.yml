@@ -17,6 +17,7 @@ insights_search:
   dependencies:
     - core/drupal
     - core/once
+    - core/drupalSettings
 
 admin.vertical_tabs:
   version: 1.x
