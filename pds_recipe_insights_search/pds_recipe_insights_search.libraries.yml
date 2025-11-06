@@ -29,3 +29,12 @@ admin.vertical_tabs:
   dependencies:
     - core/drupal
     - core/once
+
+admin.search:
+  version: 1.x
+  js:
+    js/pds-recipe-insights-search-admin-search.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+    - core/drupalSettings

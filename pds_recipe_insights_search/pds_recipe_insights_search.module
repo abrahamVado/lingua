@@ -82,12 +82,15 @@ function pds_recipe_insights_search_add_person_validate(array &$form, FormStateI
   $name = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_name'])));
   $desc = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_desc'])));
   $url = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_url'])));
+  $source = trim((string) $form_state->getValue(array_merge($base_key, ['fondo_source'])));
+  $source_id = ctype_digit($source) ? (int) $source : 0;
 
   //2.- Validate minimal requirements for a card.
-  if ($name === '') {
-    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Title is required.'));
+  if ($name === '' || $source_id <= 0) {
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_name'])), t('Select an insight from the search results.'));
+    $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_source'])), t('Select an insight from the search results.'));
   }
-  if ($desc === '') {
+  if ($desc === '' && $source_id <= 0) {
     $form_state->setErrorByName(implode('][', array_merge($base_key, ['fondo_desc'])), t('Description is required.'));
   }
 
@@ -112,6 +115,9 @@ function pds_recipe_insights_search_add_person_validate(array &$form, FormStateI
   ];
   if ($url !== '') {
     $payload['url'] = $url;
+  }
+  if ($source_id > 0) {
+    $payload['source_nid'] = $source_id;
   }
 
   $form_state->set('pds_recipe_insights_search_add_person_new_fondo', $payload);
@@ -147,26 +153,26 @@ function pds_recipe_insights_search_add_person_submit(array &$form, FormStateInt
   }
 
   //3.- Reset author-facing inputs for the next addition.
-  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_source'] as $key) {
     $form_state->setValue(array_merge($base_key, [$key]), '');
   }
   $user_input = $form_state->getUserInput();
   if (!is_array($user_input)) {
     $user_input = [];
   }
-  foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+  foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_source'] as $key) {
     NestedArray::setValue($user_input, array_merge($base_key, [$key]), '');
   }
   $form_state->setUserInput($user_input);
   if ($parent_state) {
-    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_source'] as $key) {
       $parent_state->setValue(array_merge($base_key, [$key]), '');
     }
     $parent_input = $parent_state->getUserInput();
     if (!is_array($parent_input)) {
       $parent_input = [];
     }
-    foreach (['fondo_name', 'fondo_desc', 'fondo_url'] as $key) {
+    foreach (['fondo_name', 'fondo_desc', 'fondo_url', 'fondo_source'] as $key) {
       NestedArray::setValue($parent_input, array_merge($base_key, [$key]), '');
     }
     $parent_state->setUserInput($parent_input);
