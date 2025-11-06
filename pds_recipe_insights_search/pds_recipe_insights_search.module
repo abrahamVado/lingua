@@ -19,7 +19,18 @@ function pds_recipe_insights_search_theme($existing, $type, $theme, $path) {
       'variables' => [
         // Page heading and data are optional; Twig sets fallbacks.
         'title' => '',
+        'heading' => '',
+        'search_placeholder' => '',
         'fondos' => [],
+        'items' => [],
+        'featured_items' => [],
+        'initial_items' => [],
+        'themes' => [],
+        'pages' => [],
+        'entries' => 0,
+        'total' => 0,
+        'component_id' => '',
+        'attributes' => NULL,
         // Per-icon URLs are optional; preprocess fills them using icons_path.
         'icon_url' => '',
         'arrow_url' => '',
@@ -41,6 +52,16 @@ function pds_recipe_insights_search_theme($existing, $type, $theme, $path) {
  */
 
 function pds_recipe_insights_search_preprocess_pds_insights_search(array &$vars): void {
+  //1.- Ensure featured items always have a source by falling back to the base items.
+  if (empty($vars['featured_items']) && !empty($vars['items']) && is_array($vars['items'])) {
+    $vars['featured_items'] = $vars['items'];
+  }
+
+  //2.- Guarantee the initial dataset mirrors the featured collection when not provided explicitly.
+  if (empty($vars['initial_items']) && !empty($vars['featured_items']) && is_array($vars['featured_items'])) {
+    $vars['initial_items'] = $vars['featured_items'];
+  }
+
   // Module relative path, e.g. modules/custom/.../pds_recipe_insights_search
   $module_rel = \Drupal::service('extension.list.module')->getPath('pds_recipe_insights_search');
   // Site base path, handles subdirs.
