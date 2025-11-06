@@ -58,11 +58,13 @@ final class PdsInsightsSearchBlock extends BlockBase {
     // Frontend search endpoint for live results.
     $search_url = Url::fromRoute('pds_recipe_insights_search.api.search')->toString();
 
+    //1.- Build the render array ensuring featured items flow to Twig and JS consumers.
     return [
       '#theme' => 'pds_insights_search',
       '#title' => $title,
       '#items' => $items,
       '#initial_items' => $items,
+      '#featured_items' => $items,
       '#total' => count($items),
       '#component_id' => $component_id,
       '#attributes' => $attributes,
@@ -72,7 +74,9 @@ final class PdsInsightsSearchBlock extends BlockBase {
         'drupalSettings' => [
           'pdsInsightsSearch' => [
             $component_id => [
+              //2.- Provide both legacy and explicit featured datasets for the frontend behavior.
               'initialItems' => $items,
+              'featuredItems' => $items,
               'searchUrl' => $search_url,
               'linkText' => $link_text,
             ],

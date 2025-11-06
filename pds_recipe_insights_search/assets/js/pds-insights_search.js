@@ -40,7 +40,11 @@
         const defaultLinkText = typeof settings.linkText === 'string' && settings.linkText
           ? settings.linkText
           : Drupal.t('Get our perspective');
-        const rawInitialItems = Array.isArray(settings.initialItems) ? settings.initialItems : [];
+        //2.- Extend dataset detection to honor the featuredItems alias delivered by the Twig layer.
+        const rawFeaturedItems = Array.isArray(settings.featuredItems) ? settings.featuredItems : [];
+        const rawInitialItems = Array.isArray(settings.initialItems) && settings.initialItems.length
+          ? settings.initialItems
+          : rawFeaturedItems;
 
         //2.- Define helper utilities used by both rendering and network layers.
         const parseLimit = (value) => {
