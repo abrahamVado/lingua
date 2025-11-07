@@ -127,27 +127,39 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $featured_node_ids = [];
     $page_size = 6;
 
-    if ($display_mode === 'latest') {
-      //2.- Load the latest insights directly when the admin opts out of curated content.
-      [$items, $cache_tags] = $this->buildLatestInsightsItems($page_size, $link_text);
-    }
-    else {
-      //3.- Read saved entries from config (supports legacy key "insights_search").
-      $stored = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
-      $stored = is_array($stored) ? $stored : [];
+    //2.- Read saved entries from config (supports legacy key "insights_search").
+    $stored = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
+    $stored = is_array($stored) ? $stored : [];
 
-      //4.- Map saved config → frontend items (node-backed preferred).
-      [$items, $cache_tags] = $this->buildItemsFromSavedFondos($stored, $link_text);
-      $featured_items = $items;
+    //3.- Map saved config → frontend items (node-backed preferred).
+    [$curated_items, $curated_cache_tags] = $this->buildItemsFromSavedFondos($stored, $link_text);
+    $cache_tags = array_merge($cache_tags, $curated_cache_tags);
+
+    if ($display_mode === 'latest') {
+      //4.- Combine curated selections with the automatic feed so "Latest" still highlights featured insights first.
+      $featured_items = $curated_items;
       $featured_node_ids = $this->collectNodeIdentifiers($featured_items);
 
-      //5.- Prepare the automatic insights catalog so pagination can surface every published node once curated items end.
       $catalog = $this->buildLatestInsightsCatalog($page_size, $link_text, $featured_node_ids);
       $non_featured_items = $catalog['items'];
       $non_featured_total = $catalog['total'];
       $cache_tags = array_merge($cache_tags, $catalog['cache_tags']);
 
-      //6.- Keep the first page curated so featured items occupy the opening view while pagination exposes the remaining catalog.
+      $items = $this->mergeFeaturedFirstPage($featured_items, $non_featured_items, $page_size, TRUE);
+    }
+    else {
+      //5.- Preserve the legacy curated flow while keeping automatic fillers for pagination.
+      $items = $curated_items;
+      $featured_items = $curated_items;
+      $featured_node_ids = $this->collectNodeIdentifiers($featured_items);
+
+      //6.- Prepare the automatic insights catalog so pagination can surface every published node once curated items end.
+      $catalog = $this->buildLatestInsightsCatalog($page_size, $link_text, $featured_node_ids);
+      $non_featured_items = $catalog['items'];
+      $non_featured_total = $catalog['total'];
+      $cache_tags = array_merge($cache_tags, $catalog['cache_tags']);
+
+      //7.- Keep the first page curated so featured items occupy the opening view while pagination exposes the remaining catalog.
       $items = $this->mergeFeaturedFirstPage($featured_items, $non_featured_items, $page_size);
     }
 
@@ -160,7 +172,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $search_url = Url::fromRoute('pds_recipe_insights_search.api.search')->toString();
 
     $total_unique_items = count($items);
-    if ($display_mode === 'featured') {
+    if (in_array($display_mode, ['featured', 'latest'], TRUE)) {
       //7.- Combine curated and automatic totals so the pagination reflects the complete Insights catalog.
       $total_unique_items = max($total_unique_items, count($featured_node_ids) + $non_featured_total);
     }
@@ -225,12 +237,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
    *
    * Accepts rows with or without source_nid. Preserves saved order.
    */
-  private function buildLatestInsightsItems(int $limit, string $link_text): array {
-    //1.- Delegate to the catalog builder so both curated and automatic flows reuse the same query logic.
-    $catalog = $this->buildLatestInsightsCatalog($limit, $link_text);
-    return [$catalog['items'], $catalog['cache_tags']];
-  }
-
   private function buildLatestInsightsCatalog(int $limit, string $link_text, array $exclude_nids = [], int $offset = 0): array {
     //1.- Resolve eligible bundles so the automatic catalog mirrors the public search endpoint.
     $bundles = $this->resolveInsightsBundles();
@@ -317,44 +323,37 @@ final class PdsInsightsSearchBlock extends BlockBase {
     return array_values(array_unique(array_filter($ids, static fn ($nid): bool => $nid > 0)));
   }
 
-  private function mergeFeaturedFirstPage(array $featured, array $fallback, int $limit): array {
+  private function mergeFeaturedFirstPage(array $featured, array $fallback, int $limit, bool $fill_with_fallback = FALSE): array {
     //1.- Preserve the editorial order for curated entries so the hero page mirrors the block configuration.
     $result = [];
     $seen = [];
-    foreach ($featured as $item) {
-      if (!is_array($item)) {
-        continue;
+    $max = max(1, $limit);
+
+    $append = function (array $items) use (&$result, &$seen, $max): void {
+      foreach ($items as $item) {
+        if (!is_array($item)) {
+          continue;
+        }
+        $key = $this->itemKey($item);
+        if (isset($seen[$key])) {
+          continue;
+        }
+        $seen[$key] = TRUE;
+        $result[] = $item;
+        if (count($result) >= $max) {
+          break;
+        }
       }
-      $key = $this->itemKey($item);
-      if (isset($seen[$key])) {
-        continue;
-      }
-      $seen[$key] = TRUE;
-      $result[] = $item;
+    };
+
+    $append($featured);
+
+    //2.- Optionally top up with automatic results so "Latest" shows curated entries followed by fresh insights in one page.
+    if ($fill_with_fallback || $result === []) {
+      $append($fallback);
     }
 
-    if ($result !== []) {
-      //2.- Return only curated entries when available so subsequent pages surface the automatic catalog instead of repeating fillers.
-      return array_slice($result, 0, max(1, $limit));
-    }
-
-    //3.- Fall back to automatic items when there are no featured selections so the listing never renders empty.
-    foreach ($fallback as $item) {
-      if (!is_array($item)) {
-        continue;
-      }
-      $key = $this->itemKey($item);
-      if (isset($seen[$key])) {
-        continue;
-      }
-      $seen[$key] = TRUE;
-      $result[] = $item;
-      if (count($result) >= $limit) {
-        break;
-      }
-    }
-
-    return array_slice($result, 0, max(1, $limit));
+    return array_slice($result, 0, $max);
   }
 
   private function itemKey(array $item): string {
