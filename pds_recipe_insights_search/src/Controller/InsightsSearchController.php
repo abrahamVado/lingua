@@ -11,6 +11,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\node\NodeInterface;
+use Drupal\taxonomy\TermInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -19,8 +20,9 @@ final class InsightsSearchController extends ControllerBase {
 
   private const MAX_PAGE_SIZE = 50;
   private const DEFAULT_PAGE_SIZE = 10;
+  private const SUPPORTED_BUNDLES = ['insights', 'insight'];
 
-  /** @var array<string, \Drupal\Core\Field\FieldDefinitionInterface> */
+  /** @var array<string, array<string, \Drupal\Core\Field\FieldDefinitionInterface>> */
   private array $fieldDefinitions = [];
 
   public function __construct(
@@ -36,11 +38,12 @@ final class InsightsSearchController extends ControllerBase {
   }
 
   public function search(Request $request): JsonResponse {
-    // Ensure bundle exists.
-    $nodeTypeStorage = $this->entityTypeManager()->getStorage('node_type');
-    if (!$nodeTypeStorage->load('insights')) {
-      return new JsonResponse(['error' => 'The "insights" content type is not available.'], 404);
+    //1.- Resolve eligible bundles so the endpoint supports either "insights" or similar variants.
+    $bundles = $this->resolveBundles();
+    if ($bundles === []) {
+      return new JsonResponse(['error' => 'No Insights content type is available.'], 404);
     }
+    $this->warmFieldDefinitions($bundles);
 
     // Params.
     $keywords = trim((string) $request->query->get('q', ''));
@@ -53,13 +56,18 @@ final class InsightsSearchController extends ControllerBase {
     $query = $storage->getQuery()
       ->accessCheck(TRUE)
       ->condition('status', NodeInterface::PUBLISHED)
-      ->condition('type', 'insights')
+      ->condition('type', $bundles, 'IN')
       ->sort('created', 'DESC');
 
     if ($keywords !== '') {
+      //2.- Build a flexible OR group that scans title, summaries, and body when present on the bundle.
       $group = $query->orConditionGroup()->condition('title', $keywords, 'CONTAINS');
-      if ($this->hasField('body')) {
+      foreach ($this->getSummaryFieldNames($bundles) as $fieldName) {
+        $group->condition($fieldName . '.value', $keywords, 'CONTAINS');
+      }
+      if ($this->fieldExists('body', $bundles)) {
         $group->condition('body.value', $keywords, 'CONTAINS');
+        $group->condition('body.summary', $keywords, 'CONTAINS');
       }
       $query->condition($group);
     }
@@ -68,12 +76,13 @@ final class InsightsSearchController extends ControllerBase {
     $query->range($offset, $limit);
     $nids  = $query->execute();
     $nodes = $nids ? $storage->loadMultiple($nids) : [];
+    $nodes = $this->applyTranslations($nodes);
 
     // Base cacheability.
     $cacheability = (new CacheableMetadata())
       ->setCacheMaxAge(300)
       ->addCacheContexts(['url.query_args:q', 'url.query_args:limit', 'url.query_args:page'])
-      ->addCacheTags(['node_list', 'node:insights']);
+      ->addCacheTags($this->buildCacheTags($bundles));
 
     // Build items. Capture bubbleable metadata from URLs explicitly.
     $items = [];
@@ -83,25 +92,16 @@ final class InsightsSearchController extends ControllerBase {
       }
 
       $generated = $node->toUrl('canonical', ['absolute' => TRUE])->toString(TRUE);
-      $url = $generated->getGeneratedUrl();
+      $item = $this->buildItem($node, $generated->getGeneratedUrl());
 
-      // Add bubbleable dependencies explicitly. This prevents “leaked metadata”.
+      //3.- Bubble cache metadata from nodes, URLs, and authors so responses stay coherent.
       $cacheability->addCacheableDependency($generated);
       $cacheability->addCacheableDependency($node);
       if ($owner = $node->getOwner()) {
         $cacheability->addCacheableDependency($owner);
       }
 
-      $items[] = [
-        'id'        => (int) $node->id(),
-        'title'     => $node->label(),
-        'summary'   => $this->extractSummary($node),
-        'author'    => $owner?->getDisplayName() ?? '',
-        'created'   => $this->dateFormatter->format($node->getCreatedTime(), 'custom', DATE_ATOM),
-        'url'       => $url,
-        'theme'     => $this->extractTheme($node),
-        'read_time' => $this->extractReadTime($node),
-      ];
+      $items[] = $item;
     }
 
     $payload = [
@@ -124,7 +124,7 @@ final class InsightsSearchController extends ControllerBase {
 
   private function extractSummary(NodeInterface $node): string {
     foreach (['field_summary', 'field_resumen', 'field_short_description'] as $field) {
-      if ($node->hasField($field) && !$node->get($field)->isEmpty()) {
+      if ($this->nodeHasField($node, $field) && !$node->get($field)->isEmpty()) {
         $value = (string) $node->get($field)->value;
         $value = Html::decodeEntities(strip_tags($value));
         if ($value !== '') {
@@ -132,7 +132,7 @@ final class InsightsSearchController extends ControllerBase {
         }
       }
     }
-    if ($node->hasField('body') && !$node->get('body')->isEmpty()) {
+    if ($this->nodeHasField($node, 'body') && !$node->get('body')->isEmpty()) {
       $item = $node->get('body')->first();
       if ($item) {
         $text = (string) ($item->summary ?? $item->value ?? '');
@@ -145,30 +145,136 @@ final class InsightsSearchController extends ControllerBase {
 
   private function extractTheme(NodeInterface $node): array {
     foreach (['field_theme', 'field_tema'] as $field) {
-      if ($node->hasField($field) && !$node->get($field)->isEmpty()) {
+      if ($this->nodeHasField($node, $field) && !$node->get($field)->isEmpty()) {
         $term = $node->get($field)->entity;
-        if ($term) {
-          return ['id' => (int) $term->id(), 'label' => $term->label()];
+        if ($term instanceof TermInterface) {
+          $machine = $this->normalizeTermIdentifier($term);
+          return [
+            'id' => (int) $term->id(),
+            'label' => $term->label(),
+            'machine_name' => $machine,
+          ];
         }
       }
     }
-    return ['id' => null, 'label' => ''];
+    return ['id' => null, 'label' => '', 'machine_name' => ''];
   }
 
   private function extractReadTime(NodeInterface $node): string {
     foreach (['field_read_time', 'field_tiempo_de_lectura'] as $field) {
-      if ($node->hasField($field) && !$node->get($field)->isEmpty()) {
+      if ($this->nodeHasField($node, $field) && !$node->get($field)->isEmpty()) {
         return trim((string) $node->get($field)->value);
       }
     }
     return '';
   }
 
-  private function hasField(string $fieldName): bool {
-    if ($this->fieldDefinitions === []) {
-      $definitions = $this->entityFieldManager->getFieldDefinitions('node', 'insights');
-      $this->fieldDefinitions = is_array($definitions) ? $definitions : [];
+  private function buildItem(NodeInterface $node, string $url): array {
+    $theme = $this->extractTheme($node);
+    $themeId = $theme['machine_name'] ?? '';
+    if ($themeId === '' && isset($theme['id']) && $theme['id'] !== null) {
+      $themeId = (string) $theme['id'];
     }
-    return isset($this->fieldDefinitions[$fieldName]);
+
+    return [
+      'id' => (int) $node->id(),
+      'title' => $node->label(),
+      'summary' => $this->extractSummary($node),
+      'author' => $node->getOwner()?->getDisplayName() ?? '',
+      'created' => $this->dateFormatter->format($node->getCreatedTime(), 'custom', DATE_ATOM),
+      'url' => $url,
+      'theme' => $theme,
+      'theme_id' => $themeId,
+      'theme_label' => $theme['label'] ?? '',
+      'read_time' => $this->extractReadTime($node),
+    ];
+  }
+
+  private function resolveBundles(): array {
+    $storage = $this->entityTypeManager()->getStorage('node_type');
+    $bundles = [];
+
+    foreach (self::SUPPORTED_BUNDLES as $bundle) {
+      if ($storage->load($bundle)) {
+        $bundles[] = $bundle;
+      }
+    }
+
+    if ($bundles === []) {
+      foreach ($storage->loadMultiple() as $machine_name => $definition) {
+        if (str_contains($machine_name, 'insight')) {
+          $bundles[] = $machine_name;
+        }
+      }
+    }
+
+    return array_values(array_unique($bundles));
+  }
+
+  private function warmFieldDefinitions(array $bundles): void {
+    foreach ($bundles as $bundle) {
+      if (!isset($this->fieldDefinitions[$bundle])) {
+        $definitions = $this->entityFieldManager->getFieldDefinitions('node', $bundle);
+        $this->fieldDefinitions[$bundle] = is_array($definitions) ? $definitions : [];
+      }
+    }
+  }
+
+  private function fieldExists(string $fieldName, array $bundles): bool {
+    foreach ($bundles as $bundle) {
+      if (!isset($this->fieldDefinitions[$bundle])) {
+        continue;
+      }
+      if (isset($this->fieldDefinitions[$bundle][$fieldName])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
+  }
+
+  private function nodeHasField(NodeInterface $node, string $fieldName): bool {
+    $bundle = $node->bundle();
+    if (!isset($this->fieldDefinitions[$bundle])) {
+      $this->warmFieldDefinitions([$bundle]);
+    }
+    return isset($this->fieldDefinitions[$bundle][$fieldName]) && $node->hasField($fieldName);
+  }
+
+  private function getSummaryFieldNames(array $bundles): array {
+    $summaryFields = [];
+    foreach (['field_summary', 'field_resumen', 'field_short_description'] as $fieldName) {
+      if ($this->fieldExists($fieldName, $bundles)) {
+        $summaryFields[] = $fieldName;
+      }
+    }
+    return $summaryFields;
+  }
+
+  private function normalizeTermIdentifier(TermInterface $term): string {
+    if ($term->hasField('field_machine_name') && !$term->get('field_machine_name')->isEmpty()) {
+      $value = trim((string) $term->get('field_machine_name')->value ?? '');
+      if ($value !== '') {
+        return mb_strtolower($value);
+      }
+    }
+    return Html::cleanCssIdentifier(mb_strtolower($term->label() ?? ''));
+  }
+
+  private function applyTranslations(array $nodes): array {
+    $currentLangcode = $this->languageManager()->getCurrentLanguage()->getId();
+    foreach ($nodes as $nid => $node) {
+      if ($node instanceof NodeInterface && $node->hasTranslation($currentLangcode)) {
+        $nodes[$nid] = $node->getTranslation($currentLangcode);
+      }
+    }
+    return $nodes;
+  }
+
+  private function buildCacheTags(array $bundles): array {
+    $tags = ['node_list'];
+    foreach ($bundles as $bundle) {
+      $tags[] = 'node_list:' . $bundle;
+    }
+    return array_values(array_unique($tags));
   }
 }
