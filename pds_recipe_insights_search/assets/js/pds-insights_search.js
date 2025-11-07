@@ -414,6 +414,7 @@
           },
           firstPageFeaturedVisible: 0,
           firstPageRemoteVisible: 0,
+          remoteFiltering: initialThemeFilters.tids.length > 0 || initialThemeFilters.slugs.length > 0,
         };
 
         //3.- Reflect any preselected filters so the checkbox grid and tag summary stay synchronized from the first render.
@@ -434,6 +435,12 @@
           state.firstPageRemoteVisible = 0;
         };
 
+        const hasActiveThemeFilters = () => {
+          const tids = state?.themeFilters?.tids || [];
+          const slugs = state?.themeFilters?.slugs || [];
+          return tids.length > 0 || slugs.length > 0;
+        };
+
         const applyThemeFilters = (nextFilters) => {
           const tids = Array.from(new Set((nextFilters?.tids || []).map((tid) => tid.toString())));
           const slugs = Array.from(new Set((nextFilters?.slugs || []).map((slug) => slug.toString().toLowerCase())));
@@ -441,11 +448,27 @@
           syncCheckboxesToState(state.themeFilters);
           renderThemeTags(state.themeFilters);
           resetCatalogCaches();
+          state.remoteFiltering = hasActiveThemeFilters();
         };
 
         const handleFiltersApplied = () => {
           //5.- Restart pagination and trigger the appropriate rendering path whenever filters change.
           state.page = 0;
+          const filtersActive = hasActiveThemeFilters();
+          if (filtersActive) {
+            state.remoteFiltering = true;
+            state.userActed = true;
+            debouncedSearch.cancel();
+            if (state.query !== '') {
+              search(qInput?.value || '', 0);
+            }
+            else {
+              search('', 0, { forceRemote: true });
+            }
+            return;
+          }
+
+          state.remoteFiltering = false;
           if (state.query !== '') {
             debouncedSearch.cancel();
             search(qInput?.value || '', 0);
@@ -714,7 +737,7 @@
         }
 
         function render() {
-          if (state.query !== '') {
+          if (state.query !== '' || state.remoteFiltering) {
             renderRemote();
             return;
           }
@@ -948,12 +971,19 @@
         }
 
         // --- Networking --------------------------------------------------------
-        function search(term, page = 0) {
+        function search(term, page = 0, options = {}) {
           const q = (typeof term === 'string' ? term.trim() : '');
 
-          // Block fetches until user explicitly acted AND query >= 3.
-          if (!state.userActed || q.length < 3 || !searchUrl) {
-            state.query = '';
+          const forceRemote = options?.forceRemote === true;
+          const filtersActive = hasActiveThemeFilters();
+          const endpointAvailable = !!searchUrl;
+          const meetsQueryThreshold = q.length >= 3;
+          const allowRemote = endpointAvailable && (forceRemote || (state.userActed && meetsQueryThreshold));
+
+          if (!allowRemote) {
+            //2.- Fallback to SSR items when remote fetches are unavailable so the component never blanks out.
+            state.remoteFiltering = forceRemote ? filtersActive : false;
+            state.query = forceRemote ? q : '';
             state.results = state.initialItems.slice();
             const baseTotal = featuredMode
               ? Math.max(state.catalog.total, state.featuredItems.length + state.catalog.nonFeaturedTotal)
@@ -964,19 +994,28 @@
               page: 0,
             };
             state.page = 0;
-            // In manual mode, do not repaint SSR unless user already acted
-            if (!manual || state.userActed) render();
+            if (!manual || state.userActed || forceRemote) render();
             return;
           }
 
+          if (forceRemote && !state.userActed) {
+            state.userActed = true;
+          }
+
           state.query = q;
+          state.remoteFiltering = filtersActive;
 
           let u;
           try { u = new URL(searchUrl, window.location.origin); }
           catch { try { u = new URL(searchUrl, window.location.href); } catch { u = null; } }
           if (!u) { render(); return; }
 
-          u.searchParams.set('q', q);
+          if (q !== '') {
+            u.searchParams.set('q', q);
+          }
+          else {
+            u.searchParams.delete('q');
+          }
           u.searchParams.set('limit', String(state.limit));
           u.searchParams.set('page', String(Math.max(0, page)));
           if (state.featuredNodeIds.length) {
@@ -1001,6 +1040,7 @@
                 page: typeof m.page === 'number' ? m.page : 0,
               };
               state.page = state.meta.page;
+              state.remoteFiltering = filtersActive;
               render();
             })
             .catch(() => {
@@ -1008,6 +1048,7 @@
               state.results = [];
               state.meta = { total: 0, pages: 1, page: 0 };
               state.page = 0;
+              state.remoteFiltering = filtersActive;
               render();
             })
             .finally(() => { if (tok === state.token) section.removeAttribute('aria-busy'); });
@@ -1015,7 +1056,14 @@
 
         function goPage(i, remote) {
           const next = Math.max(0, i);
-          if (remote && state.query !== '') { search(state.query, next); return; }
+          if (remote && (state.query !== '' || state.remoteFiltering)) {
+            if (state.remoteFiltering && state.query === '') {
+              search('', next, { forceRemote: true });
+              return;
+            }
+            search(state.query, next);
+            return;
+          }
           state.page = next; render();
         }
 
@@ -1106,6 +1154,12 @@
           if (state.query !== '') {
             debouncedSearch.cancel();
             search(state.query, 0);
+            return;
+          }
+
+          if (state.remoteFiltering) {
+            debouncedSearch.cancel();
+            search('', 0, { forceRemote: true });
             return;
           }
 
