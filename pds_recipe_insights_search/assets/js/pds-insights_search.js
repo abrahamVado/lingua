@@ -31,6 +31,7 @@
         const btnPrev  = section.querySelector('.page-prev');
         const btnNext  = section.querySelector('.page-next');
         const btnLast  = section.querySelector('.page-last');
+        const pagination = section.querySelector('.insights-pagination');
 
         if (!cards) return;
 
@@ -39,11 +40,26 @@
         const iconsPath = cards.dataset.iconsPath || '/icons';
         const searchUrl = typeof settings.searchUrl === 'string' ? settings.searchUrl : '';
         const defaultLinkText = settings.linkText || Drupal.t('Get our perspective');
+        const displayMode = typeof settings.displayMode === 'string'
+          ? settings.displayMode
+          : (section.dataset.displayMode || 'featured');
+        const featuredMode = displayMode === 'featured';
+        if (pagination && featuredMode) {
+          pagination.classList.add('is-hidden');
+          pagination.setAttribute('aria-hidden', 'true');
+        }
 
         // --- Helpers -----------------------------------------------------------
         const parseLimit = (v) => {
           const n = parseInt(v, 10);
           return Number.isFinite(n) && n > 0 ? n : 10;
+        };
+
+        //1.- Toggle the pagination visibility so curated featured items hide controls until a search happens.
+        const setPaginationVisibility = (shouldShow) => {
+          if (!pagination) return;
+          pagination.classList.toggle('is-hidden', !shouldShow);
+          pagination.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
         };
 
         const debounce = (fn, ms) => {
@@ -265,6 +281,9 @@
           const source = state.query === '' ? state.initialItems : state.results;
           const filtered = filterByTheme(source);
           const remote = state.query !== '';
+
+          //2.- Featured mode hides pagination until a manual search or remote response is active.
+          setPaginationVisibility(!featuredMode || remote);
 
           if (!remote) {
             const total = filtered.length;
