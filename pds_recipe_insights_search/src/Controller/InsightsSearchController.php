@@ -50,43 +50,8 @@ final class InsightsSearchController extends ControllerBase {
     $limit    = max(1, min(self::MAX_PAGE_SIZE, (int) $request->query->get('limit', self::DEFAULT_PAGE_SIZE)));
     $page     = max(0, (int) ($request->query->get('page', 0)));
     $offset   = $page * $limit;
-    $exclude  = [];
-    $raw_exclude = $request->query->get('exclude');
-    if ($raw_exclude === NULL) {
-      $raw_exclude = [];
-    }
-    elseif (!is_array($raw_exclude)) {
-      $raw_exclude = [$raw_exclude];
-    }
-    foreach ($raw_exclude as $value) {
-      foreach (explode(',', (string) $value) as $part) {
-        $part = trim($part);
-        if ($part === '' || !ctype_digit($part)) {
-          continue;
-        }
-        $exclude[] = (int) $part;
-      }
-    }
-    $exclude = array_values(array_unique(array_filter($exclude, static fn ($nid): bool => $nid > 0)));
-
-    $themes = [];
-    $raw_themes = $request->query->all('themes');
-    if ($raw_themes === []) {
-      $single = $request->query->get('themes');
-      if ($single !== NULL) {
-        $raw_themes = is_array($single) ? $single : [$single];
-      }
-    }
-    foreach ($raw_themes as $value) {
-      foreach (explode(',', (string) $value) as $part) {
-        $part = trim($part);
-        if ($part === '' || !ctype_digit($part)) {
-          continue;
-        }
-        $themes[] = (int) $part;
-      }
-    }
-    $themes = array_values(array_unique(array_filter($themes, static fn ($tid): bool => $tid > 0)));
+    $exclude = $this->extractNumericFilters($request, 'exclude');
+    $themes  = $this->extractNumericFilters($request, 'themes');
 
     // Query.
     $storage = $this->entityTypeManager()->getStorage('node');
@@ -382,5 +347,55 @@ final class InsightsSearchController extends ControllerBase {
       $tags[] = 'node_list:' . $bundle;
     }
     return array_values(array_unique($tags));
+  }
+
+  private function extractNumericFilters(Request $request, string $key): array {
+    //1.- Collect every representation for repeated parameters so both comma-separated and array formats are supported.
+    $collection = [];
+    $all = $request->query->all();
+    if (isset($all[$key])) {
+      $collection = is_array($all[$key]) ? $all[$key] : [$all[$key]];
+    }
+    elseif (isset($all[$key . '[]'])) {
+      $collection = is_array($all[$key . '[]']) ? $all[$key . '[]'] : [$all[$key . '[]']];
+    }
+    else {
+      $single = $request->query->get($key);
+      if ($single === NULL) {
+        $single = $request->query->get($key . '[]');
+      }
+      if ($single !== NULL) {
+        $collection = is_array($single) ? $single : [$single];
+      }
+    }
+
+    $resolved = [];
+    foreach ($collection as $value) {
+      if (is_array($value)) {
+        foreach ($value as $nested) {
+          $resolved[] = $nested;
+        }
+        continue;
+      }
+      foreach (explode(',', (string) $value) as $part) {
+        $resolved[] = $part;
+      }
+    }
+
+    //2.- Normalize to unique positive integers so malformed fragments are ignored gracefully.
+    $filtered = [];
+    foreach ($resolved as $value) {
+      $candidate = trim((string) $value);
+      if ($candidate === '' || !ctype_digit($candidate)) {
+        continue;
+      }
+      $filtered[] = (int) $candidate;
+    }
+
+    $filtered = array_values(array_unique(array_filter($filtered, static fn (int $number): bool => $number > 0)));
+
+    //3.- Preserve a stable order to maintain deterministic cache contexts across identical requests.
+    sort($filtered, SORT_NUMERIC);
+    return $filtered;
   }
 }

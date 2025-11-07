@@ -532,13 +532,24 @@
           if (!urlObj) {
             return;
           }
+
+          //1.- Drop previous parameters so stale selections do not leak between sequential requests.
+          urlObj.searchParams.delete('themes');
+          urlObj.searchParams.delete('themes[]');
+
           const tids = state.themeFilters?.tids || [];
-          if (tids.length) {
-            urlObj.searchParams.set('themes', tids.join(','));
+          if (!tids.length) {
+            return;
           }
-          else {
-            urlObj.searchParams.delete('themes');
-          }
+
+          //2.- Append each taxonomy id individually so the backend receives a predictable array payload.
+          tids.forEach((tid) => {
+            const value = tid?.toString?.() || '';
+            if (!value) {
+              return;
+            }
+            urlObj.searchParams.append('themes[]', value);
+          });
         };
 
         const computeFeaturedMeta = () => {
