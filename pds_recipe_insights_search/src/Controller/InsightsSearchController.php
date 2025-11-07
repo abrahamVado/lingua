@@ -69,6 +69,25 @@ final class InsightsSearchController extends ControllerBase {
     }
     $exclude = array_values(array_unique(array_filter($exclude, static fn ($nid): bool => $nid > 0)));
 
+    $themes = [];
+    $raw_themes = $request->query->all('themes');
+    if ($raw_themes === []) {
+      $single = $request->query->get('themes');
+      if ($single !== NULL) {
+        $raw_themes = is_array($single) ? $single : [$single];
+      }
+    }
+    foreach ($raw_themes as $value) {
+      foreach (explode(',', (string) $value) as $part) {
+        $part = trim($part);
+        if ($part === '' || !ctype_digit($part)) {
+          continue;
+        }
+        $themes[] = (int) $part;
+      }
+    }
+    $themes = array_values(array_unique(array_filter($themes, static fn ($tid): bool => $tid > 0)));
+
     // Query.
     $storage = $this->entityTypeManager()->getStorage('node');
     $query = $storage->getQuery()
@@ -95,6 +114,18 @@ final class InsightsSearchController extends ControllerBase {
       $query->condition('nid', $exclude, 'NOT IN');
     }
 
+    if ($themes !== []) {
+      //4.- Limit the result set to the requested taxonomy terms regardless of the field name used on each bundle.
+      $themeFields = $this->getThemeFieldNames($bundles);
+      if ($themeFields !== []) {
+        $themeGroup = $query->orConditionGroup();
+        foreach ($themeFields as $fieldName) {
+          $themeGroup->condition($fieldName . '.target_id', $themes, 'IN');
+        }
+        $query->condition($themeGroup);
+      }
+    }
+
     $total = (int) (clone $query)->count()->execute();
     $query->range($offset, $limit);
     $nids  = $query->execute();
@@ -104,7 +135,7 @@ final class InsightsSearchController extends ControllerBase {
     // Base cacheability.
     $cacheability = (new CacheableMetadata())
       ->setCacheMaxAge(300)
-      ->addCacheContexts(['url.query_args:q', 'url.query_args:limit', 'url.query_args:page', 'url.query_args:exclude'])
+      ->addCacheContexts(['url.query_args:q', 'url.query_args:limit', 'url.query_args:page', 'url.query_args:exclude', 'url.query_args:themes'])
       ->addCacheTags($this->buildCacheTags($bundles));
 
     // Build items. Capture bubbleable metadata from URLs explicitly.
@@ -167,7 +198,7 @@ final class InsightsSearchController extends ControllerBase {
   }
 
   private function extractTheme(NodeInterface $node): array {
-    foreach (['field_theme', 'field_tema'] as $field) {
+    foreach ($this->getThemeFieldNames([$node->bundle()]) as $field) {
       if ($this->nodeHasField($node, $field) && !$node->get($field)->isEmpty()) {
         $term = $node->get($field)->entity;
         if ($term instanceof TermInterface) {
@@ -261,6 +292,17 @@ final class InsightsSearchController extends ControllerBase {
       $this->warmFieldDefinitions([$bundle]);
     }
     return isset($this->fieldDefinitions[$bundle][$fieldName]) && $node->hasField($fieldName);
+  }
+
+  private function getThemeFieldNames(array $bundles): array {
+    //1.- Inspect candidate taxonomy reference fields so both localized and legacy setups remain compatible with filtering.
+    $fields = [];
+    foreach (['field_theme', 'field_tema'] as $fieldName) {
+      if ($this->fieldExists($fieldName, $bundles)) {
+        $fields[] = $fieldName;
+      }
+    }
+    return $fields;
   }
 
   private function getSummaryFieldNames(array $bundles): array {

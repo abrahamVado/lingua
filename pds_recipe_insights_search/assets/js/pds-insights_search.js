@@ -20,18 +20,24 @@
         const manual = false;
 
         // --- DOM ---------------------------------------------------------------
-        const qInput   = section.querySelector('.search-input');
-        const btnSearch= section.querySelector('.search-button');
-        const btnReset = section.querySelector('.reset-button');
-        const themeBtns= Array.from(section.querySelectorAll('.theme-tag'));
-        const cards    = section.querySelector('.insights-cards');
-        const totalEl  = section.querySelector('[data-total]');
-        const entries  = section.querySelector('.entries-select');
-        const pageNums = section.querySelector('.page-numbers');
-        const btnFirst = section.querySelector('.page-first');
-        const btnPrev  = section.querySelector('.page-prev');
-        const btnNext  = section.querySelector('.page-next');
-        const btnLast  = section.querySelector('.page-last');
+        const qInput        = section.querySelector('.search-input');
+        const btnSearch     = section.querySelector('.search-button');
+        const btnReset      = section.querySelector('.reset-button');
+        const filterButton  = section.querySelector('.filter-button');
+        const filterMenu    = section.querySelector('[data-filter-menu]');
+        const filterBackdrop= section.querySelector('[data-filter-backdrop]');
+        const applyFilters  = section.querySelector('[data-filter-apply]');
+        const clearFilters  = section.querySelector('[data-filter-clear]');
+        const themeCheckboxes = Array.from(section.querySelectorAll('[data-theme-checkbox]'));
+        const themeTags     = section.querySelector('.theme-tags');
+        const cards         = section.querySelector('.insights-cards');
+        const totalEl       = section.querySelector('[data-total]');
+        const entries       = section.querySelector('.entries-select');
+        const pageNums      = section.querySelector('.page-numbers');
+        const btnFirst      = section.querySelector('.page-first');
+        const btnPrev       = section.querySelector('.page-prev');
+        const btnNext       = section.querySelector('.page-next');
+        const btnLast       = section.querySelector('.page-last');
         const pagination = section.querySelector('.insights-pagination');
 
         if (!cards) return;
@@ -66,18 +72,108 @@
           return d;
         };
 
-        const getThemesActive = () =>
-          themeBtns
-            .filter(b => b.classList.contains('active'))
-            .map(b => (b.dataset.theme || '').toLowerCase());
+        //1.- Build theme lookup tables so checkbox selections can map back to taxonomy IDs and slugs consistently.
+        const themeLookups = {
+          byTid: new Map(),
+          bySlug: new Map(),
+        };
+
+        const registerThemeMeta = (tid, slug, label) => {
+          const keyTid = tid ? tid.toString() : '';
+          const keySlug = slug ? slug.toString().toLowerCase() : '';
+          if (keyTid && !themeLookups.byTid.has(keyTid)) {
+            themeLookups.byTid.set(keyTid, { slug: keySlug, label });
+          }
+          if (keySlug && !themeLookups.bySlug.has(keySlug)) {
+            themeLookups.bySlug.set(keySlug, { tid: keyTid, label });
+          }
+        };
+
+        const themesConfig = Array.isArray(settings.themes) ? settings.themes : [];
+        themesConfig.forEach((theme) => {
+          const tid = (theme?.tid ?? theme?.value ?? '').toString();
+          const slug = (theme?.id ?? '').toString().toLowerCase();
+          const label = typeof theme?.label === 'string' ? theme.label : (slug || tid);
+          if (tid || slug) {
+            registerThemeMeta(tid, slug, label);
+          }
+        });
+
+        themeCheckboxes.forEach((checkbox) => {
+          const tid = (checkbox.value || '').toString();
+          const slug = (checkbox.dataset.themeId || '').toString().toLowerCase();
+          const label = checkbox.nextElementSibling?.textContent?.trim() || slug || tid;
+          registerThemeMeta(tid, slug, label);
+        });
+
+        const readCheckboxFilters = () => {
+          const tids = [];
+          const slugs = [];
+          themeCheckboxes.forEach((checkbox) => {
+            if (!checkbox.checked) {
+              return;
+            }
+            const tid = (checkbox.value || '').toString();
+            const slug = (checkbox.dataset.themeId || '').toString().toLowerCase();
+            if (tid) {
+              tids.push(tid);
+            }
+            if (slug) {
+              slugs.push(slug);
+            }
+          });
+          return {
+            tids: Array.from(new Set(tids.map((tid) => tid.toString()))),
+            slugs: Array.from(new Set(slugs.map((slug) => slug.toLowerCase()))),
+          };
+        };
+
+        const syncCheckboxesToState = (filters) => {
+          const tidSet = new Set(filters.tids.map((tid) => tid.toString()));
+          themeCheckboxes.forEach((checkbox) => {
+            const tid = (checkbox.value || '').toString();
+            checkbox.checked = tidSet.has(tid);
+          });
+        };
+
+        const renderThemeTags = (filters) => {
+          if (!themeTags) {
+            return;
+          }
+          themeTags.innerHTML = '';
+          if (!filters.tids.length) {
+            return;
+          }
+          filters.tids.forEach((tid) => {
+            const key = tid.toString();
+            const meta = themeLookups.byTid.get(key) || {};
+            const label = meta.label || key;
+            const slug = (meta.slug || key).toString();
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'theme-tag active';
+            button.textContent = label;
+            button.dataset.theme = slug;
+            button.disabled = true;
+            themeTags.appendChild(button);
+          });
+        };
+
+        const initialThemeFilters = readCheckboxFilters();
 
         const normalize = (item) => {
           const t = item && typeof item === 'object' ? (item.theme || {}) : {};
-          const theme_id = (item?.theme_id ?? t.id ?? '').toString().toLowerCase();
+          const rawThemeId = item?.theme_id ?? t.id ?? '';
+          const theme_id = rawThemeId === null || rawThemeId === undefined
+            ? ''
+            : rawThemeId.toString().toLowerCase();
+          const themeTidRaw = t && Object.prototype.hasOwnProperty.call(t, 'id') ? t.id : (item?.theme_tid ?? null);
+          const theme_tid = themeTidRaw === null || themeTidRaw === undefined ? '' : themeTidRaw.toString();
           return {
             id: (typeof item?.id === 'number' || typeof item?.id === 'string') ? item.id : null,
             theme_id,
             theme_label: typeof (item?.theme_label ?? t.label) === 'string' ? (item?.theme_label ?? t.label) : '',
+            theme_tid,
             title: typeof item?.title === 'string' ? item.title : '',
             summary: typeof item?.summary === 'string' ? item.summary : '',
             author: typeof item?.author === 'string' ? item.author : '',
@@ -200,18 +296,124 @@
           featuredItems,
           featuredNodeIds,
           catalog,
+          themeFilters: {
+            tids: initialThemeFilters.tids.slice(),
+            slugs: initialThemeFilters.slugs.slice(),
+          },
         };
 
+        //3.- Reflect any preselected filters so the checkbox grid and tag summary stay synchronized from the first render.
+        syncCheckboxesToState(state.themeFilters);
+        renderThemeTags(state.themeFilters);
+
         let catalogToken = 0;
+
+        const resetCatalogCaches = () => {
+          //4.- Flush cached catalog pages so backend requests honor the latest taxonomy filters.
+          state.catalog.cache.clear();
+          state.catalog.pending.clear();
+          state.catalog.cacheLimit = null;
+          state.catalog.nonFeaturedTotal = 0;
+          state.catalog.total = filterByTheme(state.featuredItems).length;
+        };
+
+        const applyThemeFilters = (nextFilters) => {
+          const tids = Array.from(new Set((nextFilters?.tids || []).map((tid) => tid.toString())));
+          const slugs = Array.from(new Set((nextFilters?.slugs || []).map((slug) => slug.toString().toLowerCase())));
+          state.themeFilters = { tids, slugs };
+          syncCheckboxesToState(state.themeFilters);
+          renderThemeTags(state.themeFilters);
+          resetCatalogCaches();
+        };
+
+        const handleFiltersApplied = () => {
+          //5.- Restart pagination and trigger the appropriate rendering path whenever filters change.
+          state.page = 0;
+          if (state.query !== '') {
+            debouncedSearch.cancel();
+            search(qInput?.value || '', 0);
+            return;
+          }
+          if (!manual) {
+            render();
+            if (featuredMode && searchUrl) {
+              ensureCatalogPage(0).then(() => {
+                if (!manual && state.query === '' && featuredMode) {
+                  renderFeatured();
+                }
+              });
+            }
+          }
+        };
+
+        const setMenuVisibility = (open) => {
+          const expanded = open ? 'true' : 'false';
+          filterButton?.setAttribute('aria-expanded', expanded);
+          filterButton?.classList.toggle('is-active', open);
+          if (filterMenu) {
+            if (open) {
+              filterMenu.removeAttribute('hidden');
+            }
+            else {
+              filterMenu.setAttribute('hidden', '');
+            }
+            filterMenu.classList.toggle('is-active', open);
+          }
+          if (filterBackdrop) {
+            if (open) {
+              filterBackdrop.removeAttribute('hidden');
+            }
+            else {
+              filterBackdrop.setAttribute('hidden', '');
+            }
+            filterBackdrop.classList.toggle('is-active', open);
+          }
+        };
+
+        const openFilterMenu = () => setMenuVisibility(true);
+        const closeFilterMenu = () => setMenuVisibility(false);
+
+        const applyFiltersFromCheckboxes = () => {
+          applyThemeFilters(readCheckboxFilters());
+          handleFiltersApplied();
+          closeFilterMenu();
+        };
+
+        const clearAllFilters = () => {
+          themeCheckboxes.forEach((checkbox) => {
+            checkbox.checked = false;
+          });
+          applyThemeFilters({ tids: [], slugs: [] });
+          handleFiltersApplied();
+          closeFilterMenu();
+        };
+
+        const applyThemeParams = (urlObj) => {
+          if (!urlObj) {
+            return;
+          }
+          const tids = state.themeFilters?.tids || [];
+          if (tids.length) {
+            urlObj.searchParams.set('themes', tids.join(','));
+          }
+          else {
+            urlObj.searchParams.delete('themes');
+          }
+        };
 
         const computeFeaturedMeta = () => {
           const safeLimit = Math.max(1, state.limit);
           const cachedPage = state.catalog.cache.get(0) || [];
-          const knownCatalog = Math.max(state.catalog.nonFeaturedTotal, cachedPage.length);
-          const featuredCount = state.featuredItems.length;
-          const combinedTotal = featuredCount + knownCatalog;
-          const totalPages = Math.max(1, Math.ceil(combinedTotal / safeLimit));
-          return { total: combinedTotal, pages: totalPages, catalog: knownCatalog, featured: featuredCount };
+          const filteredCatalog = filterByTheme(cachedPage);
+          const remoteTotal = Math.max(0, state.catalog.nonFeaturedTotal);
+          const featuredFiltered = filterByTheme(state.featuredItems);
+          const featuredCount = featuredFiltered.length;
+          const catalogCount = remoteTotal || filteredCatalog.length;
+          const combinedTotal = featuredCount + catalogCount;
+          const fallbackTotal = featuredCount + filteredCatalog.length;
+          const total = Math.max(combinedTotal, fallbackTotal);
+          const totalPages = Math.max(1, Math.ceil(Math.max(total, 1) / safeLimit));
+          return { total, pages: totalPages, catalog: catalogCount, featured: featuredCount };
         };
 
         const debouncedSearch = debounce((val) => { state.page = 0; search(val, 0); }, 300);
@@ -225,9 +427,46 @@
         }
 
         const filterByTheme = (items) => {
-          const active = getThemesActive();
-          if (!active.length) return items.slice();
-          return items.filter(i => active.includes((i.theme_id || '').toLowerCase()));
+          const tids = state.themeFilters?.tids || [];
+          const slugs = state.themeFilters?.slugs || [];
+          if (!tids.length && !slugs.length) {
+            return items.slice();
+          }
+          //2.- Compile every relevant identifier so either taxonomy ID or slug matches can keep items visible.
+          const tokens = new Set();
+          tids.forEach((tid) => {
+            if (!tid) {
+              return;
+            }
+            const key = tid.toString();
+            tokens.add(key.toLowerCase());
+            const meta = themeLookups.byTid.get(key);
+            if (meta?.slug) {
+              tokens.add(meta.slug.toString().toLowerCase());
+            }
+          });
+          slugs.forEach((slug) => {
+            if (!slug) {
+              return;
+            }
+            const key = slug.toString().toLowerCase();
+            tokens.add(key);
+            const meta = themeLookups.bySlug.get(key);
+            if (meta?.tid) {
+              tokens.add(meta.tid.toString().toLowerCase());
+            }
+          });
+          return items.filter((item) => {
+            const themeId = (item.theme_id || '').toString().toLowerCase();
+            const themeTid = (item.theme_tid || '').toString().toLowerCase();
+            if (themeId && tokens.has(themeId)) {
+              return true;
+            }
+            if (themeTid && tokens.has(themeTid)) {
+              return true;
+            }
+            return false;
+          });
         };
 
         // --- Rendering ---------------------------------------------------------
@@ -435,6 +674,7 @@
           if (state.featuredNodeIds.length) {
             u.searchParams.set('exclude', state.featuredNodeIds.join(','));
           }
+          applyThemeParams(u);
 
           catalogToken += 1;
           const token = catalogToken;
@@ -451,7 +691,8 @@
               const total = typeof meta.total === 'number' ? meta.total : list.length;
               state.catalog.cache.set(pageIndex, list);
               state.catalog.nonFeaturedTotal = total;
-              state.catalog.total = Math.max(state.featuredItems.length, total + state.featuredItems.length);
+              const filteredFeaturedCount = filterByTheme(state.featuredItems).length;
+              state.catalog.total = filteredFeaturedCount + total;
               state.catalog.limit = state.limit;
               state.catalog.cacheLimit = state.limit;
               state.catalog.pending.delete(pageIndex);
@@ -477,6 +718,7 @@
           const combinedTotal = Math.max(state.catalog.total, featuredMeta.total);
           const pages = Math.max(featuredMeta.pages, Math.ceil(combinedTotal / Math.max(state.limit, 1)));
           if (state.page >= pages) state.page = pages - 1;
+          state.catalog.total = combinedTotal;
           state.meta = { total: combinedTotal, pages, page: state.page };
           //4.- Keep pagination visible whenever additional catalog pages exist, even before the user leaves the featured tab.
           const shouldShowPagination = (pages > 1) || featuredMeta.catalog > 0;
@@ -543,8 +785,12 @@
           u.searchParams.set('q', q);
           u.searchParams.set('limit', String(state.limit));
           u.searchParams.set('page', String(Math.max(0, page)));
+          if (state.featuredNodeIds.length) {
+            u.searchParams.set('exclude', state.featuredNodeIds.join(','));
+          }
 
           state.token += 1;
+          applyThemeParams(u);
           const tok = state.token;
           section.setAttribute('aria-busy', 'true');
 
@@ -607,12 +853,6 @@
           e.preventDefault();
           debouncedSearch.cancel();
           if (qInput) qInput.value = '';
-          // Restore theme default selection as in SSR
-          const defaults = getThemesActive();
-          themeBtns.forEach((b) => {
-            const t = (b.dataset.theme || '').toLowerCase();
-            b.classList.toggle('active', defaults.includes(t));
-          });
           state.query = '';
           state.page = 0;
           state.results = state.initialItems.slice();
@@ -621,15 +861,44 @@
             pages: Math.max(1, Math.ceil(state.initialItems.length / Math.max(state.limit, 1))),
             page: 0,
           };
-          // Only repaint if not manual; in manual, SSR is already what we want.
-          if (!manual) render();
+          applyThemeFilters({ tids: [], slugs: [] });
+          handleFiltersApplied();
+          closeFilterMenu();
         });
 
-        themeBtns.forEach((b) => b.addEventListener('click', () => {
-          b.classList.toggle('active');
-          state.page = 0;
-          if (!manual || state.userActed) render();
-        }));
+        filterButton?.addEventListener('click', (event) => {
+          event.preventDefault();
+          const isExpanded = filterButton.getAttribute('aria-expanded') === 'true';
+          if (isExpanded) {
+            closeFilterMenu();
+          }
+          else {
+            openFilterMenu();
+          }
+        });
+
+        filterBackdrop?.addEventListener('click', (event) => {
+          event.preventDefault();
+          closeFilterMenu();
+        });
+
+        filterMenu?.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeFilterMenu();
+            filterButton?.focus();
+          }
+        });
+
+        applyFilters?.addEventListener('click', (event) => {
+          event.preventDefault();
+          applyFiltersFromCheckboxes();
+        });
+
+        clearFilters?.addEventListener('click', (event) => {
+          event.preventDefault();
+          clearAllFilters();
+        });
 
         entries?.addEventListener('change', (e) => {
           const n = parseLimit(e.target.value);
@@ -647,10 +916,7 @@
           }
 
           if (featuredMode) {
-            state.catalog.cache.clear();
-            state.catalog.pending.clear();
-            state.catalog.cacheLimit = null;
-            state.catalog.total = Math.max(state.catalog.nonFeaturedTotal + state.featuredItems.length, state.catalog.total);
+            resetCatalogCaches();
             if (!manual) render();
             ensureCatalogPage(0).then(() => {
               if (!manual && state.query === '' && featuredMode) {

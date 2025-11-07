@@ -86,6 +86,19 @@ body {
     sans-serif;
 }
 
+/* //7.- Keep assistive-only elements available to screen readers while removing them from visual layouts. */
+.visually-hidden {
+  border: 0 !important;
+  clip: rect(0 0 0 0) !important;
+  height: 1px !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  position: absolute !important;
+  width: 1px !important;
+  white-space: nowrap !important;
+}
+
 /* === LINKS & BUTTONS === */
 .principal-link {
   font-weight: 400;
@@ -258,6 +271,108 @@ body {
   gap: 12px;
   position: relative;
   align-items: center;
+}
+
+/* //1.- Position the floating menu container so it anchors to the trigger while staying above neighboring elements. */
+.principal-insights .insights-filters__menu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  min-width: 260px;
+  max-width: 320px;
+  background: #ffffff;
+  border: 1px solid #d5d6da;
+  border-radius: 16px;
+  box-shadow: 0 16px 40px rgba(0, 19, 51, 0.18);
+  padding: 20px;
+  z-index: 40;
+  display: none;
+}
+
+/* //2.- Toggle visibility via utility classes so JS can simply add/remove a marker without inlining styles. */
+.principal-insights .insights-filters__menu.is-active {
+  display: block;
+}
+
+/* //3.- Style the checkbox collection with comfortable spacing for pointer and touch interactions. */
+.principal-insights .insights-filters__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* //4.- Align labels and inputs so theme names remain readable even with long strings. */
+.principal-insights .insights-filters__option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  color: #002855;
+}
+
+.principal-insights .insights-filters__checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: #0071b3;
+}
+
+/* //5.- Separate action buttons from the list and keep them aligned to the right for emphasis. */
+.principal-insights .insights-filters__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.principal-insights .insights-filters__action {
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: 1px solid #0071b3;
+  background: #ffffff;
+  color: #0071b3;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.principal-insights .insights-filters__action--apply {
+  background: #0071b3;
+  color: #ffffff;
+}
+
+.principal-insights .insights-filters__action:hover,
+.principal-insights .insights-filters__action:focus {
+  background: #004a7a;
+  color: #ffffff;
+}
+
+.principal-insights .insights-filters__action--clear {
+  border-color: #6b7f8f;
+  color: #6b7f8f;
+  background: transparent;
+}
+
+.principal-insights .insights-filters__action--clear:hover,
+.principal-insights .insights-filters__action--clear:focus {
+  background: #f2f4f7;
+  color: #002855;
+}
+
+/* //6.- Provide a page-level backdrop so clicking outside the menu closes it without visual glitches. */
+.principal-insights .insights-filters__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 40, 85, 0.3);
+  z-index: 30;
+  display: none;
+}
+
+.principal-insights .insights-filters__backdrop.is-active {
+  display: block;
 }
 
 .principal-insights .filter-button,

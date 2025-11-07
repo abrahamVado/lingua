@@ -86,6 +86,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
 
       $themes[] = [
         'id'     => $id,
+        'tid'    => $tid,
         'label'  => $label,
         'active' => $is_active,
       ];
@@ -196,6 +197,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
               'linkText' => $link_text,
               'displayMode' => $display_mode,
               'featuredNodeIds' => $featured_node_ids,
+              //3.- Surface taxonomy IDs alongside slugs so the JS layer can call the API with numeric filters.
               'themes' => $themes,
               'allInsights' => [
                 'items' => $non_featured_items,
