@@ -51,7 +51,8 @@
         const displayMode = typeof settings.displayMode === 'string'
           ? settings.displayMode
           : (section.dataset.displayMode || 'featured');
-        const featuredMode = displayMode === 'featured';
+        const featuredMode = (displayMode === 'featured')
+          || (displayMode === 'latest' && featuredItems.length > 0);
 
         // --- Helpers -----------------------------------------------------------
         const parseLimit = (v) => {
@@ -766,7 +767,7 @@
           };
           state.featuredItems.forEach(add);
 
-          //3.- When no featured items exist reuse the automatic catalog so the interface keeps working gracefully.
+          //3.- Always append automatic results so "Latest" mode shows a blended first page with featured entries first.
           const fallback = state.catalog.cache.get(0) || [];
           fallback.forEach(add);
           return curated;
