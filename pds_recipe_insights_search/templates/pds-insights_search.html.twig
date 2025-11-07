@@ -39,6 +39,20 @@
 {% set _featured_json = _featured_items is empty ? '[]' : _featured_items|json_encode %}
 {% set _featured_attr = _featured_json ? _featured_json|e('html_attr') : '[]' %}
 {% set _entries_default = entries|default(6) %}
+{% set _non_featured_items = non_featured_items|default([]) %}
+{# //1.- Prepare a static fallback so Layout Builder previews mirror the curated selections without relying on JavaScript. #}
+{% set _ssr_source = _items %}
+{% if _display_mode == 'featured' %}
+  {% set _ssr_source = _featured_items %}
+  {% if _ssr_source is empty %}
+    {% set _ssr_source = _items %}
+  {% endif %}
+  {% set _ssr_limit = _entries_default %}
+  {% if _ssr_source|length < _ssr_limit %}
+    {% set _ssr_source = _ssr_source|merge(_non_featured_items|slice(0, _ssr_limit - _ssr_source|length)) %}
+  {% endif %}
+{% endif %}
+{% set _ssr_items = _ssr_source|slice(0, _entries_default) %}
 {# //1.- Craft a stable identifier so the floating filters panel links to its trigger via aria-controls. #}
 {% set filter_menu_id = component_id ? component_id ~ '-filters-menu' : 'pds-insights-filters-menu-' ~ random() %}
 
@@ -135,6 +149,55 @@
         data-icons-path="{{ _icons }}"
         data-featured-items="{{ _featured_attr }}"
       >
+        {% for item in _ssr_items %}
+          {% set _theme_id = item.theme_id|default('') %}
+          {% set _taxonomies = item.taxonomies is iterable ? item.taxonomies : [] %}
+          {% set _tax_attr = _taxonomies ? _taxonomies|json_encode|e('html_attr') : '[]' %}
+          <article
+            class="insight-card"
+            data-theme="{{ _theme_id }}"
+            data-taxonomies="{{ _tax_attr }}"
+          >
+            {% if _taxonomies|length > 0 %}
+              <div class="insight-badge {{ _theme_id }}">
+                {% for tax in _taxonomies %}
+                  <span class="insight-badge__item">{{ tax }}</span>
+                {% endfor %}
+              </div>
+            {% elseif item.theme_label %}
+              <div class="insight-badge {{ _theme_id }}">
+                <span class="insight-badge__item">{{ item.theme_label }}</span>
+              </div>
+            {% endif %}
+
+            <h3 class="insight-card-title">{{ item.title }}</h3>
+
+            {% if item.read_time %}
+              <div class="insight-meta">
+                <span class="insight-time">🕒 {{ item.read_time }} {{ ' min read'|t }}</span>
+              </div>
+            {% endif %}
+
+            {% if item.summary %}
+              <p class="insight-summary">{{ item.summary }}</p>
+            {% endif %}
+
+            {% if item.author %}
+              <div class="insight-author">
+                <span>{{ 'By'|t }}</span> {{ item.author }}
+              </div>
+            {% endif %}
+
+            <div class="button-area">
+              <a class="principal-link principal-link--subtle" href="{{ item.url }}">
+                {{ item.link_text|default('Get our perspective'|t) }}
+              </a>
+              <div class="img-area">
+                <img src="{{ _icons }}/arrow-right.svg" alt="" aria-hidden="true" />
+              </div>
+            </div>
+          </article>
+        {% endfor %}
       </div>
 
       <div class="insights-pagination">

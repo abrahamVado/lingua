@@ -178,6 +178,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#items' => $items,
       '#initial_items' => $items,
       '#featured_items' => $featured_items,
+      '#non_featured_items' => $non_featured_items,
       '#total' => $total_unique_items,
       '#pages' => $pages,
       '#entries' => $page_size,
@@ -205,6 +206,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
                 'nonFeaturedTotal' => $non_featured_total,
                 'limit' => $page_size,
               ],
+              'nonFeaturedItems' => $non_featured_items,
             ],
           ],
         ],
@@ -432,6 +434,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
         'read_time'  => '',
         'url'        => $url !== '' ? $url : '#',
         'link_text'  => $link_text,
+        'taxonomies' => [],
       ];
     }
 
@@ -495,13 +498,8 @@ final class PdsInsightsSearchBlock extends BlockBase {
       }
     }
 
-    $category = 'Sin categoría';
-    foreach (['field_category','field_categoria', 'field_category_insights'] as $f) {
-      if ($node->hasField($f) && !$node->get($f)->isEmpty() && ($term = $node->get($f)->entity)) {
-        $category = $term->label();
-        break;
-      }
-    }
+    $taxonomies = $this->collectTaxonomyLabels($node, $theme_term);
+    $category = $taxonomies[1] ?? ($taxonomies[0] ?? '');
 
     return [
       'id' => (int) $node->id(),
@@ -513,13 +511,53 @@ final class PdsInsightsSearchBlock extends BlockBase {
       'read_time' => $read_time,
       'url' => $node->toUrl('canonical', ['absolute' => TRUE])->toString(),
       'link_text' => $link_text,
-      'category' => $category,
+      'category' => $category ?: (string) $this->t('Uncategorized'),
       'theme' => [
         'id' => $theme_term instanceof TermInterface ? (int) $theme_term->id() : NULL,
         'label' => $theme_label,
         'machine_name' => $theme_id,
       ],
+      'taxonomies' => $taxonomies,
     ];
+  }
+
+  /**
+   * Gather taxonomy labels for badges.
+   */
+  private function collectTaxonomyLabels(NodeInterface $node, ?TermInterface $theme_term): array {
+    //1.- Seed the badges with the selected theme so curated cards remain grouped visually.
+    $labels = [];
+    $append = static function (?string $value) use (&$labels): void {
+      if ($value === NULL) {
+        return;
+      }
+      $label = trim((string) $value);
+      if ($label === '') {
+        return;
+      }
+      if (!in_array($label, $labels, TRUE)) {
+        $labels[] = $label;
+      }
+    };
+
+    if ($theme_term instanceof TermInterface) {
+      $append($theme_term->label());
+    }
+
+    //2.- Add every related category taxonomy so Layout Builder previews mimic the live badges.
+    foreach (['field_category','field_categoria','field_category_insights'] as $field_name) {
+      if (!$node->hasField($field_name) || $node->get($field_name)->isEmpty()) {
+        continue;
+      }
+      foreach ($node->get($field_name) as $item) {
+        $term = $item->entity;
+        if ($term instanceof TermInterface) {
+          $append($term->label());
+        }
+      }
+    }
+
+    return $labels;
   }
 
   private function normalizeThemeIdentifier(TermInterface $term): string {
@@ -820,17 +858,19 @@ final class PdsInsightsSearchBlock extends BlockBase {
     ];
 
     $form['insights_search_ui']['panes']['people_list']['people'] = [
-      '#type' => 'table',
+      '#type' => 'container',
       '#tree' => TRUE,
-      '#header' => [
-        $this->t('Title'),
-        $this->t('Description'),
-        $this->t('URL'),
-        $this->t('Edit'),
-        $this->t('Remove'),
-      ],
-      '#empty' => $this->t('No insights yet. Add one using the Add New tab.'),
+      '#attributes' => ['class' => ['pds-recipe-insights-search-admin__cards']],
     ];
+
+    if ($working === []) {
+      $form['insights_search_ui']['panes']['people_list']['people']['empty'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'p',
+        '#value' => $this->t('No insights yet. Add one using the Add New tab.'),
+        '#attributes' => ['class' => ['pds-recipe-insights-search-admin__empty']],
+      ];
+    }
 
     foreach ($working as $index => $fondo) {
       if (!is_array($fondo)) {
@@ -840,16 +880,40 @@ final class PdsInsightsSearchBlock extends BlockBase {
       $desc_value = trim((string) ($fondo['description'] ?? ($fondo['desc'] ?? '')));
       $url_value = trim((string) ($fondo['url'] ?? ''));
 
-      $form['insights_search_ui']['panes']['people_list']['people'][$index]['name'] = [
-        '#plain_text' => $name === '' ? $this->t('Untitled @number', ['@number' => $index + 1]) : $name,
+      $card = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['pds-recipe-insights-search-admin__card']],
       ];
-      $form['insights_search_ui']['panes']['people_list']['people'][$index]['desc'] = [
-        '#plain_text' => $desc_value,
+
+      $card['title'] = [
+        '#type' => 'html_tag',
+        '#tag' => 'h3',
+        '#value' => $name === '' ? $this->t('Untitled @number', ['@number' => $index + 1]) : $name,
+        '#attributes' => ['class' => ['pds-recipe-insights-search-admin__card-title']],
       ];
-      $form['insights_search_ui']['panes']['people_list']['people'][$index]['url'] = [
-        '#plain_text' => $url_value,
+
+      if ($desc_value !== '') {
+        $card['summary'] = [
+          '#type' => 'html_tag',
+          '#tag' => 'p',
+          '#value' => $desc_value,
+          '#attributes' => ['class' => ['pds-recipe-insights-search-admin__card-summary']],
+        ];
+      }
+
+      if ($url_value !== '') {
+        $card['url'] = [
+          '#type' => 'markup',
+          '#markup' => Markup::create('<a class="pds-recipe-insights-search-admin__card-link" href="' . Html::escape($url_value) . '" target="_blank" rel="noopener noreferrer">' . Html::escape($url_value) . '</a>'),
+        ];
+      }
+
+      $card['actions'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['pds-recipe-insights-search-admin__card-actions']],
       ];
-      $form['insights_search_ui']['panes']['people_list']['people'][$index]['edit'] = [
+
+      $card['actions']['edit'] = [
         '#type' => 'submit',
         '#value' => $this->t('Edit'),
         '#name' => 'pds_recipe_insights_search_edit_person_' . $index,
@@ -859,13 +923,18 @@ final class PdsInsightsSearchBlock extends BlockBase {
           'callback' => 'pds_recipe_insights_search_ajax_events',
           'wrapper' => 'pds-insights_search-form',
         ],
-        '#attributes' => ['class' => ['pds-recipe-insights-search-edit-person']],
+        '#attributes' => ['class' => ['pds-recipe-insights-search-edit-person', 'button', 'button--small']],
         '#pds_recipe_insights_search_edit_index' => $index,
       ];
-      $form['insights_search_ui']['panes']['people_list']['people'][$index]['remove'] = [
+
+      $card['actions']['remove'] = [
         '#type' => 'checkbox',
-        '#title' => $this->t('Remove'),
+        '#title' => $this->t('Remove from featured'),
+        '#title_display' => 'after',
+        '#attributes' => ['class' => ['pds-recipe-insights-search-admin__card-remove']],
       ];
+
+      $form['insights_search_ui']['panes']['people_list']['people'][$index] = $card;
     }
 
     $form['insights_search_ui']['panes']['people_list']['actions'] = ['#type' => 'actions'];

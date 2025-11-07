@@ -215,12 +215,48 @@ final class InsightsSearchController extends ControllerBase {
   }
 
   private function extractReadTime(NodeInterface $node): string {
-    foreach (['field_read_time', 'field_tiempo_de_lectura'] as $field) {
+    foreach (['field_read_time', 'field_tiempo_de_lectura', 'field_mins_of_read'] as $field) {
       if ($this->nodeHasField($node, $field) && !$node->get($field)->isEmpty()) {
         return trim((string) $node->get($field)->value);
       }
     }
     return '';
+  }
+
+  private function extractTaxonomies(NodeInterface $node, array $theme): array {
+    //1.- Start with the theme label so badges match curated selections.
+    $labels = [];
+    $append = static function (?string $value) use (&$labels): void {
+      if ($value === NULL) {
+        return;
+      }
+      $label = trim((string) $value);
+      if ($label === '') {
+        return;
+      }
+      if (!in_array($label, $labels, TRUE)) {
+        $labels[] = $label;
+      }
+    };
+
+    if (!empty($theme['label'])) {
+      $append($theme['label']);
+    }
+
+    //2.- Include category-style fields so API responses mirror the Layout Builder preview badges.
+    foreach (['field_category', 'field_categoria', 'field_category_insights'] as $field) {
+      if (!$this->nodeHasField($node, $field) || $node->get($field)->isEmpty()) {
+        continue;
+      }
+      foreach ($node->get($field) as $item) {
+        $term = $item->entity;
+        if ($term instanceof TermInterface) {
+          $append($term->label());
+        }
+      }
+    }
+
+    return $labels;
   }
 
   private function buildItem(NodeInterface $node, string $url): array {
@@ -229,6 +265,9 @@ final class InsightsSearchController extends ControllerBase {
     if ($themeId === '' && isset($theme['id']) && $theme['id'] !== null) {
       $themeId = (string) $theme['id'];
     }
+
+    $taxonomies = $this->extractTaxonomies($node, $theme);
+    $category = $taxonomies[1] ?? ($taxonomies[0] ?? '');
 
     return [
       'id' => (int) $node->id(),
@@ -241,6 +280,8 @@ final class InsightsSearchController extends ControllerBase {
       'theme_id' => $themeId,
       'theme_label' => $theme['label'] ?? '',
       'read_time' => $this->extractReadTime($node),
+      'taxonomies' => $taxonomies,
+      'category' => $category,
     ];
   }
 

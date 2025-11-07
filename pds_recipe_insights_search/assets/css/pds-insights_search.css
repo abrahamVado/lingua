@@ -442,6 +442,9 @@ body {
 }
 
 .principal-insights .theme-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 12px;
   border: 1px solid #0061a0;
   border-radius: 24px;
@@ -454,12 +457,30 @@ body {
   transition: all 0.2s ease;
 }
 
+.principal-insights .theme-tag__label {
+  pointer-events: none;
+}
+
+.principal-insights .theme-tag__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #0061a0;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .principal-insights .theme-tag:hover {
   background: #f7f7f7;
 }
 
 .principal-insights .theme-tag.active {
-  background: #dedede;
+  background: #e6f4fa;
 }
 
 /* === CARDS === */
@@ -488,7 +509,9 @@ body {
 }
 
 .principal-insights .insight-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   width: fit-content;
@@ -497,6 +520,13 @@ body {
   background: #e6f4fa;
   color: #0071b3;
   margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.principal-insights .insight-badge__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .principal-insights .insight-card-title {
