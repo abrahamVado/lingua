@@ -34,7 +34,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
     return [
       'title' => '',
       'fondos' => [],
-      'display_mode' => 'featured',
     ];
   }
 
@@ -44,36 +43,18 @@ final class PdsInsightsSearchBlock extends BlockBase {
   public function build(): array {
     $cfg = $this->getConfiguration();
 
-    //1.- Normalize the display mode so the block knows whether to rely on curated or automatic items.
-    $display_mode = $cfg['display_mode'] ?? 'featured';
-    if (!in_array($display_mode, ['featured', 'latest'], TRUE)) {
-      $display_mode = 'featured';
-    }
+    // Read saved entries from config (supports legacy key "insights_search").
+    $stored = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
+    $stored = is_array($stored) ? $stored : [];
 
     $link_text = (string) $this->t('Get our perspective');
 
-    $cache_tags = [];
-    $items = [];
-    $featured_items = [];
-
-    if ($display_mode === 'latest') {
-      //2.- Load the latest insights directly when the admin opts out of curated content.
-      [$items, $cache_tags] = $this->buildLatestInsightsItems(6, $link_text);
-    }
-    else {
-      //3.- Read saved entries from config (supports legacy key "insights_search").
-      $stored = $cfg['fondos'] ?? ($cfg['insights_search'] ?? []);
-      $stored = is_array($stored) ? $stored : [];
-
-      //4.- Map saved config → frontend items (node-backed preferred).
-      [$items, $cache_tags] = $this->buildItemsFromSavedFondos($stored, $link_text);
-      $featured_items = $items;
-    }
+    // Map saved config → frontend items (node-backed preferred).
+    [$items, $cache_tags] = $this->buildItemsFromSavedFondos($stored, $link_text);
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
     $component_id = Html::getUniqueId('pds-insights-search');
     $attributes = new Attribute(['data-pds-insights-search-id' => $component_id]);
-    $attributes->setAttribute('data-display-mode', $display_mode);
 
     // Frontend search endpoint for live results.
     $search_url = Url::fromRoute('pds_recipe_insights_search.api.search')->toString();
@@ -84,12 +65,11 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#title' => $title,
       '#items' => $items,
       '#initial_items' => $items,
-      '#featured_items' => $featured_items,
+      '#featured_items' => $items,
       '#total' => count($items),
       '#component_id' => $component_id,
       '#attributes' => $attributes,
       '#icons_path' => $this->buildAssetUrl('assets/images/icons'),
-      '#display_mode' => $display_mode,
       '#attached' => [
         'library' => ['pds_recipe_insights_search/insights_search'],
         'drupalSettings' => [
@@ -97,10 +77,9 @@ final class PdsInsightsSearchBlock extends BlockBase {
             $component_id => [
               //2.- Provide both legacy and explicit featured datasets for the frontend behavior.
               'initialItems' => $items,
-              'featuredItems' => $featured_items,
+              'featuredItems' => $items,
               'searchUrl' => $search_url,
               'linkText' => $link_text,
-              'displayMode' => $display_mode,
             ],
           ],
         ],
@@ -119,54 +98,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
    *
    * Accepts rows with or without source_nid. Preserves saved order.
    */
-  private function buildLatestInsightsItems(int $limit, string $link_text): array {
-    //1.- Resolve which bundles qualify as "Insights" content to fetch recent nodes reliably.
-    $bundles = $this->resolveInsightsBundles();
-    if ($bundles === []) {
-      return [[], ['node_list']];
-    }
-
-    $storage = \Drupal::entityTypeManager()->getStorage('node');
-    $query = $storage->getQuery()
-      ->accessCheck(TRUE)
-      ->condition('status', NodeInterface::PUBLISHED)
-      ->condition('type', $bundles, 'IN')
-      ->sort('created', 'DESC')
-      ->range(0, max(1, $limit));
-
-    $nids = $query->execute();
-    if (!$nids) {
-      return [[], ['node_list']];
-    }
-
-    //2.- Load the nodes and respect the current interface language for consistency with curated entries.
-    /** @var \Drupal\node\NodeInterface[] $nodes */
-    $nodes = $storage->loadMultiple($nids);
-    $current_lang = \Drupal::languageManager()->getCurrentLanguage()->getId();
-    foreach ($nodes as $nid => $node) {
-      if ($node->hasTranslation($current_lang)) {
-        $nodes[$nid] = $node->getTranslation($current_lang);
-      }
-    }
-
-    $items = [];
-    $cache_tags = ['node_list'];
-    foreach ($bundles as $bundle) {
-      $cache_tags[] = 'node_list:' . $bundle;
-    }
-
-    foreach ($nodes as $node) {
-      if (!$node instanceof NodeInterface) {
-        continue;
-      }
-
-      $items[] = $this->itemFromNode($node, $link_text);
-      $cache_tags[] = 'node:' . $node->id();
-    }
-
-    return [$items, array_values(array_unique($cache_tags))];
-  }
-
   private function buildItemsFromSavedFondos(array $fondos_cfg, string $link_text): array {
     $items = [];
     $cache_tags = [];
@@ -237,21 +168,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
     }
 
     return [$items, array_values(array_unique($cache_tags))];
-  }
-
-  private function resolveInsightsBundles(): array {
-    //1.- Inspect known bundle machine names to avoid brittle hardcoded assumptions.
-    $storage = \Drupal::entityTypeManager()->getStorage('node_type');
-    $candidates = ['insights', 'insight'];
-    $bundles = [];
-
-    foreach ($candidates as $candidate) {
-      if ($storage->load($candidate)) {
-        $bundles[] = $candidate;
-      }
-    }
-
-    return $bundles;
   }
 
 
@@ -488,15 +404,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#title' => $this->t('Title'),
       '#default_value' => $cfg['title'] ?? '',
       '#parents' => ['title'],
-    ];
-
-    $form['insights_search_ui']['panes']['general']['use_latest'] = [
-      '#type' => 'checkbox',
-      '#title' => $this->t('Use latest insights automatically'),
-      '#description' => $this->t('Enable to bypass the curated featured list and always show the most recent published insights.'),
-      '#default_value' => (($cfg['display_mode'] ?? 'featured') === 'latest'),
-      '#parents' => ['use_latest'],
-      '#attributes' => ['class' => ['pds-insights-toggle']],
     ];
 
     // Add pane.
@@ -764,9 +671,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $submitted_title = $this->extractSubmittedString($form_state, 'title');
     $this->configuration['title'] = $submitted_title;
 
-    $use_latest = $this->extractSubmittedBoolean($form_state, 'use_latest');
-    $this->configuration['display_mode'] = $use_latest ? 'latest' : 'featured';
-
     $insights_search = self::getWorkingInsightsSearch($form_state, $cfg['fondos'] ?? []);
     $clean = [];
 
@@ -784,46 +688,6 @@ final class PdsInsightsSearchBlock extends BlockBase {
     unset($this->configuration['insights_search']);
 
     $form_state->set('working_fondos', $this->configuration['fondos']);
-  }
-
-  private function extractSubmittedBoolean(FormStateInterface $form_state, string $key): bool {
-    //1.- Reuse the same lookup strategy as strings but normalized to boolean semantics.
-    $candidates = [];
-    $direct_value = $form_state->getValue($key);
-    if ($direct_value !== NULL) {
-      $candidates[] = $direct_value;
-    }
-    $settings_value = $form_state->getValue(['settings', $key]);
-    if ($settings_value !== NULL) {
-      $candidates[] = $settings_value;
-    }
-    if ($form_state instanceof SubformStateInterface && method_exists($form_state, 'getCompleteFormState')) {
-      $parent_state = $form_state->getCompleteFormState();
-      if ($parent_state instanceof FormStateInterface) {
-        $parent_direct = $parent_state->getValue($key);
-        if ($parent_direct !== NULL) {
-          $candidates[] = $parent_direct;
-        }
-        $parent_settings = $parent_state->getValue(['settings', $key]);
-        if ($parent_settings !== NULL) {
-          $candidates[] = $parent_settings;
-        }
-      }
-    }
-
-    foreach ($candidates as $candidate) {
-      if (is_bool($candidate)) {
-        return $candidate;
-      }
-      if (is_numeric($candidate)) {
-        return (int) $candidate === 1;
-      }
-      if (is_string($candidate)) {
-        return in_array(strtolower($candidate), ['1', 'true', 'on', 'yes'], TRUE);
-      }
-    }
-
-    return FALSE;
   }
 
   private function buildPaneAttributes(string $pane_key, string $tab_id, string $active_tab): array {
