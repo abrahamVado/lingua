@@ -51,8 +51,7 @@
         const displayMode = typeof settings.displayMode === 'string'
           ? settings.displayMode
           : (section.dataset.displayMode || 'featured');
-        const featuredMode = (displayMode === 'featured')
-          || (displayMode === 'latest' && featuredItems.length > 0);
+        let featuredMode = (displayMode === 'featured');
 
         // --- Helpers -----------------------------------------------------------
         const parseLimit = (v) => {
@@ -350,6 +349,8 @@
           wireControlsMinimal();
           return;
         }
+        //1.- Re-evaluate the featured flag once curated datasets are known so "latest" mode can reuse curated fallbacks safely.
+        featuredMode = featuredMode || (displayMode === 'latest' && featuredItems.length > 0);
         if (!featuredItems.length && featuredMode) {
           featuredItems = initial.slice();
         }
@@ -442,8 +443,24 @@
         };
 
         const applyThemeFilters = (nextFilters) => {
-          const tids = Array.from(new Set((nextFilters?.tids || []).map((tid) => tid.toString())));
-          const slugs = Array.from(new Set((nextFilters?.slugs || []).map((slug) => slug.toString().toLowerCase())));
+          //1.- Normalize incoming tids so repeated selections collapse into a deterministic set of taxonomy IDs.
+          const tidsSet = new Set();
+          (nextFilters?.tids || []).forEach((tid) => {
+            const value = tid?.toString?.() || '';
+            if (value) {
+              tidsSet.add(value);
+            }
+          });
+          const slugs = Array.from(new Set((nextFilters?.slugs || []).map((slug) => slug.toString().toLowerCase()).filter((slug) => slug !== '')));
+          //2.- Promote slug selections to tids when metadata is available so backend requests always include numeric filters.
+          slugs.forEach((slug) => {
+            const meta = themeLookups.bySlug.get(slug);
+            const tid = meta?.tid ? meta.tid.toString() : '';
+            if (tid) {
+              tidsSet.add(tid);
+            }
+          });
+          const tids = Array.from(tidsSet);
           state.themeFilters = { tids, slugs };
           syncCheckboxesToState(state.themeFilters);
           renderThemeTags(state.themeFilters);
