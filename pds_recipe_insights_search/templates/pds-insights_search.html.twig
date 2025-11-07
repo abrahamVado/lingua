@@ -39,6 +39,8 @@
 {% set _featured_json = _featured_items is empty ? '[]' : _featured_items|json_encode %}
 {% set _featured_attr = _featured_json ? _featured_json|e('html_attr') : '[]' %}
 {% set _entries_default = entries|default(6) %}
+{# //1.- Craft a stable identifier so the floating filters panel links to its trigger via aria-controls. #}
+{% set filter_menu_id = component_id ? component_id ~ '-filters-menu' : 'pds-insights-filters-menu-' ~ random() %}
 
 <section class="principal-insights" {{ attributes|default('') }}>
   <div class="container">
@@ -61,12 +63,55 @@
           </div>
 
           <div class="filter-actions">
-            <button class="filter-button" aria-haspopup="true" aria-expanded="false">
+            <button
+              class="filter-button"
+              type="button"
+              aria-haspopup="true"
+              aria-expanded="false"
+              aria-controls="{{ filter_menu_id }}"
+            >
               {{ 'Filter by'|t }}
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
                 <path d="M3 5L6 8L9 5" stroke="#0071B3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
+
+            {# //2.- Render the floating menu as a hidden panel that mirrors every available theme as a checkbox control. #}
+            <div class="insights-filters__backdrop" hidden data-filter-backdrop></div>
+            <div
+              id="{{ filter_menu_id }}"
+              class="insights-filters__menu"
+              hidden
+              role="dialog"
+              aria-modal="true"
+              data-filter-menu
+            >
+              <fieldset class="insights-filters__fieldset">
+                <legend class="visually-hidden">{{ 'Filter insights by theme'|t }}</legend>
+                <div class="insights-filters__list">
+                  {% for theme in themes|default([
+                    {'id':'global','tid':'1','label':'Global','active':true},
+                    {'id':'latam','tid':'2','label':'LATAM','active':false}
+                  ]) %}
+                    <label class="insights-filters__option">
+                      <input
+                        type="checkbox"
+                        class="insights-filters__checkbox"
+                        value="{{ theme.tid|default(theme.id)|e }}"
+                        data-theme-checkbox
+                        data-theme-id="{{ theme.id|lower|e }}"
+                        {% if theme.active %}checked{% endif %}
+                      />
+                      <span>{{ theme.label }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <div class="insights-filters__actions">
+                <button type="button" class="insights-filters__action insights-filters__action--apply" data-filter-apply>{{ 'Apply'|t }}</button>
+                <button type="button" class="insights-filters__action insights-filters__action--clear" data-filter-clear>{{ 'Clear'|t }}</button>
+              </div>
+            </div>
           </div>
 
           <button class="reset-button" aria-label="{{ 'Reset all filters'|t }}">{{ 'Reset All'|t }}</button>
