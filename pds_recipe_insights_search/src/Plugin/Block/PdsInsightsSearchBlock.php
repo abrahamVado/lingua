@@ -202,9 +202,17 @@ final class PdsInsightsSearchBlock extends BlockBase {
 
     // Read time if present.
     $read_time = '';
-    foreach (['field_read_time','field_tiempo_de_lectura'] as $f) {
+    foreach (['field_read_time','field_tiempo_de_lectura', 'field_mins_of_read'] as $f) {
       if ($node->hasField($f) && !$node->get($f)->isEmpty()) {
         $read_time = trim((string) $node->get($f)->value);
+        break;
+      }
+    }
+
+    $category = 'Sin categoría';
+    foreach (['field_category','field_categoria', 'field_category_insights'] as $f) {
+      if ($node->hasField($f) && !$node->get($f)->isEmpty() && ($term = $node->get($f)->entity)) {
+        $category = $term->label();
         break;
       }
     }
@@ -219,6 +227,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
       'read_time' => $read_time,
       'url' => $node->toUrl('canonical', ['absolute' => TRUE])->toString(),
       'link_text' => $link_text,
+      'category' => $category,
     ];
   }
 

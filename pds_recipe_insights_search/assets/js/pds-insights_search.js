@@ -1,349 +1,264 @@
 /**
  * PDS Insights listing interactions: search, themes, pagination.
  * Works with Twig: templates/pds-insights_search.html.twig
+ *
+ * To disable any automatic search or repaint on first load, add:
+ *   data-autosearch="0"
+ * on the <section class="principal-insights"> wrapper.
  */
 (function (Drupal, once, drupalSettings) {
   "use strict";
 
   Drupal.behaviors.pdsInsights = {
     attach(context) {
-      //1.- Bind once per insights section, capture shared DOM references, and read Drupal settings.
       once('pds-insights', '.principal-insights', context).forEach((section) => {
-        const componentId = section.getAttribute('data-pds-insights-search-id') || '';
-        const registry = drupalSettings.pdsInsightsSearch || {};
-        const settings = registry[componentId] || {};
+        // --- Flags and settings ------------------------------------------------
+        const id = section.getAttribute('data-pds-insights-search-id') || '';
+        const settings = (drupalSettings.pdsInsightsSearch || {})[id] || {};
+        // If attribute is "0" => manual. Otherwise auto.
+        const manual = (section.dataset.autosearch || '0') === '0';
 
-        const qInput = section.querySelector('.search-input');
-        const searchButton = section.querySelector('.search-button');
-        const resetButton = section.querySelector('.reset-button');
-        const themeBtns = Array.from(section.querySelectorAll('.theme-tag'));
-        const cardsContainer = section.querySelector('.insights-cards');
-        const totalEl = section.querySelector('[data-total]');
-        const entriesSel = section.querySelector('.entries-select');
-        const pageNumbers = section.querySelector('.page-numbers');
+        // --- DOM ---------------------------------------------------------------
+        const qInput   = section.querySelector('.search-input');
+        const btnSearch= section.querySelector('.search-button');
+        const btnReset = section.querySelector('.reset-button');
+        const themeBtns= Array.from(section.querySelectorAll('.theme-tag'));
+        const cards    = section.querySelector('.insights-cards');
+        const totalEl  = section.querySelector('[data-total]');
+        const entries  = section.querySelector('.entries-select');
+        const pageNums = section.querySelector('.page-numbers');
         const btnFirst = section.querySelector('.page-first');
-        const btnPrev = section.querySelector('.page-prev');
-        const btnNext = section.querySelector('.page-next');
-        const btnLast = section.querySelector('.page-last');
+        const btnPrev  = section.querySelector('.page-prev');
+        const btnNext  = section.querySelector('.page-next');
+        const btnLast  = section.querySelector('.page-last');
 
-        if (!cardsContainer) {
-          return;
-        }
+        if (!cards) return;
 
-        const emptyMessage = cardsContainer.dataset.emptyMessage || Drupal.t('No results found.');
-        const iconsPath = cardsContainer.dataset.iconsPath || '/icons';
-        const defaultThemes = themeBtns
-          .filter((btn) => btn.classList.contains('active'))
-          .map((btn) => (btn.dataset.theme || '').toLowerCase());
-
+        // --- Consts ------------------------------------------------------------
+        const emptyMsg  = cards.dataset.emptyMessage || Drupal.t('No results found.');
+        const iconsPath = cards.dataset.iconsPath || '/icons';
         const searchUrl = typeof settings.searchUrl === 'string' ? settings.searchUrl : '';
-        const defaultLinkText = typeof settings.linkText === 'string' && settings.linkText
-          ? settings.linkText
-          : Drupal.t('Get our perspective');
-        //2.- Extend dataset detection to honor the featuredItems alias delivered by the Twig layer.
-        const parseDatasetItems = (attribute) => {
-          if (!attribute) {
-            return [];
-          }
-          try {
-            const parsed = JSON.parse(attribute);
-            return Array.isArray(parsed) ? parsed : [];
-          }
-          catch (error) {
-            return [];
-          }
+        const defaultLinkText = settings.linkText || Drupal.t('Get our perspective');
+
+        // --- Helpers -----------------------------------------------------------
+        const parseLimit = (v) => {
+          const n = parseInt(v, 10);
+          return Number.isFinite(n) && n > 0 ? n : 10;
         };
 
-        const datasetFeaturedItems = cardsContainer ? parseDatasetItems(cardsContainer.dataset.featuredItems) : [];
-        const rawFeaturedItems = Array.isArray(settings.featuredItems) && settings.featuredItems.length
-          ? settings.featuredItems
-          : datasetFeaturedItems;
-        const rawInitialItems = Array.isArray(settings.initialItems) && settings.initialItems.length
-          ? settings.initialItems
-          : rawFeaturedItems;
-
-        //3.- Define helper utilities used by both rendering and network layers.
-        const parseLimit = (value) => {
-          const parsed = parseInt(value, 10);
-          return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+        const debounce = (fn, ms) => {
+          let t = null;
+          const d = (...args) => { if (t) clearTimeout(t); t = setTimeout(() => { t = null; fn(...args); }, ms); };
+          d.cancel = () => { if (t) { clearTimeout(t); t = null; } };
+          return d;
         };
 
-        const normalizeItem = (item) => {
-          const theme = item && typeof item === 'object' ? item.theme || {} : {};
-          const themeId = item?.theme_id ?? theme.id ?? '';
-          const themeLabel = item?.theme_label ?? theme.label ?? '';
+        const getThemesActive = () =>
+          themeBtns
+            .filter(b => b.classList.contains('active'))
+            .map(b => (b.dataset.theme || '').toLowerCase());
 
+        const normalize = (item) => {
+          const t = item && typeof item === 'object' ? (item.theme || {}) : {};
+          const theme_id = (item?.theme_id ?? t.id ?? '').toString().toLowerCase();
           return {
-            id: typeof item?.id === 'number' || typeof item?.id === 'string' ? item.id : null,
-            theme_id: typeof themeId === 'string' || typeof themeId === 'number' ? String(themeId).toLowerCase() : '',
-            theme_label: typeof themeLabel === 'string' ? themeLabel : '',
+            id: (typeof item?.id === 'number' || typeof item?.id === 'string') ? item.id : null,
+            theme_id,
+            theme_label: typeof (item?.theme_label ?? t.label) === 'string' ? (item?.theme_label ?? t.label) : '',
             title: typeof item?.title === 'string' ? item.title : '',
             summary: typeof item?.summary === 'string' ? item.summary : '',
             author: typeof item?.author === 'string' ? item.author : '',
             read_time: typeof item?.read_time === 'string' ? item.read_time : '',
-            url: typeof item?.url === 'string' && item.url !== '' ? item.url : '#',
-            link_text: typeof item?.link_text === 'string' && item.link_text !== '' ? item.link_text : defaultLinkText,
+            url: (typeof item?.url === 'string' && item.url) ? item.url : '#',
+            link_text: (typeof item?.link_text === 'string' && item.link_text) ? item.link_text : defaultLinkText,
           };
         };
 
-        const readItemsFromMarkup = () => {
-          if (!cardsContainer) {
-            return [];
-          }
+        const readSSR = () => {
+          const ssr = Array.from(cards.querySelectorAll('.insight-card'));
+          return ssr.map((card) => {
+            const theme_id = (card.getAttribute('data-theme') || '').toLowerCase();
+            const badge    = card.querySelector('.insight-badge');
+            const title    = card.querySelector('.insight-card-title');
+            const summary  = card.querySelector('.insight-summary');
+            const time     = card.querySelector('.insight-time');
+            const authorEl = card.querySelector('.insight-author');
+            const link     = card.querySelector('.button-area a');
 
-          const cards = Array.from(cardsContainer.querySelectorAll('.insight-card'));
-          if (!cards.length) {
-            return [];
-          }
-
-          return cards.map((card) => {
-            const themeId = (card.getAttribute('data-theme') || '').toLowerCase();
-            const badge = card.querySelector('.insight-badge');
-            const title = card.querySelector('.insight-card-title');
-            const summary = card.querySelector('.insight-summary');
-            const time = card.querySelector('.insight-time');
-            const author = card.querySelector('.insight-author');
-            const link = card.querySelector('.button-area a');
-
-            let authorText = '';
-            if (author) {
-              const label = author.querySelector('span');
-              authorText = author.textContent || '';
-              if (label) {
-                const labelText = label.textContent || '';
-                if (labelText !== '') {
-                  authorText = authorText.replace(labelText, '');
-                }
-              }
-              authorText = authorText.trim();
+            let author = '';
+            if (authorEl) {
+              const lab = authorEl.querySelector('span');
+              author = authorEl.textContent || '';
+              if (lab) author = author.replace(lab.textContent || '', '').trim();
             }
 
-            return normalizeItem({
-              theme_id: themeId,
+            return normalize({
+              theme_id,
               theme_label: badge ? (badge.textContent || '').trim() : '',
               title: title ? (title.textContent || '').trim() : '',
               summary: summary ? (summary.textContent || '').trim() : '',
               read_time: time ? (time.textContent || '').replace('🕒', '').trim() : '',
-              author: authorText,
-              url: link ? link.getAttribute('href') || '' : '',
+              author,
+              url: link ? (link.getAttribute('href') || '') : '#',
               link_text: link ? (link.textContent || '').trim() : defaultLinkText,
             });
           });
         };
 
-        const makeDebounce = (fn, delay) => {
-          let timer = null;
-          const debounced = (...args) => {
-            if (timer) {
-              clearTimeout(timer);
-            }
-            timer = setTimeout(() => {
-              timer = null;
-              fn(...args);
-            }, delay);
-          };
-          debounced.cancel = () => {
-            if (timer) {
-              clearTimeout(timer);
-              timer = null;
-            }
-          };
-          return debounced;
+        const parseList = (attr) => {
+          if (!attr) return [];
+          try { const v = JSON.parse(attr); return Array.isArray(v) ? v : []; } catch { return []; }
         };
 
-        const getActiveThemes = () => themeBtns
-          .filter((btn) => btn.classList.contains('active'))
-          .map((btn) => (btn.dataset.theme || '').toLowerCase());
+        // Prefer settings.initialItems -> settings.featuredItems -> data-featured-items -> SSR
+        const datasetFeatured = parseList(cards.dataset.featuredItems);
+        const base = Array.isArray(settings.initialItems) && settings.initialItems.length
+          ? settings.initialItems
+          : (Array.isArray(settings.featuredItems) && settings.featuredItems.length
+              ? settings.featuredItems
+              : (datasetFeatured.length ? datasetFeatured : readSSR()));
+        let initial = base.map(normalize);
 
-        const filterByTheme = (items) => {
-          const active = getActiveThemes();
-          if (!active.length) {
-            return items.slice();
-          }
-          return items.filter((item) => active.includes((item.theme_id || '').toLowerCase()));
-        };
-
-        const baseInitialItems = rawInitialItems.length ? rawInitialItems : rawFeaturedItems;
-        const initialLimit = entriesSel ? parseLimit(entriesSel.value) : (baseInitialItems.length || 10);
-        let normalizedInitial = baseInitialItems.map(normalizeItem);
-        if (!normalizedInitial.length) {
-          normalizedInitial = readItemsFromMarkup();
+        // If nothing to manage, just wire minimal controls and leave SSR untouched.
+        if (!initial.length) {
+          wireControlsMinimal();
+          return;
         }
 
+        const initLimit = entries ? parseLimit(entries.value) : Math.max(initial.length, 10);
         const state = {
-          componentId,
-          initialItems: normalizedInitial,
-          results: normalizedInitial.slice(),
           query: '',
-          limit: initialLimit,
+          initialItems: initial.slice(),
+          results: initial.slice(),
+          limit: initLimit,
           page: 0,
           meta: {
-            total: normalizedInitial.length,
-            pages: Math.max(1, Math.ceil((normalizedInitial.length || 1) / Math.max(initialLimit, 1))),
+            total: initial.length,
+            pages: Math.max(1, Math.ceil(initial.length / Math.max(initLimit, 1))),
             page: 0,
           },
+          userActed: false,    // only becomes true on Click or Enter
+          token: 0,
+        };
+        if (entries) entries.value = String(state.limit);
+
+        const debouncedSearch = debounce((val) => { state.page = 0; search(val, 0); }, 300);
+
+        const filterByTheme = (items) => {
+          const active = getThemesActive();
+          if (!active.length) return items.slice();
+          return items.filter(i => active.includes((i.theme_id || '').toLowerCase()));
         };
 
-        let requestToken = 0;
-        let hasUserInteracted = false;
-        const markInteracted = () => {
-          hasUserInteracted = true;
-        };
-        const debouncedSearch = makeDebounce((value) => {
-          state.page = 0;
-          performSearch(value, 0);
-        }, 300);
-
-        //4.- Rendering helpers that rebuild the cards list, totals, and pagination controls.
-        function renderCards(items) {
-          cardsContainer.innerHTML = '';
+        // --- Rendering ---------------------------------------------------------
+        function paintCards(items) {
+          cards.innerHTML = '';
           if (!items.length) {
-            const empty = document.createElement('p');
-            empty.className = 'insights-empty';
-            empty.textContent = emptyMessage;
-            cardsContainer.appendChild(empty);
+            const p = document.createElement('p');
+            p.className = 'insights-empty';
+            p.textContent = emptyMsg;
+            cards.appendChild(p);
             return;
           }
-
-          items.forEach((item) => {
+          items.forEach((it) => {
             const card = document.createElement('div');
             card.className = 'insight-card';
-            if (item.theme_id) {
-              card.setAttribute('data-theme', item.theme_id);
-            }
-            else {
-              card.removeAttribute('data-theme');
-            }
+            if (it.theme_id) card.setAttribute('data-theme', it.theme_id);
 
-            if (item.theme_label) {
+            if (it.theme_label) {
               const badge = document.createElement('span');
-              badge.className = `insight-badge ${item.theme_id}`.trim();
-              badge.textContent = item.theme_label;
+              badge.className = `insight-badge ${it.theme_id}`.trim();
+              badge.textContent = it.theme_label;
               card.appendChild(badge);
             }
 
-            const title = document.createElement('h3');
-            title.className = 'insight-card-title';
-            title.textContent = item.title;
-            card.appendChild(title);
+            const h3 = document.createElement('h3');
+            h3.className = 'insight-card-title';
+            h3.textContent = it.title;
+            card.appendChild(h3);
 
-            if (item.read_time) {
+            if (it.read_time) {
               const meta = document.createElement('div');
               meta.className = 'insight-meta';
-              const time = document.createElement('span');
-              time.className = 'insight-time';
-              time.textContent = `🕒 ${item.read_time}`;
-              meta.appendChild(time);
+              const t = document.createElement('span');
+              t.className = 'insight-time';
+              t.textContent = `🕒 ${it.read_time}`;
+              meta.appendChild(t);
               card.appendChild(meta);
             }
 
-            if (item.summary) {
-              const summary = document.createElement('p');
-              summary.className = 'insight-summary';
-              summary.textContent = item.summary;
-              card.appendChild(summary);
+            if (it.summary) {
+              const p = document.createElement('p');
+              p.className = 'insight-summary';
+              p.textContent = it.summary;
+              card.appendChild(p);
             }
 
-            if (item.author) {
-              const author = document.createElement('div');
-              author.className = 'insight-author';
-              const label = document.createElement('span');
-              label.textContent = Drupal.t('By');
-              author.appendChild(label);
-              author.append(` ${item.author}`);
-              card.appendChild(author);
+            if (it.author) {
+              const a = document.createElement('div');
+              a.className = 'insight-author';
+              const lab = document.createElement('span');
+              lab.textContent = Drupal.t('By');
+              a.appendChild(lab);
+              a.append(` ${it.author}`);
+              card.appendChild(a);
             }
 
-            const buttonArea = document.createElement('div');
-            buttonArea.className = 'button-area';
+            const area = document.createElement('div');
+            area.className = 'button-area';
             const link = document.createElement('a');
             link.className = 'principal-link principal-link--subtle';
-            link.href = item.url || '#';
-            link.textContent = item.link_text || defaultLinkText;
-            buttonArea.appendChild(link);
+            link.href = it.url || '#';
+            link.textContent = it.link_text || defaultLinkText;
+            area.appendChild(link);
 
-            const imgArea = document.createElement('div');
-            imgArea.className = 'img-area';
-            const arrow = document.createElement('img');
-            arrow.src = `${iconsPath}/arrow-right.svg`;
-            arrow.alt = '';
-            arrow.setAttribute('aria-hidden', 'true');
-            imgArea.appendChild(arrow);
-            buttonArea.appendChild(imgArea);
+            const imgA = document.createElement('div');
+            imgA.className = 'img-area';
+            const img = document.createElement('img');
+            img.src = `${iconsPath}/arrow-right.svg`;
+            img.alt = '';
+            img.setAttribute('aria-hidden', 'true');
+            imgA.appendChild(img);
+            area.appendChild(imgA);
 
-            card.appendChild(buttonArea);
-            cardsContainer.appendChild(card);
+            card.appendChild(area);
+            cards.appendChild(card);
           });
         }
 
-        function renderTotal(visible, total) {
-          if (!totalEl) {
-            return;
-          }
-          if (total <= 0) {
-            totalEl.textContent = Drupal.t('0 total results');
-            return;
-          }
+        function paintTotal(visible, total) {
+          if (!totalEl) return;
+          if (total <= 0) { totalEl.textContent = Drupal.t('0 total results'); return; }
           if (visible === total) {
             totalEl.textContent = Drupal.formatPlural(total, '1 total result', '@count total results');
             return;
           }
-          totalEl.textContent = Drupal.t('@visible of @total results', {
-            '@visible': visible,
-            '@total': total,
-          });
+          totalEl.textContent = Drupal.t('@visible of @total results', { '@visible': visible, '@total': total });
         }
 
-        function renderPagination(totalPages, currentPage, remote) {
-          if (!pageNumbers) {
-            return;
-          }
-
-          pageNumbers.innerHTML = '';
+        function paintPages(totalPages, current, remote) {
+          if (!pageNums) return;
+          pageNums.innerHTML = '';
           const pages = Math.max(1, totalPages);
-          const current = Math.min(Math.max(currentPage, 0), pages - 1);
-          const maxButtons = 5;
-          let start = Math.max(0, current - Math.floor(maxButtons / 2));
-          let end = Math.min(pages, start + maxButtons);
-          if (end - start < maxButtons) {
-            start = Math.max(0, end - maxButtons);
+          const cur = Math.min(Math.max(current, 0), pages - 1);
+          const maxBtns = 5;
+          let start = Math.max(0, cur - Math.floor(maxBtns / 2));
+          let end = Math.min(pages, start + maxBtns);
+          if (end - start < maxBtns) start = Math.max(0, end - maxBtns);
+
+          for (let i = start; i < end; i++) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = `page-number${i === cur ? ' active' : ''}`;
+            b.textContent = String(i + 1);
+            b.addEventListener('click', () => goPage(i, remote));
+            pageNums.appendChild(b);
           }
 
-          for (let i = start; i < end; i += 1) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = `page-number${i === current ? ' active' : ''}`;
-            btn.textContent = String(i + 1);
-            btn.addEventListener('click', () => {
-              goToPage(i, remote);
-            });
-            pageNumbers.appendChild(btn);
-          }
-
-          if (btnPrev) {
-            btnPrev.disabled = current <= 0;
-            btnPrev.onclick = () => {
-              if (current > 0) {
-                goToPage(current - 1, remote);
-              }
-            };
-          }
-          if (btnFirst) {
-            btnFirst.disabled = current <= 0;
-            btnFirst.onclick = () => goToPage(0, remote);
-          }
-          if (btnNext) {
-            btnNext.disabled = current >= pages - 1;
-            btnNext.onclick = () => {
-              if (current < pages - 1) {
-                goToPage(current + 1, remote);
-              }
-            };
-          }
-          if (btnLast) {
-            btnLast.disabled = current >= pages - 1;
-            btnLast.onclick = () => goToPage(pages - 1, remote);
-          }
+          if (btnPrev) { btnPrev.disabled = cur <= 0; btnPrev.onclick = () => cur > 0 && goPage(cur - 1, remote); }
+          if (btnFirst){ btnFirst.disabled= cur <= 0; btnFirst.onclick = () => goPage(0, remote); }
+          if (btnNext) { btnNext.disabled = cur >= pages - 1; btnNext.onclick = () => cur < pages - 1 && goPage(cur + 1, remote); }
+          if (btnLast) { btnLast.disabled = cur >= pages - 1; btnLast.onclick = () => goPage(pages - 1, remote); }
         }
 
         function render() {
@@ -352,202 +267,166 @@
           const remote = state.query !== '';
 
           if (!remote) {
-            const totalFiltered = filtered.length;
-            const pages = Math.max(1, Math.ceil(totalFiltered / Math.max(state.limit, 1)));
-            if (state.page >= pages) {
-              state.page = pages - 1;
-            }
-            const startIndex = state.page * state.limit;
-            const visible = filtered.slice(startIndex, startIndex + state.limit);
-            renderCards(visible);
-            renderTotal(visible.length, totalFiltered);
-            renderPagination(pages, state.page, false);
+            const total = filtered.length;
+            const pages = Math.max(1, Math.ceil(total / Math.max(state.limit, 1)));
+            if (state.page >= pages) state.page = pages - 1;
+            const start = state.page * state.limit;
+            const visible = filtered.slice(start, start + state.limit);
+            paintCards(visible);
+            paintTotal(visible.length, total);
+            paintPages(pages, state.page, false);
             return;
           }
 
           const meta = state.meta || {};
-          const totalRemote = typeof meta.total === 'number' ? meta.total : filtered.length;
-          const pagesRemote = typeof meta.pages === 'number' ? meta.pages : 1;
-          const currentRemote = typeof meta.page === 'number' ? meta.page : 0;
-
-          renderCards(filtered);
-          renderTotal(filtered.length, totalRemote);
-          renderPagination(pagesRemote, currentRemote, true);
+          paintCards(filtered);
+          paintTotal(filtered.length, typeof meta.total === 'number' ? meta.total : filtered.length);
+          paintPages(typeof meta.pages === 'number' ? meta.pages : 1,
+                     typeof meta.page === 'number' ? meta.page : 0,
+                     true);
         }
 
-        //5.- Orchestrate server-backed searches with debouncing and race protection.
-        function performSearch(term, page = 0) {
-          const query = typeof term === 'string' ? term.trim() : '';
-          state.query = query;
+        // --- Networking --------------------------------------------------------
+        function search(term, page = 0) {
+          const q = (typeof term === 'string' ? term.trim() : '');
 
-          if (!hasUserInteracted && query === '') {
+          // Block fetches until user explicitly acted AND query >= 3.
+          if (!state.userActed || q.length < 3 || !searchUrl) {
+            state.query = '';
             state.results = state.initialItems.slice();
             state.meta = {
               total: state.initialItems.length,
-              pages: Math.max(1, Math.ceil((state.initialItems.length || 1) / Math.max(state.limit, 1))),
+              pages: Math.max(1, Math.ceil(state.initialItems.length / Math.max(state.limit, 1))),
               page: 0,
             };
             state.page = 0;
-            section.removeAttribute('aria-busy');
-            render();
+            // In manual mode, do not repaint SSR unless user already acted
+            if (!manual || state.userActed) render();
             return;
           }
 
-          if (query === '' || !searchUrl) {
-            state.results = state.initialItems.slice();
-            state.meta = {
-              total: state.initialItems.length,
-              pages: Math.max(1, Math.ceil((state.initialItems.length || 1) / Math.max(state.limit, 1))),
-              page: 0,
-            };
-            state.page = 0;
-            section.removeAttribute('aria-busy');
-            render();
-            return;
-          }
+          state.query = q;
 
-          let targetUrl;
-          try {
-            targetUrl = new URL(searchUrl, window.location.origin);
-          }
-          catch (error) {
-            try {
-              targetUrl = new URL(searchUrl, window.location.href);
-            }
-            catch (innerError) {
-              targetUrl = null;
-            }
-          }
+          let u;
+          try { u = new URL(searchUrl, window.location.origin); }
+          catch { try { u = new URL(searchUrl, window.location.href); } catch { u = null; } }
+          if (!u) { render(); return; }
 
-          if (!targetUrl) {
-            render();
-            return;
-          }
+          u.searchParams.set('q', q);
+          u.searchParams.set('limit', String(state.limit));
+          u.searchParams.set('page', String(Math.max(0, page)));
 
-          targetUrl.searchParams.set('q', query);
-          targetUrl.searchParams.set('limit', String(state.limit));
-          targetUrl.searchParams.set('page', String(Math.max(0, page)));
-
-          requestToken += 1;
-          const currentToken = requestToken;
+          state.token += 1;
+          const tok = state.token;
           section.setAttribute('aria-busy', 'true');
 
-          fetch(targetUrl.toString(), {
-            headers: { 'Accept': 'application/json' },
-            credentials: 'same-origin',
-          })
-            .then((response) => {
-              if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-              }
-              return response.json();
-            })
-            .then((payload) => {
-              if (currentToken !== requestToken) {
-                return;
-              }
-              const items = Array.isArray(payload?.data) ? payload.data : [];
-              state.results = items.map(normalizeItem);
-              const meta = payload?.meta || {};
+          fetch(u.toString(), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+            .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+            .then(payload => {
+              if (tok !== state.token) return;
+              const list = Array.isArray(payload?.data) ? payload.data : [];
+              state.results = list.map(normalize);
+              const m = payload?.meta || {};
               state.meta = {
-                total: typeof meta.total === 'number' ? meta.total : state.results.length,
-                pages: typeof meta.pages === 'number' ? meta.pages : 1,
-                page: typeof meta.page === 'number' ? meta.page : 0,
+                total: typeof m.total === 'number' ? m.total : state.results.length,
+                pages: typeof m.pages === 'number' ? m.pages : 1,
+                page: typeof m.page === 'number' ? m.page : 0,
               };
               state.page = state.meta.page;
               render();
             })
             .catch(() => {
-              if (currentToken !== requestToken) {
-                return;
-              }
+              if (tok !== state.token) return;
               state.results = [];
               state.meta = { total: 0, pages: 1, page: 0 };
               state.page = 0;
               render();
             })
-            .finally(() => {
-              if (currentToken === requestToken) {
-                section.removeAttribute('aria-busy');
-              }
-            });
+            .finally(() => { if (tok === state.token) section.removeAttribute('aria-busy'); });
         }
 
-        function goToPage(pageIndex, remote) {
-          const nextPage = Math.max(0, pageIndex);
-          if (remote && state.query !== '') {
-            performSearch(state.query, nextPage);
-            return;
+        function goPage(i, remote) {
+          const next = Math.max(0, i);
+          if (remote && state.query !== '') { search(state.query, next); return; }
+          state.page = next; render();
+        }
+
+        // --- Wire controls -----------------------------------------------------
+        const markActed = () => { state.userActed = true; };
+
+        // Do NOT mark userActed on raw input. Users must click or press Enter.
+        qInput?.addEventListener('input', (e) => {
+          debouncedSearch(e.target.value || '');
+        });
+
+        qInput?.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            debouncedSearch.cancel();
+            markActed();
+            search(qInput.value || '', 0);
           }
-          state.page = nextPage;
+        });
+
+        btnSearch?.addEventListener('click', (e) => {
+          e.preventDefault();
+          debouncedSearch.cancel();
+          markActed();
+          search(qInput?.value || '', 0);
+        });
+
+        btnReset?.addEventListener('click', (e) => {
+          e.preventDefault();
+          debouncedSearch.cancel();
+          if (qInput) qInput.value = '';
+          // Restore theme default selection as in SSR
+          const defaults = getThemesActive();
+          themeBtns.forEach((b) => {
+            const t = (b.dataset.theme || '').toLowerCase();
+            b.classList.toggle('active', defaults.includes(t));
+          });
+          state.query = '';
+          state.page = 0;
+          state.results = state.initialItems.slice();
+          state.meta = {
+            total: state.initialItems.length,
+            pages: Math.max(1, Math.ceil(state.initialItems.length / Math.max(state.limit, 1))),
+            page: 0,
+          };
+          // Only repaint if not manual; in manual, SSR is already what we want.
+          if (!manual) render();
+        });
+
+        themeBtns.forEach((b) => b.addEventListener('click', () => {
+          b.classList.toggle('active');
+          state.page = 0;
+          if (!manual || state.userActed) render();
+        }));
+
+        entries?.addEventListener('change', (e) => {
+          const n = parseLimit(e.target.value);
+          state.limit = n;
+          state.page = 0;
+          if (state.query === '') {
+            if (!manual) render();
+          } else {
+            debouncedSearch.cancel();
+            search(state.query, 0);
+          }
+        });
+
+        // --- First paint -------------------------------------------------------
+        // Auto mode: render immediately.
+        // Manual mode: do nothing; keep SSR cards and counters as-is.
+        if (!manual) {
           render();
         }
-
-        //6.- Wire interactive controls: live search, reset, theme toggles, entries, and pagination.
-        qInput?.addEventListener('input', (event) => {
-          markInteracted();
-          debouncedSearch(event.target.value || '');
-        });
-
-        qInput?.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            debouncedSearch.cancel();
-            markInteracted();
-            performSearch(qInput.value || '', 0);
-          }
-        });
-
-        searchButton?.addEventListener('click', (event) => {
-          event.preventDefault();
-          debouncedSearch.cancel();
-          markInteracted();
-          performSearch(qInput?.value || '', 0);
-        });
-
-        resetButton?.addEventListener('click', (event) => {
-          event.preventDefault();
-          debouncedSearch.cancel();
-          markInteracted();
-          if (qInput) {
-            qInput.value = '';
-          }
-          themeBtns.forEach((btn) => {
-            const theme = (btn.dataset.theme || '').toLowerCase();
-            btn.classList.toggle('active', defaultThemes.includes(theme));
-          });
-          state.page = 0;
-          performSearch('', 0);
-        });
-
-        themeBtns.forEach((btn) => {
-          btn.addEventListener('click', () => {
-            btn.classList.toggle('active');
-            state.page = 0;
-            render();
-          });
-        });
-
-        entriesSel?.addEventListener('change', (event) => {
-          const nextLimit = parseLimit(event.target.value);
-          state.limit = nextLimit;
-          state.page = 0;
-          markInteracted();
-          if (state.query === '') {
-            render();
-          }
-          else {
-            debouncedSearch.cancel();
-            performSearch(state.query, 0);
-          }
-        });
-
-        //7.- Render the admin-provided dataset on first load.
-        if (entriesSel) {
-          entriesSel.value = String(state.limit);
-        }
-        render();
       });
     },
   };
+
+  // Fallback: minimal wiring when no initial items exist.
+  function wireControlsMinimal() {
+    // Intentionally no-op; site keeps SSR. Implement if needed for empty states.
+  }
 })(Drupal, once, drupalSettings);
