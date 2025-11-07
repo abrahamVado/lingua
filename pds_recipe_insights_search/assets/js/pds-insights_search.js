@@ -75,11 +75,12 @@
           return `🕒 ${Drupal.t('@count min read', { '@count': trimmed })}`;
         };
 
-        //1.- Toggle the pagination visibility while letting callers decide when the controls should stay exposed.
+        //1.- Toggle the pagination visibility while keeping controls visible unless callers explicitly request to hide them.
         const setPaginationVisibility = (shouldShow) => {
           if (!pagination) return;
-          pagination.classList.toggle('is-hidden', !shouldShow);
-          pagination.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+          const show = shouldShow !== false;
+          pagination.classList.toggle('is-hidden', !show);
+          pagination.setAttribute('aria-hidden', show ? 'false' : 'true');
         };
 
         const debounce = (fn, ms) => {
@@ -219,6 +220,13 @@
 
         const initialThemeFilters = readCheckboxFilters();
 
+        const createItemKey = (item) => {
+          const id = (typeof item?.id === 'number' || typeof item?.id === 'string') ? item.id : '';
+          const url = typeof item?.url === 'string' ? item.url : '';
+          const title = typeof item?.title === 'string' ? item.title : '';
+          return `${id}|${url}|${title}`.toLowerCase();
+        };
+
         const normalize = (item) => {
           const t = item && typeof item === 'object' ? (item.theme || {}) : {};
           const rawThemeId = item?.theme_id ?? t.id ?? '';
@@ -332,6 +340,7 @@
 
         let initial = initialRaw.map(normalize);
         let featuredItems = featuredRaw.map(normalize);
+        const featuredKeys = new Set(featuredItems.map((item) => createItemKey(item)));
 
         if (!initial.length) {
           initial = ssrItems.slice();
@@ -395,12 +404,15 @@
           userActed: false,    // only becomes true on Click or Enter
           token: 0,
           featuredItems,
+          featuredKeys,
           featuredNodeIds,
           catalog,
           themeFilters: {
             tids: initialThemeFilters.tids.slice(),
             slugs: initialThemeFilters.slugs.slice(),
           },
+          firstPageFeaturedVisible: 0,
+          firstPageRemoteVisible: 0,
         };
 
         //3.- Reflect any preselected filters so the checkbox grid and tag summary stay synchronized from the first render.
@@ -408,6 +420,7 @@
         renderThemeTags(state.themeFilters);
 
         let catalogToken = 0;
+        let featuredRenderToken = 0;
 
         const resetCatalogCaches = () => {
           //4.- Flush cached catalog pages so backend requests honor the latest taxonomy filters.
@@ -416,6 +429,8 @@
           state.catalog.cacheLimit = null;
           state.catalog.nonFeaturedTotal = 0;
           state.catalog.total = filterByTheme(state.featuredItems).length;
+          state.firstPageFeaturedVisible = 0;
+          state.firstPageRemoteVisible = 0;
         };
 
         const applyThemeFilters = (nextFilters) => {
@@ -712,10 +727,13 @@
         function renderRemote() {
           const filtered = filterByTheme(state.results);
           const meta = state.meta || {};
-          const total = typeof meta.total === 'number' ? meta.total : filtered.length;
-          const pages = typeof meta.pages === 'number' ? meta.pages : 1;
-          const current = typeof meta.page === 'number' ? meta.page : 0;
-          setPaginationVisibility(pages > 1);
+          const totalRaw = typeof meta.total === 'number' ? meta.total : filtered.length;
+          const total = Math.max(0, totalRaw);
+          const pagesRaw = typeof meta.pages === 'number' ? meta.pages : 1;
+          const pages = Math.max(1, pagesRaw);
+          const currentRaw = typeof meta.page === 'number' ? meta.page : 0;
+          const current = Math.min(Math.max(currentRaw, 0), pages - 1);
+          setPaginationVisibility(total > 0);
           paintCards(filtered);
           paintTotal(filtered.length, total);
           paintPages(pages, current, true);
@@ -729,7 +747,7 @@
           const start = state.page * state.limit;
           const visible = filtered.slice(start, start + state.limit);
           state.meta = { total, pages, page: state.page };
-          setPaginationVisibility(pages > 1);
+          setPaginationVisibility(total > 0);
           paintCards(visible);
           paintTotal(visible.length, total);
           paintPages(pages, state.page, false);
@@ -741,7 +759,7 @@
           const seen = new Set();
           const add = (item) => {
             if (!item || typeof item !== 'object') return;
-            const key = `${item.id ?? ''}|${item.url ?? ''}|${item.title ?? ''}`.toLowerCase();
+            const key = createItemKey(item);
             if (seen.has(key)) return;
             seen.add(key);
             curated.push(item);
@@ -830,6 +848,44 @@
           return request;
         }
 
+        function ensureCatalogRange(startIndex, amount) {
+          //2.- Assemble contiguous catalog segments so follow-up pages continue right after curated highlights.
+          ensureCatalogCapacity();
+          const perPage = Math.max(1, state.limit);
+          const safeStart = Math.max(0, startIndex);
+          const safeAmount = Math.max(0, amount);
+          if (safeAmount === 0) {
+            return Promise.resolve([]);
+          }
+
+          const startPage = Math.floor(safeStart / perPage);
+          const endIndex = safeStart + safeAmount - 1;
+          const endPage = Math.floor(endIndex / perPage);
+          const requests = [];
+
+          for (let page = startPage; page <= endPage; page++) {
+            requests.push(ensureCatalogPage(page));
+          }
+
+          if (requests.length === 0) {
+            return Promise.resolve([]);
+          }
+
+          return Promise.all(requests).then(() => {
+            const collected = [];
+            for (let page = startPage; page <= endPage; page++) {
+              const dataset = state.catalog.cache.get(page) || [];
+              dataset.forEach((item, indexInPage) => {
+                const globalIndex = (page * perPage) + indexInPage;
+                if (globalIndex >= safeStart && globalIndex < safeStart + safeAmount) {
+                  collected.push(item);
+                }
+              });
+            }
+            return collected;
+          });
+        }
+
         function renderFeatured() {
           const featuredMeta = computeFeaturedMeta();
           const combinedTotal = Math.max(state.catalog.total, featuredMeta.total);
@@ -837,37 +893,57 @@
           if (state.page >= pages) state.page = pages - 1;
           state.catalog.total = combinedTotal;
           state.meta = { total: combinedTotal, pages, page: state.page };
-          //4.- Keep pagination visible whenever additional catalog pages exist, even before the user leaves the featured tab.
-          const shouldShowPagination = (pages > 1) || featuredMeta.catalog > 0;
+          const shouldShowPagination = combinedTotal > 0 || featuredMeta.catalog > 0;
           setPaginationVisibility(shouldShowPagination);
           paintPages(pages, state.page, false);
 
+          const combined = combineFeaturedFirstPage();
+          const filteredCombined = filterByTheme(combined);
+          const firstSlice = filteredCombined.slice(0, state.limit);
+          //3.- Capture the number of curated entries rendered on page one so subsequent pages skip them cleanly.
+          const featuredVisibleFirst = firstSlice.reduce((count, item) => {
+            const key = createItemKey(item);
+            return state.featuredKeys.has(key) ? count + 1 : count;
+          }, 0);
+          const remoteVisibleFirst = Math.max(0, firstSlice.length - featuredVisibleFirst);
+          state.firstPageFeaturedVisible = featuredVisibleFirst;
+          state.firstPageRemoteVisible = remoteVisibleFirst;
+
           if (state.page === 0) {
-            //6.- Warm up the automatic catalog so the next page is ready once visitors leave the curated selection.
             if (!state.catalog.cache.has(0) && featuredMeta.catalog > 0 && searchUrl) {
               ensureCatalogPage(0);
-            }            
-            const combined = combineFeaturedFirstPage();
-            const visible = filterByTheme(combined).slice(0, state.limit);
-            paintCards(visible);
-            paintTotal(visible.length, combinedTotal);
+            }
+            paintCards(firstSlice);
+            paintTotal(firstSlice.length, combinedTotal);
             return;
           }
 
-          const catalogPage = state.page - 1;
-          if (!state.catalog.cache.has(catalogPage)) {
-            ensureCatalogPage(catalogPage).then(() => {
-              if (state.query === '' && featuredMode) {
-                renderFeatured();
+          const remoteStart = remoteVisibleFirst + ((state.page - 1) * state.limit);
+          const token = ++featuredRenderToken;
+          section.setAttribute('aria-busy', 'true');
+
+          ensureCatalogRange(remoteStart, state.limit)
+            .then((range) => {
+              if (featuredRenderToken !== token || state.query !== '' || !featuredMode) {
+                return;
+              }
+              const filteredRange = filterByTheme(range);
+              const visible = filteredRange.slice(0, state.limit);
+              paintCards(visible);
+              paintTotal(visible.length, combinedTotal);
+            })
+            .catch(() => {
+              if (featuredRenderToken !== token || state.query !== '' || !featuredMode) {
+                return;
+              }
+              paintCards([]);
+              paintTotal(0, combinedTotal);
+            })
+            .finally(() => {
+              if (featuredRenderToken === token) {
+                section.removeAttribute('aria-busy');
               }
             });
-            return;
-          }
-
-          const dataset = state.catalog.cache.get(catalogPage) || [];
-          const visible = filterByTheme(dataset).slice(0, state.limit);
-          paintCards(visible);
-          paintTotal(visible.length, combinedTotal);
         }
 
         // --- Networking --------------------------------------------------------
