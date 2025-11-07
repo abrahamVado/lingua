@@ -55,10 +55,14 @@ final class PdsInsightsSearchBlock extends BlockBase {
     $cache_tags = [];
     $items = [];
     $featured_items = [];
+    $non_featured_items = [];
+    $non_featured_total = 0;
+    $featured_node_ids = [];
+    $page_size = 6;
 
     if ($display_mode === 'latest') {
       //2.- Load the latest insights directly when the admin opts out of curated content.
-      [$items, $cache_tags] = $this->buildLatestInsightsItems(6, $link_text);
+      [$items, $cache_tags] = $this->buildLatestInsightsItems($page_size, $link_text);
     }
     else {
       //3.- Read saved entries from config (supports legacy key "insights_search").
@@ -68,6 +72,16 @@ final class PdsInsightsSearchBlock extends BlockBase {
       //4.- Map saved config → frontend items (node-backed preferred).
       [$items, $cache_tags] = $this->buildItemsFromSavedFondos($stored, $link_text);
       $featured_items = $items;
+      $featured_node_ids = $this->collectNodeIdentifiers($featured_items);
+
+      //5.- Prepare the automatic insights catalog so pagination can surface every published node once curated items end.
+      $catalog = $this->buildLatestInsightsCatalog($page_size, $link_text, $featured_node_ids);
+      $non_featured_items = $catalog['items'];
+      $non_featured_total = $catalog['total'];
+      $cache_tags = array_merge($cache_tags, $catalog['cache_tags']);
+
+      //6.- Blend featured entries with catalog fillers to guarantee the first page stays full while respecting uniqueness.
+      $items = $this->mergeFeaturedFirstPage($featured_items, $non_featured_items, $page_size);
     }
 
     $title = trim((string) ($cfg['title'] ?? '')) ?: ($this->label() ?? '');
@@ -78,6 +92,16 @@ final class PdsInsightsSearchBlock extends BlockBase {
     // Frontend search endpoint for live results.
     $search_url = Url::fromRoute('pds_recipe_insights_search.api.search')->toString();
 
+    $total_unique_items = count($items);
+    if ($display_mode === 'featured') {
+      //7.- Combine curated and automatic totals so the pagination reflects the complete Insights catalog.
+      $total_unique_items = max($total_unique_items, count($featured_node_ids) + $non_featured_total);
+    }
+
+    $pages = $page_size > 0
+      ? range(1, max(1, (int) ceil(max(1, $total_unique_items) / $page_size)))
+      : [1];
+
     //1.- Build the render array ensuring featured items flow to Twig and JS consumers.
     return [
       '#theme' => 'pds_insights_search',
@@ -85,7 +109,9 @@ final class PdsInsightsSearchBlock extends BlockBase {
       '#items' => $items,
       '#initial_items' => $items,
       '#featured_items' => $featured_items,
-      '#total' => count($items),
+      '#total' => $total_unique_items,
+      '#pages' => $pages,
+      '#entries' => $page_size,
       '#component_id' => $component_id,
       '#attributes' => $attributes,
       '#icons_path' => $this->buildAssetUrl('assets/images/icons'),
@@ -101,6 +127,13 @@ final class PdsInsightsSearchBlock extends BlockBase {
               'searchUrl' => $search_url,
               'linkText' => $link_text,
               'displayMode' => $display_mode,
+              'featuredNodeIds' => $featured_node_ids,
+              'allInsights' => [
+                'items' => $non_featured_items,
+                'total' => $total_unique_items,
+                'nonFeaturedTotal' => $non_featured_total,
+                'limit' => $page_size,
+              ],
             ],
           ],
         ],
@@ -120,10 +153,20 @@ final class PdsInsightsSearchBlock extends BlockBase {
    * Accepts rows with or without source_nid. Preserves saved order.
    */
   private function buildLatestInsightsItems(int $limit, string $link_text): array {
-    //1.- Resolve which bundles qualify as "Insights" content to fetch recent nodes reliably.
+    //1.- Delegate to the catalog builder so both curated and automatic flows reuse the same query logic.
+    $catalog = $this->buildLatestInsightsCatalog($limit, $link_text);
+    return [$catalog['items'], $catalog['cache_tags']];
+  }
+
+  private function buildLatestInsightsCatalog(int $limit, string $link_text, array $exclude_nids = [], int $offset = 0): array {
+    //1.- Resolve eligible bundles so the automatic catalog mirrors the public search endpoint.
     $bundles = $this->resolveInsightsBundles();
     if ($bundles === []) {
-      return [[], ['node_list']];
+      return [
+        'items' => [],
+        'total' => 0,
+        'cache_tags' => ['node_list'],
+      ];
     }
 
     $storage = \Drupal::entityTypeManager()->getStorage('node');
@@ -131,15 +174,26 @@ final class PdsInsightsSearchBlock extends BlockBase {
       ->accessCheck(TRUE)
       ->condition('status', NodeInterface::PUBLISHED)
       ->condition('type', $bundles, 'IN')
-      ->sort('created', 'DESC')
-      ->range(0, max(1, $limit));
+      ->sort('created', 'DESC');
 
-    $nids = $query->execute();
-    if (!$nids) {
-      return [[], ['node_list']];
+    if ($exclude_nids !== []) {
+      $query->condition('nid', array_values(array_unique(array_filter($exclude_nids, static fn ($nid): bool => $nid > 0))), 'NOT IN');
     }
 
-    //2.- Load the nodes and respect the current interface language for consistency with curated entries.
+    $count_query = clone $query;
+    $total = (int) $count_query->count()->execute();
+
+    $query->range(max(0, $offset), max(1, $limit));
+    $nids = $query->execute();
+    if (!$nids) {
+      return [
+        'items' => [],
+        'total' => $total,
+        'cache_tags' => $this->buildCatalogCacheTags($bundles),
+      ];
+    }
+
+    //2.- Load and translate the nodes so multilingual sites keep parity with curated selections.
     /** @var \Drupal\node\NodeInterface[] $nodes */
     $nodes = $storage->loadMultiple($nids);
     $current_lang = \Drupal::languageManager()->getCurrentLanguage()->getId();
@@ -150,21 +204,93 @@ final class PdsInsightsSearchBlock extends BlockBase {
     }
 
     $items = [];
-    $cache_tags = ['node_list'];
-    foreach ($bundles as $bundle) {
-      $cache_tags[] = 'node_list:' . $bundle;
-    }
-
+    $cache_tags = $this->buildCatalogCacheTags($bundles);
     foreach ($nodes as $node) {
       if (!$node instanceof NodeInterface) {
         continue;
       }
-
       $items[] = $this->itemFromNode($node, $link_text);
       $cache_tags[] = 'node:' . $node->id();
     }
 
-    return [$items, array_values(array_unique($cache_tags))];
+    return [
+      'items' => $items,
+      'total' => $total,
+      'cache_tags' => array_values(array_unique($cache_tags)),
+    ];
+  }
+
+  private function buildCatalogCacheTags(array $bundles): array {
+    //1.- Aggregate list tags for each supported bundle so cache invalidation tracks new publications automatically.
+    $cache_tags = ['node_list'];
+    foreach ($bundles as $bundle) {
+      $cache_tags[] = 'node_list:' . $bundle;
+    }
+    return $cache_tags;
+  }
+
+  private function collectNodeIdentifiers(array $items): array {
+    //1.- Extract numeric identifiers from curated entries so the automatic catalog can exclude duplicates.
+    $ids = [];
+    foreach ($items as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $id = $item['id'] ?? NULL;
+      if (is_numeric($id)) {
+        $ids[] = (int) $id;
+      }
+    }
+    return array_values(array_unique(array_filter($ids, static fn ($nid): bool => $nid > 0)));
+  }
+
+  private function mergeFeaturedFirstPage(array $featured, array $fallback, int $limit): array {
+    //1.- Seed the first page with curated entries preserving their configured order.
+    $result = [];
+    $seen = [];
+    foreach ($featured as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $key = $this->itemKey($item);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = TRUE;
+      $result[] = $item;
+      if (count($result) >= $limit) {
+        return array_slice($result, 0, $limit);
+      }
+    }
+
+    //2.- Backfill any remaining slots with the latest automatic items while avoiding duplicates.
+    foreach ($fallback as $item) {
+      if (!is_array($item)) {
+        continue;
+      }
+      $key = $this->itemKey($item);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = TRUE;
+      $result[] = $item;
+      if (count($result) >= $limit) {
+        break;
+      }
+    }
+
+    return array_slice($result, 0, max(1, $limit));
+  }
+
+  private function itemKey(array $item): string {
+    //1.- Prefer numeric IDs, otherwise fall back to URLs and titles to keep fillers unique.
+    $id = $item['id'] ?? NULL;
+    if (is_numeric($id) && (int) $id > 0) {
+      return 'nid:' . ((int) $id);
+    }
+    $url = isset($item['url']) && is_string($item['url']) ? trim($item['url']) : '';
+    $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+    return 'hash:' . md5($url . '|' . $title);
   }
 
   private function buildItemsFromSavedFondos(array $fondos_cfg, string $link_text): array {

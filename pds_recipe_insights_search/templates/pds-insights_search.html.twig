@@ -32,6 +32,10 @@
 
 {% set _items = _initial_items %}
 {% set _total = total|default(_initial_items|length) %}
+{% set _pages = pages|default([1]) %}
+{% if _pages is not iterable %}
+  {% set _pages = [1] %}
+{% endif %}
 {% set _featured_json = _featured_items is empty ? '[]' : _featured_items|json_encode %}
 {% set _featured_attr = _featured_json ? _featured_json|e('html_attr') : '[]' %}
 {% set _entries_default = entries|default(6) %}
@@ -130,7 +134,7 @@
         {% endfor %}
       </div>
 
-      <div class="insights-pagination {{ _display_mode == 'featured' ? 'is-hidden' }}">
+      <div class="insights-pagination">
         <div class="pagination-entries">
           <label for="entries-select">{{ 'Show'|t }}</label>
           <select class="entries-select" id="entries-select">
@@ -150,7 +154,7 @@
           </button>
 
           <div class="page-numbers">
-            {% for p in pages|default([1,2,3]) %}
+            {% for p in _pages %}
               <button class="page-number {{ loop.first ? 'active' }}">{{ p }}</button>
             {% endfor %}
           </div>

@@ -44,10 +44,6 @@
           ? settings.displayMode
           : (section.dataset.displayMode || 'featured');
         const featuredMode = displayMode === 'featured';
-        if (pagination && featuredMode) {
-          pagination.classList.add('is-hidden');
-          pagination.setAttribute('aria-hidden', 'true');
-        }
 
         // --- Helpers -----------------------------------------------------------
         const parseLimit = (v) => {
@@ -128,20 +124,65 @@
 
         // Prefer settings.initialItems -> settings.featuredItems -> data-featured-items -> SSR
         const datasetFeatured = parseList(cards.dataset.featuredItems);
-        const base = Array.isArray(settings.initialItems) && settings.initialItems.length
+        const ssrItems = readSSR();
+        const featuredRaw = Array.isArray(settings.featuredItems) && settings.featuredItems.length
+          ? settings.featuredItems
+          : (datasetFeatured.length ? datasetFeatured : ssrItems);
+        const initialRaw = Array.isArray(settings.initialItems) && settings.initialItems.length
           ? settings.initialItems
-          : (Array.isArray(settings.featuredItems) && settings.featuredItems.length
-              ? settings.featuredItems
-              : (datasetFeatured.length ? datasetFeatured : readSSR()));
-        let initial = base.map(normalize);
+          : featuredRaw;
 
-        // If nothing to manage, just wire minimal controls and leave SSR untouched.
+        let initial = initialRaw.map(normalize);
+        let featuredItems = featuredRaw.map(normalize);
+
+        if (!initial.length) {
+          initial = ssrItems.slice();
+        }
         if (!initial.length) {
           wireControlsMinimal();
           return;
         }
+        if (!featuredItems.length && featuredMode) {
+          featuredItems = initial.slice();
+        }
 
-        const initLimit = entries ? parseLimit(entries.value) : Math.max(initial.length, 10);
+        const allInsightsSettings = (typeof settings.allInsights === 'object' && settings.allInsights !== null)
+          ? settings.allInsights
+          : {};
+        const catalogRaw = Array.isArray(allInsightsSettings.items) ? allInsightsSettings.items : [];
+        let catalogItems = catalogRaw.map(normalize);
+        const nonFeaturedTotalSetting = Number.isFinite(allInsightsSettings.nonFeaturedTotal)
+          ? allInsightsSettings.nonFeaturedTotal
+          : catalogItems.length;
+        const totalSetting = Number.isFinite(allInsightsSettings.total)
+          ? allInsightsSettings.total
+          : nonFeaturedTotalSetting + featuredItems.length;
+        const featuredNodeIds = Array.isArray(settings.featuredNodeIds)
+          ? settings.featuredNodeIds
+              .map((nid) => parseInt(nid, 10))
+              .filter((nid) => Number.isFinite(nid) && nid > 0)
+          : [];
+
+        const limitCandidate = allInsightsSettings.limit ?? (initial.length || 6);
+        const initLimit = entries
+          ? parseLimit(entries.value || limitCandidate)
+          : parseLimit(limitCandidate);
+        if (entries) {
+          entries.value = String(initLimit);
+        }
+
+        const catalog = {
+          cache: new Map(),
+          pending: new Map(),
+          limit: initLimit,
+          cacheLimit: initLimit,
+          nonFeaturedTotal: Math.max(0, nonFeaturedTotalSetting),
+          total: Math.max(totalSetting, nonFeaturedTotalSetting + featuredItems.length),
+        };
+        if (catalogItems.length) {
+          catalog.cache.set(0, catalogItems);
+        }
+
         const state = {
           query: '',
           initialItems: initial.slice(),
@@ -149,16 +190,28 @@
           limit: initLimit,
           page: 0,
           meta: {
-            total: initial.length,
-            pages: Math.max(1, Math.ceil(initial.length / Math.max(initLimit, 1))),
+            total: featuredMode ? catalog.total : initial.length,
+            pages: Math.max(1, Math.ceil((featuredMode ? catalog.total : initial.length) / Math.max(initLimit, 1))),
             page: 0,
           },
           userActed: false,    // only becomes true on Click or Enter
           token: 0,
+          featuredItems,
+          featuredNodeIds,
+          catalog,
         };
-        if (entries) entries.value = String(state.limit);
+
+        let catalogToken = 0;
 
         const debouncedSearch = debounce((val) => { state.page = 0; search(val, 0); }, 300);
+
+        if (featuredMode && !state.catalog.cache.has(0) && searchUrl) {
+          ensureCatalogPage(0).then(() => {
+            if (!manual && state.query === '' && featuredMode) {
+              renderFeatured();
+            }
+          });
+        }
 
         const filterByTheme = (items) => {
           const active = getThemesActive();
@@ -278,31 +331,163 @@
         }
 
         function render() {
-          const source = state.query === '' ? state.initialItems : state.results;
-          const filtered = filterByTheme(source);
-          const remote = state.query !== '';
+          if (state.query !== '') {
+            renderRemote();
+            return;
+          }
+          if (featuredMode) {
+            renderFeatured();
+            return;
+          }
+          renderLocal();
+        }
 
-          //2.- Featured mode hides pagination until a manual search or remote response is active.
-          setPaginationVisibility(!featuredMode || remote);
+        function renderRemote() {
+          const filtered = filterByTheme(state.results);
+          const meta = state.meta || {};
+          const total = typeof meta.total === 'number' ? meta.total : filtered.length;
+          const pages = typeof meta.pages === 'number' ? meta.pages : 1;
+          const current = typeof meta.page === 'number' ? meta.page : 0;
+          setPaginationVisibility(pages > 1);
+          paintCards(filtered);
+          paintTotal(filtered.length, total);
+          paintPages(pages, current, true);
+        }
 
-          if (!remote) {
-            const total = filtered.length;
-            const pages = Math.max(1, Math.ceil(total / Math.max(state.limit, 1)));
-            if (state.page >= pages) state.page = pages - 1;
-            const start = state.page * state.limit;
-            const visible = filtered.slice(start, start + state.limit);
+        function renderLocal() {
+          const filtered = filterByTheme(state.initialItems);
+          const total = filtered.length;
+          const pages = Math.max(1, Math.ceil(total / Math.max(state.limit, 1)));
+          if (state.page >= pages) state.page = pages - 1;
+          const start = state.page * state.limit;
+          const visible = filtered.slice(start, start + state.limit);
+          state.meta = { total, pages, page: state.page };
+          setPaginationVisibility(pages > 1);
+          paintCards(visible);
+          paintTotal(visible.length, total);
+          paintPages(pages, state.page, false);
+        }
+
+        function combineFeaturedFirstPage() {
+          const combined = [];
+          const seen = new Set();
+          const add = (item) => {
+            if (!item || typeof item !== 'object') return;
+            const key = `${item.id ?? ''}|${item.url ?? ''}|${item.title ?? ''}`.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            combined.push(item);
+          };
+          state.featuredItems.forEach(add);
+          const fallback = state.catalog.cache.get(0) || [];
+          fallback.forEach(add);
+          return combined;
+        }
+
+        function ensureCatalogCapacity() {
+          if (state.catalog.cacheLimit === state.limit) {
+            return;
+          }
+          state.catalog.cache.clear();
+          state.catalog.pending.clear();
+          state.catalog.cacheLimit = state.limit;
+        }
+
+        function ensureCatalogPage(pageIndex) {
+          ensureCatalogCapacity();
+          if (state.catalog.cache.has(pageIndex)) {
+            return Promise.resolve(state.catalog.cache.get(pageIndex));
+          }
+          if (state.catalog.pending.has(pageIndex)) {
+            return state.catalog.pending.get(pageIndex);
+          }
+          if (!searchUrl) {
+            const empty = [];
+            state.catalog.cache.set(pageIndex, empty);
+            return Promise.resolve(empty);
+          }
+
+          let u;
+          try { u = new URL(searchUrl, window.location.origin); }
+          catch { try { u = new URL(searchUrl, window.location.href); } catch { u = null; } }
+          if (!u) {
+            const empty = [];
+            state.catalog.cache.set(pageIndex, empty);
+            return Promise.resolve(empty);
+          }
+
+          u.searchParams.set('limit', String(state.limit));
+          u.searchParams.set('page', String(Math.max(0, pageIndex)));
+          if (state.featuredNodeIds.length) {
+            u.searchParams.set('exclude', state.featuredNodeIds.join(','));
+          }
+
+          catalogToken += 1;
+          const token = catalogToken;
+          section.setAttribute('aria-busy', 'true');
+
+          const request = fetch(u.toString(), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+            .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+            .then((payload) => {
+              if (token !== catalogToken) {
+                return state.catalog.cache.get(pageIndex) || [];
+              }
+              const list = Array.isArray(payload?.data) ? payload.data.map(normalize) : [];
+              const meta = payload?.meta || {};
+              const total = typeof meta.total === 'number' ? meta.total : list.length;
+              state.catalog.cache.set(pageIndex, list);
+              state.catalog.nonFeaturedTotal = total;
+              state.catalog.total = Math.max(state.featuredItems.length, total + state.featuredItems.length);
+              state.catalog.limit = state.limit;
+              state.catalog.cacheLimit = state.limit;
+              state.catalog.pending.delete(pageIndex);
+              return list;
+            })
+            .catch(() => {
+              state.catalog.pending.delete(pageIndex);
+              state.catalog.cache.set(pageIndex, []);
+              return [];
+            })
+            .finally(() => {
+              if (token === catalogToken) {
+                section.removeAttribute('aria-busy');
+              }
+            });
+
+          state.catalog.pending.set(pageIndex, request);
+          return request;
+        }
+
+        function renderFeatured() {
+          const combinedTotal = Math.max(state.catalog.total, state.featuredItems.length + state.catalog.nonFeaturedTotal);
+          const pages = Math.max(1, Math.ceil(combinedTotal / Math.max(state.limit, 1)));
+          if (state.page >= pages) state.page = pages - 1;
+          state.meta = { total: combinedTotal, pages, page: state.page };
+          setPaginationVisibility(pages > 1);
+          paintPages(pages, state.page, false);
+
+          if (state.page === 0) {
+            const combined = combineFeaturedFirstPage();
+            const visible = filterByTheme(combined).slice(0, state.limit);
             paintCards(visible);
-            paintTotal(visible.length, total);
-            paintPages(pages, state.page, false);
+            paintTotal(visible.length, combinedTotal);
             return;
           }
 
-          const meta = state.meta || {};
-          paintCards(filtered);
-          paintTotal(filtered.length, typeof meta.total === 'number' ? meta.total : filtered.length);
-          paintPages(typeof meta.pages === 'number' ? meta.pages : 1,
-                     typeof meta.page === 'number' ? meta.page : 0,
-                     true);
+          const catalogPage = state.page - 1;
+          if (!state.catalog.cache.has(catalogPage)) {
+            ensureCatalogPage(catalogPage).then(() => {
+              if (state.query === '' && featuredMode) {
+                renderFeatured();
+              }
+            });
+            return;
+          }
+
+          const dataset = state.catalog.cache.get(catalogPage) || [];
+          const visible = filterByTheme(dataset).slice(0, state.limit);
+          paintCards(visible);
+          paintTotal(visible.length, combinedTotal);
         }
 
         // --- Networking --------------------------------------------------------
@@ -313,9 +498,12 @@
           if (!state.userActed || q.length < 3 || !searchUrl) {
             state.query = '';
             state.results = state.initialItems.slice();
+            const baseTotal = featuredMode
+              ? Math.max(state.catalog.total, state.featuredItems.length + state.catalog.nonFeaturedTotal)
+              : state.initialItems.length;
             state.meta = {
-              total: state.initialItems.length,
-              pages: Math.max(1, Math.ceil(state.initialItems.length / Math.max(state.limit, 1))),
+              total: baseTotal,
+              pages: Math.max(1, Math.ceil(baseTotal / Math.max(state.limit, 1))),
               page: 0,
             };
             state.page = 0;
@@ -426,12 +614,32 @@
           const n = parseLimit(e.target.value);
           state.limit = n;
           state.page = 0;
-          if (state.query === '') {
-            if (!manual) render();
-          } else {
+          state.catalog.limit = n;
+          if (entries) {
+            entries.value = String(n);
+          }
+
+          if (state.query !== '') {
             debouncedSearch.cancel();
             search(state.query, 0);
+            return;
           }
+
+          if (featuredMode) {
+            state.catalog.cache.clear();
+            state.catalog.pending.clear();
+            state.catalog.cacheLimit = null;
+            state.catalog.total = Math.max(state.catalog.nonFeaturedTotal + state.featuredItems.length, state.catalog.total);
+            if (!manual) render();
+            ensureCatalogPage(0).then(() => {
+              if (!manual && state.query === '' && featuredMode) {
+                renderFeatured();
+              }
+            });
+            return;
+          }
+
+          if (!manual) render();
         });
 
         // --- First paint -------------------------------------------------------

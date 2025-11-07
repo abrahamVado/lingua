@@ -50,6 +50,24 @@ final class InsightsSearchController extends ControllerBase {
     $limit    = max(1, min(self::MAX_PAGE_SIZE, (int) $request->query->get('limit', self::DEFAULT_PAGE_SIZE)));
     $page     = max(0, (int) ($request->query->get('page', 0)));
     $offset   = $page * $limit;
+    $exclude  = [];
+    $raw_exclude = $request->query->get('exclude');
+    if ($raw_exclude === NULL) {
+      $raw_exclude = [];
+    }
+    elseif (!is_array($raw_exclude)) {
+      $raw_exclude = [$raw_exclude];
+    }
+    foreach ($raw_exclude as $value) {
+      foreach (explode(',', (string) $value) as $part) {
+        $part = trim($part);
+        if ($part === '' || !ctype_digit($part)) {
+          continue;
+        }
+        $exclude[] = (int) $part;
+      }
+    }
+    $exclude = array_values(array_unique(array_filter($exclude, static fn ($nid): bool => $nid > 0)));
 
     // Query.
     $storage = $this->entityTypeManager()->getStorage('node');
@@ -72,6 +90,11 @@ final class InsightsSearchController extends ControllerBase {
       $query->condition($group);
     }
 
+    if ($exclude !== []) {
+      //3.- Honor requested exclusions so featured items can be paginated separately from the automatic catalog.
+      $query->condition('nid', $exclude, 'NOT IN');
+    }
+
     $total = (int) (clone $query)->count()->execute();
     $query->range($offset, $limit);
     $nids  = $query->execute();
@@ -81,7 +104,7 @@ final class InsightsSearchController extends ControllerBase {
     // Base cacheability.
     $cacheability = (new CacheableMetadata())
       ->setCacheMaxAge(300)
-      ->addCacheContexts(['url.query_args:q', 'url.query_args:limit', 'url.query_args:page'])
+      ->addCacheContexts(['url.query_args:q', 'url.query_args:limit', 'url.query_args:page', 'url.query_args:exclude'])
       ->addCacheTags($this->buildCacheTags($bundles));
 
     // Build items. Capture bubbleable metadata from URLs explicitly.
