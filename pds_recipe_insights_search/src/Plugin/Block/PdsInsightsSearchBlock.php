@@ -80,7 +80,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
       $non_featured_total = $catalog['total'];
       $cache_tags = array_merge($cache_tags, $catalog['cache_tags']);
 
-      //6.- Blend featured entries with catalog fillers to guarantee the first page stays full while respecting uniqueness.
+      //6.- Keep the first page curated so featured items occupy the opening view while pagination exposes the remaining catalog.
       $items = $this->mergeFeaturedFirstPage($featured_items, $non_featured_items, $page_size);
     }
 
@@ -245,7 +245,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
   }
 
   private function mergeFeaturedFirstPage(array $featured, array $fallback, int $limit): array {
-    //1.- Seed the first page with curated entries preserving their configured order.
+    //1.- Preserve the editorial order for curated entries so the hero page mirrors the block configuration.
     $result = [];
     $seen = [];
     foreach ($featured as $item) {
@@ -258,12 +258,14 @@ final class PdsInsightsSearchBlock extends BlockBase {
       }
       $seen[$key] = TRUE;
       $result[] = $item;
-      if (count($result) >= $limit) {
-        return array_slice($result, 0, $limit);
-      }
     }
 
-    //2.- Backfill any remaining slots with the latest automatic items while avoiding duplicates.
+    if ($result !== []) {
+      //2.- Return only curated entries when available so subsequent pages surface the automatic catalog instead of repeating fillers.
+      return array_slice($result, 0, max(1, $limit));
+    }
+
+    //3.- Fall back to automatic items when there are no featured selections so the listing never renders empty.
     foreach ($fallback as $item) {
       if (!is_array($item)) {
         continue;

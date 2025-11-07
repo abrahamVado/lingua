@@ -51,7 +51,7 @@
           return Number.isFinite(n) && n > 0 ? n : 10;
         };
 
-        //1.- Toggle the pagination visibility so curated featured items hide controls until a search happens.
+        //1.- Toggle the pagination visibility while letting callers decide when the controls should stay exposed.
         const setPaginationVisibility = (shouldShow) => {
           if (!pagination) return;
           pagination.classList.toggle('is-hidden', !shouldShow);
@@ -369,19 +369,24 @@
         }
 
         function combineFeaturedFirstPage() {
-          const combined = [];
+          //2.- Prioritize curated entries so the hero listing mirrors the manual selections exactly.
+          const curated = [];
           const seen = new Set();
           const add = (item) => {
             if (!item || typeof item !== 'object') return;
             const key = `${item.id ?? ''}|${item.url ?? ''}|${item.title ?? ''}`.toLowerCase();
             if (seen.has(key)) return;
             seen.add(key);
-            combined.push(item);
+            curated.push(item);
           };
           state.featuredItems.forEach(add);
+          if (curated.length) {
+            return curated;
+          }
+          //3.- When no featured items exist reuse the automatic catalog so the interface keeps working gracefully.
           const fallback = state.catalog.cache.get(0) || [];
           fallback.forEach(add);
-          return combined;
+          return curated;
         }
 
         function ensureCatalogCapacity() {
@@ -463,7 +468,9 @@
           const pages = Math.max(1, Math.ceil(combinedTotal / Math.max(state.limit, 1)));
           if (state.page >= pages) state.page = pages - 1;
           state.meta = { total: combinedTotal, pages, page: state.page };
-          setPaginationVisibility(pages > 1);
+          //4.- Keep pagination visible whenever additional catalog pages exist, even before the user leaves the featured tab.
+          const shouldShowPagination = (pages > 1) || state.catalog.nonFeaturedTotal > 0;
+          setPaginationVisibility(shouldShowPagination);
           paintPages(pages, state.page, false);
 
           if (state.page === 0) {

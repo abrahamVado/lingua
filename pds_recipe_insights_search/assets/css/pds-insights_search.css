@@ -457,7 +457,7 @@ body {
   margin-top: 32px;
 }
 
-/*1.- Hide pagination entirely when featured mode is active.*/
+/*1.- Let JavaScript toggle pagination visibility based on catalog availability.*/
 .principal-insights .insights-pagination.is-hidden {
   display: none;
 }
