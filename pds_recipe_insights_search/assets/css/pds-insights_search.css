@@ -569,3 +569,73 @@ body {
     max-width: 100%;
   }
 }
+/* ===== Pagination: unified button sizing ===== */
+.principal-insights .pagination-controls button,
+.principal-insights .page-number {
+  width: 48px;              /* fixed width */
+  height: 48px;             /* fixed height */
+  padding: 0;               /* no inner padding */
+  box-sizing: border-box;
+  display: inline-flex;     /* center label/icon */
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #c9d6db;
+  background: #ffffff;
+  border-radius: 0;
+  cursor: pointer;
+  color: #0071b3;
+  line-height: 1;
+}
+
+/* Remove old size constraints on icon buttons */
+.principal-insights .page-first,
+.principal-insights .page-prev,
+.principal-insights .page-next,
+.principal-insights .page-last {
+  max-width: none; /* override previous max-width */
+}
+
+/* Ensure numeric buttons match look */
+.principal-insights .page-number {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 48px;  /* keep equal width if text changes */
+}
+
+/* Active page */
+.principal-insights .page-number.active {
+  background: #0071b3;
+  color: #ffffff;
+  border-color: #0071b3;
+}
+
+/* Disabled prev/first */
+.principal-insights .page-prev:disabled,
+.principal-insights .page-first:disabled,
+.principal-insights .page-next:disabled,
+.principal-insights .page-last:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: #6b7f8f;
+}
+
+/* Icon sizing inside arrow buttons */
+.principal-insights .pagination-controls button img,
+.principal-insights .pagination-controls button svg {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+/* Hover/focus feedback (not on disabled) */
+.principal-insights .pagination-controls button:not(:disabled):hover,
+.principal-insights .page-number:not(:disabled):hover {
+  background: #f7fbff;
+  border-color: #b7d2e3;
+}
+
+.principal-insights .pagination-controls button:focus-visible,
+.principal-insights .page-number:focus-visible {
+  outline: 2px solid #c4e1fb;
+  outline-offset: 2px;
+}

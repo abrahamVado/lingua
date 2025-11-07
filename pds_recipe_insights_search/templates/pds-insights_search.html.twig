@@ -132,8 +132,9 @@
         <div class="pagination-entries">
           <label for="entries-select">{{ 'Show'|t }}</label>
           <select class="entries-select" id="entries-select">
-            {% for n in [8,16,24] %}
-              <option value="{{ n }}" {{ n == (entries|default(8)) ? 'selected' }}>{{ n }}</option>
+            <option value="0" {{ 'selected' }}>{{ '#' }}</option>
+            {% for n in [6,8,16,24] %}
+              <option value="{{ n }}">{{ n }}</option>
             {% endfor %}
           </select>
           <span>{{ 'entries'|t }}</span>
