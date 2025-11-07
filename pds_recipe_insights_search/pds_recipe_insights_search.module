@@ -25,6 +25,7 @@ function pds_recipe_insights_search_theme($existing, $type, $theme, $path) {
         'items' => [],
         'featured_items' => [],
         'initial_items' => [],
+        'non_featured_items' => [],
         'themes' => [],
         'pages' => [],
         'entries' => 0,

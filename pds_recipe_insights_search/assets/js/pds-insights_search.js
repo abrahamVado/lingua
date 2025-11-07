@@ -15,7 +15,6 @@
         // --- Flags and settings ------------------------------------------------
         const id = section.getAttribute('data-pds-insights-search-id') || '';
         const settings = (drupalSettings.pdsInsightsSearch || {})[id] || {};
-        console.log('PDS Insights Search settings:', settings);
         // If attribute is "0" => manual. Otherwise auto.
         const manual = false;
 
@@ -42,6 +41,8 @@
 
         if (!cards) return;
 
+        let state;
+
         // --- Consts ------------------------------------------------------------
         const emptyMsg  = cards.dataset.emptyMessage || Drupal.t('No results found.');
         const iconsPath = cards.dataset.iconsPath || '/icons';
@@ -56,6 +57,22 @@
         const parseLimit = (v) => {
           const n = parseInt(v, 10);
           return Number.isFinite(n) && n > 0 ? n : 10;
+        };
+
+        const formatReadTime = (value) => {
+          //1.- Provide a localized "min read" suffix without duplicating existing descriptors.
+          if (typeof value !== 'string') {
+            return '';
+          }
+          const trimmed = value.trim();
+          if (trimmed === '') {
+            return '';
+          }
+          const lower = trimmed.toLowerCase();
+          if (lower.includes('min')) {
+            return `🕒 ${trimmed}`;
+          }
+          return `🕒 ${Drupal.t('@count min read', { '@count': trimmed })}`;
         };
 
         //1.- Toggle the pagination visibility while letting callers decide when the controls should stay exposed.
@@ -140,11 +157,15 @@
           if (!themeTags) {
             return;
           }
+          const tids = Array.isArray(filters?.tids) ? filters.tids : [];
           themeTags.innerHTML = '';
-          if (!filters.tids.length) {
+          const isEmpty = tids.length === 0;
+          themeTags.classList.toggle('theme-tags--empty', isEmpty);
+          themeTags.setAttribute('data-empty', isEmpty ? 'true' : 'false');
+          if (isEmpty) {
             return;
           }
-          filters.tids.forEach((tid) => {
+          tids.forEach((tid) => {
             const key = tid.toString();
             const meta = themeLookups.byTid.get(key) || {};
             const label = meta.label || key;
@@ -152,12 +173,49 @@
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'theme-tag active';
-            button.textContent = label;
             button.dataset.theme = slug;
-            button.disabled = true;
+            button.dataset.themeTid = key;
+            button.setAttribute('aria-label', Drupal.t('Remove @label filter', { '@label': label }));
+            button.title = Drupal.t('Remove @label filter', { '@label': label });
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'theme-tag__label';
+            labelSpan.textContent = label;
+            button.appendChild(labelSpan);
+
+            const removeSpan = document.createElement('span');
+            removeSpan.className = 'theme-tag__remove';
+            removeSpan.setAttribute('aria-hidden', 'true');
+            removeSpan.textContent = '×';
+            button.appendChild(removeSpan);
+
+            button.addEventListener('click', (event) => {
+              event.preventDefault();
+              removeThemeTag(key, slug);
+            });
+
             themeTags.appendChild(button);
           });
         };
+
+        function removeThemeTag(tid, slug) {
+          if (!state || !state.themeFilters) {
+            return;
+          }
+          const tidKey = tid ? tid.toString() : '';
+          const slugKey = slug ? slug.toString().toLowerCase() : '';
+          const nextTids = state.themeFilters?.tids?.filter
+            ? state.themeFilters.tids.filter((value) => value.toString() !== tidKey)
+            : [];
+          let nextSlugs = Array.isArray(state.themeFilters?.slugs)
+            ? state.themeFilters.slugs.slice()
+            : [];
+          if (slugKey) {
+            nextSlugs = nextSlugs.filter((value) => value.toString().toLowerCase() !== slugKey);
+          }
+          applyThemeFilters({ tids: nextTids, slugs: nextSlugs });
+          handleFiltersApplied();
+        }
 
         const initialThemeFilters = readCheckboxFilters();
 
@@ -169,6 +227,10 @@
             : rawThemeId.toString().toLowerCase();
           const themeTidRaw = t && Object.prototype.hasOwnProperty.call(t, 'id') ? t.id : (item?.theme_tid ?? null);
           const theme_tid = themeTidRaw === null || themeTidRaw === undefined ? '' : themeTidRaw.toString();
+          const rawTaxonomies = Array.isArray(item?.taxonomies) ? item.taxonomies : [];
+          const taxonomies = rawTaxonomies
+            .map((value) => (typeof value === 'string' ? value.trim() : ''))
+            .filter((value) => value !== '');
           return {
             id: (typeof item?.id === 'number' || typeof item?.id === 'string') ? item.id : null,
             theme_id,
@@ -180,6 +242,7 @@
             read_time: typeof item?.read_time === 'string' ? item.read_time : '',
             url: (typeof item?.url === 'string' && item.url) ? item.url : '#',
             link_text: (typeof item?.link_text === 'string' && item.link_text) ? item.link_text : defaultLinkText,
+            taxonomies,
           };
         };
 
@@ -201,15 +264,53 @@
               if (lab) author = author.replace(lab.textContent || '', '').trim();
             }
 
+            let readTime = '';
+            if (time) {
+              const suffix = Drupal.t('min read');
+              const raw = (time.textContent || '').replace('🕒', '').trim();
+              if (raw.toLowerCase().endsWith(suffix.toLowerCase())) {
+                readTime = raw.slice(0, Math.max(0, raw.length - suffix.length)).trim();
+              }
+              else {
+                readTime = raw;
+              }
+            }
+
+            let taxonomies = [];
+            const datasetTax = card.getAttribute('data-taxonomies');
+            if (datasetTax) {
+              try {
+                const parsed = JSON.parse(datasetTax);
+                if (Array.isArray(parsed)) {
+                  taxonomies = parsed
+                    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                    .filter((value) => value !== '');
+                }
+              }
+              catch (error) {
+                //1.- Silently ignore malformed attributes so the SSR fallback remains resilient.
+              }
+            }
+            if (!taxonomies.length && badge) {
+              taxonomies = Array.from(badge.querySelectorAll('.insight-badge__item'))
+                .map((chip) => (chip.textContent || '').trim())
+                .filter((value) => value !== '');
+            }
+
+            const themeLabel = taxonomies.length
+              ? taxonomies[0]
+              : (badge ? (badge.textContent || '').trim() : '');
+
             return normalize({
               theme_id,
-              theme_label: badge ? (badge.textContent || '').trim() : '',
+              theme_label: themeLabel,
               title: title ? (title.textContent || '').trim() : '',
               summary: summary ? (summary.textContent || '').trim() : '',
-              read_time: time ? (time.textContent || '').replace('🕒', '').trim() : '',
+              read_time: readTime,
               author,
               url: link ? (link.getAttribute('href') || '') : '#',
               link_text: link ? (link.textContent || '').trim() : defaultLinkText,
+              taxonomies,
             });
           });
         };
@@ -280,7 +381,7 @@
           catalog.cache.set(0, catalogItems);
         }
 
-        const state = {
+        state = {
           query: '',
           initialItems: initial.slice(),
           results: initial.slice(),
@@ -483,11 +584,24 @@
             const card = document.createElement('div');
             card.className = 'insight-card';
             if (it.theme_id) card.setAttribute('data-theme', it.theme_id);
+            const badgeValues = Array.isArray(it.taxonomies) ? it.taxonomies : [];
+            const cleanedBadges = badgeValues
+              .map((label) => (typeof label === 'string' ? label.trim() : ''))
+              .filter((label) => label !== '');
+            const displayBadges = cleanedBadges.length
+              ? cleanedBadges
+              : (typeof it.theme_label === 'string' && it.theme_label.trim() !== '' ? [it.theme_label.trim()] : []);
+            card.setAttribute('data-taxonomies', JSON.stringify(displayBadges));
 
-            if (it.theme_label) {
-              const badge = document.createElement('span');
+            if (displayBadges.length) {
+              const badge = document.createElement('div');
               badge.className = `insight-badge ${it.theme_id}`.trim();
-              badge.textContent = it.theme_label;
+              displayBadges.forEach((label) => {
+                const chip = document.createElement('span');
+                chip.className = 'insight-badge__item';
+                chip.textContent = label;
+                badge.appendChild(chip);
+              });
               card.appendChild(badge);
             }
 
@@ -497,13 +611,16 @@
             card.appendChild(h3);
 
             if (it.read_time) {
+              const label = formatReadTime(it.read_time);
+              if (label) {
               const meta = document.createElement('div');
               meta.className = 'insight-meta';
               const t = document.createElement('span');
               t.className = 'insight-time';
-              t.textContent = `🕒 ${it.read_time}`;
+                t.textContent = label;
               meta.appendChild(t);
               card.appendChild(meta);
+              }
             }
 
             if (it.summary) {
