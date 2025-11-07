@@ -14,6 +14,7 @@ use Drupal\Core\Render\Markup;
 use Drupal\Core\Template\Attribute;
 use Drupal\Core\Url;
 use Drupal\node\NodeInterface;
+use Drupal\taxonomy\TermInterface;
 
 /**
  * Provides the "Principal InsightsSearch" block.
@@ -192,9 +193,11 @@ final class PdsInsightsSearchBlock extends BlockBase {
     // Theme taxonomy if present.
     $theme_id = '';
     $theme_label = '';
+    $theme_term = NULL;
     foreach (['field_theme','field_tema'] as $f) {
-      if ($node->hasField($f) && !$node->get($f)->isEmpty() && ($term = $node->get($f)->entity)) {
-        $theme_id = (string) $term->id();
+      if ($node->hasField($f) && !$node->get($f)->isEmpty() && ($term = $node->get($f)->entity) instanceof TermInterface) {
+        $theme_term = $term;
+        $theme_id = $this->normalizeThemeIdentifier($term) ?: (string) $term->id();
         $theme_label = $term->label();
         break;
       }
@@ -219,7 +222,25 @@ final class PdsInsightsSearchBlock extends BlockBase {
       'read_time' => $read_time,
       'url' => $node->toUrl('canonical', ['absolute' => TRUE])->toString(),
       'link_text' => $link_text,
+      'theme' => [
+        'id' => $theme_term instanceof TermInterface ? (int) $theme_term->id() : NULL,
+        'label' => $theme_label,
+        'machine_name' => $theme_id,
+      ],
     ];
+  }
+
+  private function normalizeThemeIdentifier(TermInterface $term): string {
+    //1.- Prefer an explicit machine-name field when present to keep parity with the search endpoint.
+    if ($term->hasField('field_machine_name') && !$term->get('field_machine_name')->isEmpty()) {
+      $value = trim((string) $term->get('field_machine_name')->value ?? '');
+      if ($value !== '') {
+        return mb_strtolower($value);
+      }
+    }
+
+    //2.- Fallback to a sanitized label-derived slug so filters can match consistently.
+    return Html::cleanCssIdentifier(mb_strtolower($term->label() ?? ''));
   }
 
   /**
