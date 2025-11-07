@@ -124,15 +124,7 @@
         <div class="explore-themes">
           <h3>{{ 'Explore themes'|t }}</h3>
           <div class="theme-tags">
-            {% for theme in themes|default([
-              {'id':'global','label':'Global','active':true},
-              {'id':'latam','label':'LATAM','active':false}
-            ]) %}
-              <button
-                class="theme-tag {{ theme.active ? 'active' }}"
-                data-theme="{{ theme.id|e }}"
-              >{{ theme.label }}</button>
-            {% endfor %}
+
           </div>
         </div>
       </div>
@@ -143,40 +135,6 @@
         data-icons-path="{{ _icons }}"
         data-featured-items="{{ _featured_attr }}"
       >
-        {% for item in _items %}
-          <div class="insight-card" data-theme="{{ item.theme_id|e }}">
-            {% if item.theme_label %}
-              <span class="insight-badge {{ item.theme_id|e }}">{{ item.theme_label }}</span>
-            {% endif %}
-
-            <h3 class="insight-card-title">{{ item.title }}</h3>
-
-            <div class="insight-meta">
-              {% if item.read_time %}
-                <span class="insight-time">🕒 {{ item.read_time }}</span>
-              {% endif %}
-            </div>
-
-            {% if item.summary %}
-              <p class="insight-summary">{{ item.summary }}</p>
-            {% endif %}
-
-            {% if item.author %}
-              <div class="insight-author"><span>{{ 'By'|t }}</span> {{ item.author }}</div>
-            {% endif %}
-
-            <div class="button-area">
-              <a href="{{ item.url|default('#') }}" class="principal-link principal-link--subtle">
-                {{ item.link_text|default('Get our perspective'|t) }}
-              </a>
-              <div class="img-area">
-                <img src="{{ _icons }}/arrow-right.svg" alt="" aria-hidden="true" />
-              </div>
-            </div>
-          </div>
-        {% else %}
-          <p>{{ 'No results found.'|t }}</p>
-        {% endfor %}
       </div>
 
       <div class="insights-pagination">
