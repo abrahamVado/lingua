@@ -38,6 +38,72 @@ final class PdsInsightsSearchBlock extends BlockBase {
     ];
   }
 
+
+  /**
+   * Build theme filters from terms used by a bundle within a vocabulary.
+   *
+   * @param string $bundle   Content type machine name. e.g. 'insights'
+   * @param string $vocab    Vocabulary machine name. e.g. 'category'
+   * @param array  $active   IDs to preselect (accepts slug or tid strings)
+   * @return array[]         [{ id, label, active }]
+   */
+  function pds_build_theme_filters_for_bundle(string $bundle = 'insights', string $vocab = 'category', array $active = ['global']): array {
+    $db = \Drupal::database();
+
+    // 1) Distinct tids for terms used by published nodes of this bundle + vocab.
+    $q = $db->select('taxonomy_index', 'ti')->distinct()->fields('ti', ['tid']);
+    $q->join('node_field_data', 'n', 'n.nid = ti.nid');
+    $q->join('taxonomy_term_field_data', 'tt', 'tt.tid = ti.tid');
+    $q->condition('n.type', $bundle);
+    $q->condition('n.status', 1);
+    $q->condition('tt.vid', $vocab);
+    $tids = $q->execute()->fetchCol();
+
+    if (!$tids) {
+      return [];
+    }
+
+    // 2) Load term entities.
+    /** @var \Drupal\taxonomy\TermInterface[] $terms */
+    $terms = \Drupal::entityTypeManager()->getStorage('taxonomy_term')->loadMultiple($tids);
+
+    // Slugify helper: label -> id.
+    $trans = \Drupal::service('transliteration');
+    $slug = static function (string $label) use ($trans): string {
+      $s = $trans->transliterate($label, 'en');
+      $s = preg_replace('/[^a-z0-9]+/i', '-', strtolower($s));
+      return trim($s ?? '', '-') ?: 'term';
+    };
+
+    // 3) Map to [{id,label,active}]. Accept slug or tid in $active.
+    $themes = [];
+    foreach ($terms as $term) {
+      $label = $term->label();
+      $tid   = (string) $term->id();
+      $id    = $slug($label);
+
+      $is_active = in_array($id, $active, true) || in_array($tid, $active, true);
+
+      $themes[] = [
+        'id'     => $id,
+        'label'  => $label,
+        'active' => $is_active,
+      ];
+    }
+
+    // 4) Stable order: active first, then A→Z.
+    usort($themes, static function ($a, $b) {
+      if ($a['active'] !== $b['active']) {
+        return $a['active'] ? -1 : 1;
+      }
+      return strcasecmp($a['label'], $b['label']);
+    });
+
+    return $themes;
+  }
+
+
+
   /**
    * {@inheritdoc}
    */
@@ -102,9 +168,11 @@ final class PdsInsightsSearchBlock extends BlockBase {
       ? range(1, max(1, (int) ceil(max(1, $total_unique_items) / $page_size)))
       : [1];
 
+    $themes = $this->pds_build_theme_filters_for_bundle('insights', 'category', ['global', '123']);
     //1.- Build the render array ensuring featured items flow to Twig and JS consumers.
     return [
       '#theme' => 'pds_insights_search',
+      '#themes' => $themes,
       '#title' => $title,
       '#items' => $items,
       '#initial_items' => $items,
@@ -128,6 +196,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
               'linkText' => $link_text,
               'displayMode' => $display_mode,
               'featuredNodeIds' => $featured_node_ids,
+              'themes' => $themes,
               'allInsights' => [
                 'items' => $non_featured_items,
                 'total' => $total_unique_items,
@@ -139,7 +208,7 @@ final class PdsInsightsSearchBlock extends BlockBase {
         ],
       ],
       '#cache' => [
-        'tags' => array_values(array_unique(array_merge($cache_tags, ['config:block_list']))),
+        'tags' => ['taxonomy_term_list', 'node_list'],
       ],
     ];
   }

@@ -15,8 +15,9 @@
         // --- Flags and settings ------------------------------------------------
         const id = section.getAttribute('data-pds-insights-search-id') || '';
         const settings = (drupalSettings.pdsInsightsSearch || {})[id] || {};
+        console.log('PDS Insights Search settings:', settings);
         // If attribute is "0" => manual. Otherwise auto.
-        const manual = (section.dataset.autosearch || '0') === '0';
+        const manual = false;
 
         // --- DOM ---------------------------------------------------------------
         const qInput   = section.querySelector('.search-input');
@@ -203,6 +204,16 @@
 
         let catalogToken = 0;
 
+        const computeFeaturedMeta = () => {
+          const safeLimit = Math.max(1, state.limit);
+          const cachedPage = state.catalog.cache.get(0) || [];
+          const knownCatalog = Math.max(state.catalog.nonFeaturedTotal, cachedPage.length);
+          const featuredCount = state.featuredItems.length;
+          const combinedTotal = featuredCount + knownCatalog;
+          const totalPages = Math.max(1, Math.ceil(combinedTotal / safeLimit));
+          return { total: combinedTotal, pages: totalPages, catalog: knownCatalog, featured: featuredCount };
+        };
+
         const debouncedSearch = debounce((val) => { state.page = 0; search(val, 0); }, 300);
 
         if (featuredMode && !state.catalog.cache.has(0) && searchUrl) {
@@ -380,9 +391,7 @@
             curated.push(item);
           };
           state.featuredItems.forEach(add);
-          if (curated.length) {
-            return curated;
-          }
+
           //3.- When no featured items exist reuse the automatic catalog so the interface keeps working gracefully.
           const fallback = state.catalog.cache.get(0) || [];
           fallback.forEach(add);
@@ -464,16 +473,21 @@
         }
 
         function renderFeatured() {
-          const combinedTotal = Math.max(state.catalog.total, state.featuredItems.length + state.catalog.nonFeaturedTotal);
-          const pages = Math.max(1, Math.ceil(combinedTotal / Math.max(state.limit, 1)));
+          const featuredMeta = computeFeaturedMeta();
+          const combinedTotal = Math.max(state.catalog.total, featuredMeta.total);
+          const pages = Math.max(featuredMeta.pages, Math.ceil(combinedTotal / Math.max(state.limit, 1)));
           if (state.page >= pages) state.page = pages - 1;
           state.meta = { total: combinedTotal, pages, page: state.page };
           //4.- Keep pagination visible whenever additional catalog pages exist, even before the user leaves the featured tab.
-          const shouldShowPagination = (pages > 1) || state.catalog.nonFeaturedTotal > 0;
+          const shouldShowPagination = (pages > 1) || featuredMeta.catalog > 0;
           setPaginationVisibility(shouldShowPagination);
           paintPages(pages, state.page, false);
 
           if (state.page === 0) {
+            //6.- Warm up the automatic catalog so the next page is ready once visitors leave the curated selection.
+            if (!state.catalog.cache.has(0) && featuredMeta.catalog > 0 && searchUrl) {
+              ensureCatalogPage(0);
+            }            
             const combined = combineFeaturedFirstPage();
             const visible = filterByTheme(combined).slice(0, state.limit);
             paintCards(visible);
