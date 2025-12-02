@@ -1,9 +1,0 @@
-name: 'Recipe: Insights Search'
-type: module
-description: 'Bloque editable para Layout Builder (línea de tiempo interactiva).'
-core_version_requirement: ^10 || ^11
-package: 'PDS Insights Search'
-dependencies:
-  - drupal:block
-  - drupal:block_content
-  - drupal:layout_builder

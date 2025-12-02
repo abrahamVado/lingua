@@ -1,7 +1,0 @@
-name: 'Recipe: Educación Financiera'
-type: 'Site'
-install:
-  - pds_recipe_educacion_financiera
-  - block
-  - layout_builder
-  - layout_discovery

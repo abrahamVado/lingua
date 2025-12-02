@@ -1,9 +1,0 @@
-name: 'Recipe: Formas de Invertir'
-type: module
-description: 'Bloque editable para Layout Builder (grid Formas de Invertir).'
-core_version_requirement: ^10 || ^11
-package: 'PDS Recipes'
-dependencies:
-  - drupal:block
-  - drupal:block_content
-  - drupal:layout_builder
